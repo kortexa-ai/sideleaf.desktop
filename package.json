@@ -1,0 +1,41 @@
+{
+  "name": "sideleaf-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "prepare:devkit": "electrobun prepare",
+    "build:ui": "node scripts/build-ui.mjs",
+    "build:icons": "node scripts/build-icons.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "start": "npm run build:ui && npm run build:native && electrobun dev",
+    "dev": "npm run start",
+    "build": "npm run build:ui && npm run build:native && electrobun build --env=dev",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "validate": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.11.0",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.4",
+    "@codemirror/view": "6.43.11",
+    "@lezer/highlight": "1.2.3",
+    "codemirror": "6.0.2",
+    "markdown-it": "15.0.1"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.1",
+    "@types/markdown-it": "14.2.0",
+    "@types/node": "26.5.0",
+    "electrobun": "2.0.2-beta.15",
+    "esbuild": "0.28.2",
+    "sharp": "0.35.4",
+    "typescript": "5.9.3"
+  }
+}

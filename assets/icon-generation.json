@@ -1,0 +1,13 @@
+{
+  "provider": "fal.ai",
+  "model": "fal-ai/flux-pro/v1.1",
+  "date": "2026-09-07",
+  "input": {
+    "prompt": "Premium desktop app icon for Sideleaf, a thoughtful Markdown writing app. One beautifully simple sculpted ivory sheet of paper with its upper right corner folded over, and a single fresh ginkgo leaf crossing its lower right edge, suggesting a leaf tucked between pages. A strong clear silhouette, refined subtle 3D depth and soft tactile matte paper, restrained warm ivory and vivid moss green. Centered large emblem on a solid deep forest green square background that fills the entire canvas edge to edge. Straight-on front view, no perspective tilt. Professional macOS and Windows app icon craftsmanship, soft upper-left studio light, crisp clean edges, elegant geometry. Readable at 32 pixels. No letters, no text, no writing, no border, no extra objects, no rounded outer tile, no drop shadow outside the canvas, no watermark.",
+    "image_size": "square_hd",
+    "num_images": 1,
+    "output_format": "png",
+    "seed": 70920261,
+    "enhance_prompt": false
+  }
+}

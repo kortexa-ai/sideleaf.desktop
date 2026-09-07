@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' views:; style-src 'self' 'unsafe-inline' views:; img-src 'self' views: data:; connect-src ws://127.0.0.1:*; font-src 'self' views:; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>Sideleaf</title>
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 23C4 9 14 4 24 4c0 10-5 20-19 19Z" fill="currentColor"/><path d="M5 23 19 9" stroke="var(--paper)" stroke-width="1.5"/></svg><span>sideleaf</span><span class="prototype">preview</span></div>
+    <div class="file-actions"><button id="new" title="New document">New</button><button id="open" title="Open a Markdown file">Open…</button><span class="separator"></span><button id="save" class="primary">Save</button></div>
+  </header>
+  <section class="document-bar" aria-label="Document controls">
+    <div class="document-name"><span class="file-symbol" aria-hidden="true">¶</span><div><strong id="filename">Untitled.md</strong><span id="filepath">A little room for your words.</span></div><span id="unsaved" aria-label="Unsaved changes" hidden>●</span></div>
+    <div class="view-switch" role="group" aria-label="Editor layout"><button data-mode="write" aria-pressed="false">Write</button><button data-mode="split" aria-pressed="true">Split</button><button data-mode="read" aria-pressed="false">Read</button></div>
+    <button id="comments-toggle" aria-expanded="false" aria-controls="comments-panel">Comments <span id="comment-count">0</span></button>
+  </section>
+  <div id="notice" class="notice" role="status" hidden><span id="notice-text"></span><button id="dismiss-notice" aria-label="Dismiss message">×</button></div>
+  <div id="conflict" class="conflict" role="alert" hidden><span>The file changed on disk. Your unsaved changes are still here.</span><button id="save-copy">Save a copy…</button><button id="reload">Reload disk version…</button></div>
+  <main id="workspace" class="workspace" data-mode="split">
+    <section class="editor-pane" aria-label="Markdown source"><div class="pane-label"><span>MARKDOWN</span><button id="add-comment" title="Comment on selected text" disabled>+ Comment</button></div><div id="editor"></div></section>
+    <section class="reader-pane" aria-label="Markdown preview"><div class="pane-label"><span>PREVIEW</span><span id="preview-status">Live</span></div><div class="reader-scroll"><article id="preview"></article></div></section>
+    <aside id="comments-panel" class="comments-panel" aria-label="Comments" hidden><div class="pane-label"><span>COMMENTS</span><button id="comments-close" aria-label="Close comments">×</button></div><div id="comments-list"></div><form id="comment-form" hidden><blockquote id="comment-quote"></blockquote><label for="comment-body">Your comment</label><textarea id="comment-body" rows="4" maxlength="20000" placeholder="Leave a thought…"></textarea><div><button type="button" id="cancel-comment">Cancel</button><button class="primary" type="submit">Add comment</button></div></form></aside>
+  </main>
+  <footer class="statusbar"><span id="status" role="status">Opening Sideleaf…</span><span class="status-spacer"></span><span id="selection-status"></span><span id="word-count">0 words</span><span id="encoding">UTF-8 · LF</span></footer>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
