@@ -76,9 +76,9 @@ const window = new BrowserWindow({
   renderer: "native",
   frame: { width: 1180, height: 780 },
   spellCheck: true,
+  navigationRules: JSON.stringify(["^*", "views://main/*"]),
   rpc,
 });
-window.webview.setNavigationRules(["^views://main/.*$"]);
 
 function updateTitle() { window.setTitle(`${dirty ? "● " : ""}${document.snapshot().name} — Sideleaf`); }
 function command(action: Command) { rpc.send.command(action); }
