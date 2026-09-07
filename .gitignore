@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+artifacts/
+.env
+.env.*
+!.env.example
+.venv/
+.DS_Store
+tmp/
+*.log
