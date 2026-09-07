@@ -8,6 +8,6 @@ export default {
     copy: { "dist/ui": "views/main", "dist/native": "native" },
     mac: { bundleCEF: false, bundleWGPU: false, icons: "assets/icon.iconset" },
     linux: { bundleCEF: false, bundleWGPU: false },
-    win: { bundleCEF: false, bundleWGPU: false, icon: "assets/icon.png" },
+    win: { bundleCEF: false, bundleWGPU: false, icon: "assets/icon.ico" },
   },
 } satisfies ElectrobunConfig;
