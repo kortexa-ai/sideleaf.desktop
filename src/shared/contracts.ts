@@ -33,7 +33,7 @@ export type SideleafRPC = {
       openLink: { params: { url: string }; response: boolean };
       finishClose: { params: { quit: boolean }; response: boolean };
     };
-    messages: { dirty: { id: string; dirty: boolean }; ready: { userAgent: string } };
+    messages: { dirty: { id: string; dirty: boolean }; ready: { userAgent: string }; diagnostic: { event: string; message: string } };
   };
   webview: {
     requests: {};

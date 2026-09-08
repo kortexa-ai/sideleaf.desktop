@@ -3,11 +3,21 @@ import { BrowserView } from "electrobun/main/browser-view";
 import * as ApplicationMenu from "electrobun/main/app-menu";
 import * as Utils from "electrobun/main/utils";
 import events from "electrobun/main/events";
+import { mkdirSync, appendFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { DocumentFile } from "./document/files.ts";
 import { chooseSavePath } from "./platform/dialogs.ts";
 import { validateDraft, type Command, type SideleafRPC } from "./shared/contracts.ts";
 
 const launchTime = performance.now();
+const startupLog = join(Utils.paths.userLogs, "startup.jsonl");
+try { mkdirSync(Utils.paths.userLogs, { recursive: true }); writeFileSync(startupLog, "", { mode: 0o600 }); } catch { /* Diagnostics must not prevent startup. */ }
+function diagnostic(event: string, message: string) {
+  const record = { event, message: message.slice(0, 1000), millisecondsFromHost: Math.round(performance.now() - launchTime), platform: process.platform };
+  console.info(JSON.stringify(record));
+  try { appendFileSync(startupLog, `${JSON.stringify(record)}\n`); } catch { /* Keep the app usable if its log directory is read-only. */ }
+}
+diagnostic("host-started", "Sideleaf 0.1.0");
 let document = new DocumentFile();
 let dirty = false;
 let approvedClose = false;
@@ -65,7 +75,8 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
     },
     messages: {
       dirty: (payload) => { if (payload?.id === document.id && typeof payload.dirty === "boolean") { dirty = payload.dirty; updateTitle(); } },
-      ready: ({ userAgent }) => console.info(JSON.stringify({ event: "sideleaf-ready", millisecondsFromHost: Math.round(performance.now() - launchTime), userAgent })),
+      ready: ({ userAgent }) => diagnostic("sideleaf-ready", userAgent),
+      diagnostic: (payload) => { if (typeof payload?.event === "string" && typeof payload.message === "string") diagnostic(payload.event.slice(0, 40), payload.message); },
     },
   },
 });

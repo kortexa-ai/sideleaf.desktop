@@ -13,3 +13,4 @@ await build({
   sourcemap: false,
 });
 await copyFile("src/ui/index.html", "dist/ui/index.html");
+await build({ entryPoints: ["src/ui/bootstrap.ts"], bundle: true, format: "iife", platform: "browser", target: ["safari17", "chrome120"], outfile: "dist/ui/bootstrap.js", minify: true });
