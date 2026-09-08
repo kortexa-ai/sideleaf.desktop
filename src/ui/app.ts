@@ -28,7 +28,12 @@ const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
   handlers: { messages: { command: (command) => { void perform(command); } } },
 });
-new Electroview({ rpc });
+const electroview = new Electroview({ rpc });
+setTimeout(() => {
+  window.__electrobunHostBridge?.postMessage(JSON.stringify({ type: "message", id: "diagnostic", payload: {
+    event: "rpc-transport", message: JSON.stringify({ socketState: electroview.hostSocket?.readyState, editorCreated: !!document.querySelector(".cm-content") }),
+  } }));
+}, 1500);
 rpc.send.diagnostic({ event: "editor-starting", message: "Native bridge attached" });
 
 const view = new EditorView({ parent: element("editor"), state: createEditorState("") });
