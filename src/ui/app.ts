@@ -8,12 +8,13 @@ import { redo, undo, isolateHistory } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
+import { wordCountField } from "./word-count.ts";
 import { makeAnchor } from "../document/anchors.ts";
-import type { Anchor, Command, DocumentSnapshot, Draft, SideleafRPC } from "../shared/contracts.ts";
+import { documentMetadata, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC } from "../shared/contracts.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
-let current: DocumentSnapshot;
+let current: DocumentMetadata;
 let savedDoc: Text;
 let savedComments = "[]";
 let dirty = false;
@@ -23,6 +24,7 @@ let previewTimer: ReturnType<typeof setTimeout>;
 let pendingAnchor: Anchor | null = null;
 let pendingGeneration = 0;
 let generation = 0;
+let previewDirty = true;
 
 const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
@@ -46,7 +48,7 @@ function createEditorState(text: string, comments: Draft["comments"] = []) {
     doc: text,
     extensions: [
       Prec.highest(keymap.of([{ key: "Mod-Shift-m", run: () => { beginComment(); return true; } }])),
-      basicSetup, markdown(), commentField.init(() => comments), commentHistory,
+      basicSetup, markdown(), commentField.init(() => comments), commentHistory, wordCountField,
       readonly.of(EditorState.readOnly.of(false)), EditorView.lineWrapping,
       placeholder("# A fresh page\n\nStart writing, or open a Markdown file."),
       EditorView.contentAttributes.of({ "aria-label": "Markdown editor", spellcheck: "true", autocapitalize: "off", autocorrect: "off" }),
@@ -54,7 +56,11 @@ function createEditorState(text: string, comments: Draft["comments"] = []) {
       EditorView.updateListener.of((update) => {
         if (update.docChanged || update.transactions.some((t) => t.effects.some((e) => e.is(setComments)))) {
           generation++;
-          updateDirty(); renderComments();
+          updateDirty();
+          if (update.startState.field(commentField) !== update.state.field(commentField)) renderComments();
+        }
+        if (update.docChanged) {
+          updateWordCount(); previewDirty = true;
           clearTimeout(previewTimer); previewTimer = setTimeout(updatePreview, 180);
         }
         if (update.selectionSet || update.docChanged) updateSelection();
@@ -86,11 +92,12 @@ function updateDirty() {
   element("status").textContent = busy ? "Working…" : dirty ? "Unsaved changes" : current.path ? "Saved locally" : "Ready to write";
 }
 function applyDocument(snapshot: DocumentSnapshot) {
-  current = snapshot;
+  current = documentMetadata(snapshot);
   view.setState(createEditorState(snapshot.text, snapshot.comments));
   savedDoc = view.state.doc; savedComments = commentsJSON(); dirty = false; generation++;
   pendingAnchor = null; element("comment-form").hidden = true; element("conflict").hidden = true;
-  refreshDocumentName(); updateDirty(); updatePreview(); renderComments(); updateSelection();
+  previewDirty = true;
+  refreshDocumentName(); updateDirty(); updateWordCount(); updatePreview(); renderComments(); updateSelection();
   if (snapshot.notice) notice(snapshot.notice); else element("notice").hidden = true;
   if (snapshot.comments.length) showComments(true);
   view.focus();
@@ -109,10 +116,14 @@ function updateSelection() {
   element("selection-status").textContent = selection.empty ? `Ln ${line.number}, Col ${selection.head - line.from + 1}` : `${selection.to - selection.from} selected`;
 }
 function updatePreview() {
-  const source = view.state.doc.toString();
+  if (!previewDirty || element("workspace").dataset.mode === "write") return;
+  const source = view.state.doc.sliceString(0, PREVIEW_LIMIT);
   element("preview").innerHTML = source.trim() ? renderMarkdown(source) : '<div class="empty-reader"><span class="empty-leaf">❧</span><h1>Make yourself a little space.</h1><p>Your words will take shape here.<br>Write on the left, or open a Markdown file.</p></div>';
-  element("preview-status").textContent = source.length > PREVIEW_LIMIT ? "First 200,000 characters" : "Live";
-  const count = source.match(/\S+/g)?.length ?? 0;
+  element("preview-status").textContent = view.state.doc.length > PREVIEW_LIMIT ? "First 200,000 characters" : "Live";
+  previewDirty = false;
+}
+function updateWordCount() {
+  const count = view.state.field(wordCountField);
   element("word-count").textContent = `${count.toLocaleString()} ${count === 1 ? "word" : "words"}`;
 }
 function formatSelection(marker: string): boolean {
@@ -208,6 +219,7 @@ function renderComments() {
 }
 function setMode(mode: string) {
   element("workspace").dataset.mode = mode;
+  if (mode !== "write") updatePreview();
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => { if (button.tagName === "BUTTON") button.setAttribute("aria-pressed", String(button.dataset.mode === mode)); });
   if (mode !== "read") view.focus();
 }

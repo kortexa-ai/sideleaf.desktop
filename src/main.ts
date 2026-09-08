@@ -7,7 +7,7 @@ import { mkdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DocumentFile } from "./document/files.ts";
 import { chooseSavePath } from "./platform/dialogs.ts";
-import { validateDraft, type Command, type SideleafRPC } from "./shared/contracts.ts";
+import { documentMetadata, validateDraft, type Command, type SideleafRPC } from "./shared/contracts.ts";
 
 const launchTime = performance.now();
 const startupLog = join(Utils.paths.userLogs, "startup.jsonl");
@@ -53,7 +53,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         }
         checkId(payload.id);
         const saved = document.save(payload.draft, target);
-        dirty = false; updateTitle(); return saved;
+        dirty = false; updateTitle(); return documentMetadata(saved);
       },
       check: ({ id }) => {
         checkId(id);

@@ -11,13 +11,18 @@ export type Anchor = {
 };
 export type Comment = { id: string; body: string; createdAt: string; anchor: Anchor };
 export type Draft = { text: string; comments: Comment[] };
-export type DocumentSnapshot = Draft & {
+export type DocumentMetadata = {
   id: string;
   path: string | null;
   name: string;
   lineEnding: "\n" | "\r\n";
   notice: string | null;
 };
+export type DocumentSnapshot = Draft & DocumentMetadata;
+export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
+  const { id, path, name, lineEnding, notice } = snapshot;
+  return { id, path, name, lineEnding, notice };
+}
 export type Command = "new" | "open" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo";
 
 export type SideleafRPC = {
@@ -26,7 +31,7 @@ export type SideleafRPC = {
       initial: { params: undefined; response: DocumentSnapshot };
       open: { params: undefined; response: DocumentSnapshot | null };
       newDocument: { params: undefined; response: DocumentSnapshot };
-      save: { params: { id: string; draft: Draft; saveAs: boolean }; response: DocumentSnapshot | null };
+      save: { params: { id: string; draft: Draft; saveAs: boolean }; response: DocumentMetadata | null };
       check: { params: { id: string }; response: { changed: boolean; error: string | null } };
       reload: { params: { id: string }; response: DocumentSnapshot };
       confirmDiscard: { params: undefined; response: "save" | "discard" | "cancel" };

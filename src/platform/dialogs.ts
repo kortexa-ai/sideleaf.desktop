@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import * as Utils from "electrobun/main/utils";
 import { RESOURCES_FOLDER } from "electrobun/main/paths";
@@ -19,6 +18,7 @@ export async function chooseSavePath(document: DocumentSnapshot): Promise<string
   }
   const windowsPicker = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.SaveFileDialog; $dialog.Title = 'Save Markdown'; $dialog.FileName = $env:SIDELEAF_DIALOG_NAME; $dialog.InitialDirectory = $env:SIDELEAF_DIALOG_FOLDER; $dialog.Filter = 'Markdown (*.md)|*.md|All files (*.*)|*.*'; $dialog.DefaultExt = 'md'; $dialog.AddExtension = $true; if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.FileName) }; $dialog.Dispose()`;
   if (process.platform !== "win32") throw new Error("Native Save dialogs are currently supported on macOS and Windows.");
+  const { spawn } = await import("node:child_process");
   const helper = "powershell.exe";
   const args = ["-NoProfile", "-STA", "-NonInteractive", "-Command", windowsPicker];
   return new Promise((resolve, reject) => {

@@ -1,7 +1,6 @@
 import { StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import { invertedEffects } from "@codemirror/commands";
-import { makeAnchor } from "../document/anchors.ts";
 import type { Comment } from "../shared/contracts.ts";
 
 export const setComments = StateEffect.define<Comment[]>();
@@ -9,8 +8,8 @@ export const commentField = StateField.define<Comment[]>({
   create: () => [],
   update(comments, transaction) {
     let next = comments;
-    if (transaction.docChanged) {
-      const text = transaction.newDoc.toString();
+    if (transaction.docChanged && comments.length) {
+      const text = transaction.newDoc;
       next = comments.map((comment) => {
         const anchor = comment.anchor;
         if (anchor.state === "orphaned") return comment;
@@ -20,9 +19,13 @@ export const commentField = StateField.define<Comment[]>({
         });
         const from = transaction.changes.mapPos(anchor.from, 1);
         const to = transaction.changes.mapPos(anchor.to, -1);
-        if (touched || to <= from || text.slice(from, to) !== anchor.quote) return { ...comment, anchor: { ...anchor, state: "orphaned" as const } };
-        return { ...comment, anchor: makeAnchor(text, from, to) };
+        if (touched || to <= from || text.sliceString(from, to) !== anchor.quote) return { ...comment, anchor: { ...anchor, state: "orphaned" as const } };
+        const prefix = text.sliceString(Math.max(0, from - 32), from);
+        const suffix = text.sliceString(to, Math.min(text.length, to + 32));
+        if (from === anchor.from && to === anchor.to && prefix === anchor.prefix && suffix === anchor.suffix) return comment;
+        return { ...comment, anchor: { ...anchor, from, to, prefix, suffix } };
       });
+      if (next.every((comment, index) => comment === comments[index])) next = comments;
     }
     for (const effect of transaction.effects) if (effect.is(setComments)) next = effect.value;
     return next;
