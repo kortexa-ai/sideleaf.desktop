@@ -128,8 +128,11 @@ async function save(saveAs = false): Promise<boolean> {
   element("conflict").hidden = true; element("notice").hidden = true;
   refreshDocumentName(); updateDirty(); return true;
 }
+function hasCommentDraft(): boolean {
+  return !!pendingAnchor && !!element<HTMLTextAreaElement>("comment-body").value.trim();
+}
 async function canLeave(): Promise<boolean> {
-  if (pendingAnchor && element<HTMLTextAreaElement>("comment-body").value.trim()) {
+  if (hasCommentDraft()) {
     showComments(true);
     notice("Add or cancel the comment you are writing before leaving this document.");
     element<HTMLTextAreaElement>("comment-body").focus();
@@ -167,6 +170,12 @@ function showComments(show: boolean) {
 }
 function beginComment() {
   if (busy) return;
+  if (hasCommentDraft()) {
+    showComments(true);
+    notice("Add or cancel the comment you are writing before starting another.");
+    element<HTMLTextAreaElement>("comment-body").focus();
+    return;
+  }
   const { from, to } = view.state.selection.main;
   try { pendingAnchor = makeAnchor(view.state.doc.toString(), from, to); }
   catch (error) { notice((error as Error).message); return; }
@@ -237,7 +246,7 @@ async function checkDisk() {
     const result = await rpc.request.check({ id });
     if (id !== current.id || busy) return;
     if (!result.changed) { element("conflict").hidden = true; return; }
-    if (dirty || result.error) { element("conflict").hidden = false; if (result.error) notice(result.error); }
+    if (dirty || hasCommentDraft() || result.error) { element("conflict").hidden = false; if (result.error) notice(result.error); }
     else await run(async () => { applyDocument(await rpc.request.reload({ id })); notice("Reloaded changes made outside Sideleaf."); });
   } catch (error) { notice((error as Error).message); }
   finally { checking = false; }

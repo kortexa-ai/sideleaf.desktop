@@ -53,6 +53,9 @@ No image API key or image generation service is used at app runtime.
 See [PLAN.md](PLAN.md) for product direction and [prototype decisions](docs/prototype.md)
 for file safety, runtime boundaries, and platform details. Execution and validation
 evidence belongs in [issue 2](https://github.com/kortexa-ai/sideleaf.desktop/issues/2).
+The [first verification record](docs/verification-2026-09-07.md) states exactly what
+was tested on each OS. The current macOS baseline is about 469 MiB across the app
+and webview processes; reducing memory remains work to do.
 
 The website is [sideleaf.xyz](https://sideleaf.xyz), maintained separately in
 [kortexa-ai/sideleaf](https://github.com/kortexa-ai/sideleaf).
