@@ -31,7 +31,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
   handlers: {
     requests: {
-      initial: () => document.snapshot(),
+      initial: () => { diagnostic("initial-document", "Requested"); return document.snapshot(); },
       open: async () => {
         const paths = await Utils.openFileDialog({ allowedFileTypes: "md,markdown,mdown,txt", canChooseDirectory: false, allowsMultipleSelection: false });
         if (!paths[0]) return null;

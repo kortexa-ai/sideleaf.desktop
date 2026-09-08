@@ -8,3 +8,4 @@ window.addEventListener("error", (event) => report("webview-error", event.messag
 window.addEventListener("securitypolicyviolation", (event) => report("webview-policy", `${event.effectiveDirective}: ${event.blockedURI}`));
 window.addEventListener("unhandledrejection", (event) => report("webview-rejection", String(event.reason?.message ?? event.reason)));
 report("webview-bootstrap", navigator.userAgent);
+window.addEventListener("load", () => report("webview-loaded", document.readyState));

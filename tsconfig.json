@@ -12,6 +12,6 @@
     "skipLibCheck": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable"]
   },
-  "include": ["src", "tests", "electrobun.config.ts", "hutch.config.ts"],
+  "include": ["src", "tests", "scripts/**/*.ts", "electrobun.config.ts", "hutch.config.ts"],
   "exclude": [".hutch", "node_modules", "build", "dist"]
 }

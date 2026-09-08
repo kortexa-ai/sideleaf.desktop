@@ -29,8 +29,10 @@ const rpc = Electroview.defineRPC<SideleafRPC>({
   handlers: { messages: { command: (command) => { void perform(command); } } },
 });
 new Electroview({ rpc });
+rpc.send.diagnostic({ event: "editor-starting", message: "Native bridge attached" });
 
 const view = new EditorView({ parent: element("editor"), state: createEditorState("") });
+rpc.send.diagnostic({ event: "editor-created", message: "CodeMirror initialized" });
 
 function createEditorState(text: string, comments: Draft["comments"] = []) {
   return EditorState.create({
@@ -120,6 +122,12 @@ async function save(saveAs = false): Promise<boolean> {
   refreshDocumentName(); updateDirty(); return true;
 }
 async function canLeave(): Promise<boolean> {
+  if (pendingAnchor && element<HTMLTextAreaElement>("comment-body").value.trim()) {
+    showComments(true);
+    notice("Add or cancel the comment you are writing before leaving this document.");
+    element<HTMLTextAreaElement>("comment-body").focus();
+    return false;
+  }
   if (!dirty) return true;
   const choice = await rpc.request.confirmDiscard();
   return choice === "save" ? save() : choice === "discard";
@@ -232,6 +240,10 @@ async function initialize() {
   try {
     applyDocument(await rpc.request.initial());
     rpc.send.ready({ userAgent: navigator.userAgent });
-  } catch (error) { notice(`Sideleaf could not start: ${(error as Error).message}`); }
+  } catch (error) {
+    const message = `Sideleaf could not start: ${(error as Error).message}`;
+    notice(message);
+    rpc.send.diagnostic({ event: "editor-failed", message });
+  }
 }
 void initialize();
