@@ -58,7 +58,7 @@ try {
   [void][SideleafQA]::EnumWindows($callback,[IntPtr]::Zero)
   $result.windows = @($windows | ForEach-Object { @{title=$_.title;processId=$_.processId;className=$_.element.Current.ClassName;width=$_.element.Current.BoundingRectangle.Width;height=$_.element.Current.BoundingRectangle.Height} })
   if (!$windows.Count) { throw 'No visible Sideleaf window found.' }
-  $window = if ($null -ne $request.window) { @($windows | Where-Object title -eq $request.window) } else { @($windows | Where-Object title -like '*Sideleaf*') }
+  $window = @(if ($null -ne $request.window) { $windows | Where-Object title -eq $request.window } else { $windows | Where-Object title -like '*Sideleaf*' })
   if ($window.Count -ne 1) { throw 'Window title is ambiguous. Inspect and specify an exact title.' }
   $window=$window[0]
   $elements = $window.element.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)
