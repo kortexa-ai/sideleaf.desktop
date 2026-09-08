@@ -40,6 +40,23 @@ class SideleafView extends Electroview<typeof rpc> {
 new SideleafView({ rpc });
 rpc.send.diagnostic({ event: "editor-starting", message: "Native bridge attached" });
 
+// The pinned Windows SDK dispatches menu accelerators from CEF, but WebView2
+// keeps focus inside its own process. Handle document shortcuts in that view.
+// Leave text editing shortcuts with CodeMirror and native comment textareas.
+if (window.__electrobunPlatform === "windows") {
+  const shortcuts: Partial<Record<string, Command>> = { o: "open", n: "new", w: "close", q: "quit", f: "find" };
+  document.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+    const key = event.key.toLowerCase();
+    const action: Command | undefined = key === "s" ? (event.shiftKey ? "saveAs" : "save")
+      : !event.shiftKey ? shortcuts[key] : undefined;
+    if (!action) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) void perform(action);
+  }, true);
+}
+
 const view = new EditorView({ parent: element("editor"), state: createEditorState("") });
 rpc.send.diagnostic({ event: "editor-created", message: "CodeMirror initialized" });
 
@@ -69,7 +86,8 @@ function createEditorState(text: string, comments: Draft["comments"] = []) {
         "&": { height: "100%", fontSize: "14px", backgroundColor: "var(--paper)", color: "var(--ink)" },
         ".cm-scroller": { overflow: "auto", fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace", lineHeight: "1.75" },
         ".cm-content": { padding: "24px 22px 100px", caretColor: "var(--green)" },
-        ".cm-gutters": { background: "var(--paper)", color: "var(--faint)", border: "none", paddingTop: "24px" },
+        // CodeMirror includes the content padding in its gutter line positions.
+        ".cm-gutters": { background: "var(--paper)", color: "var(--faint)", border: "none" },
         ".cm-lineNumbers .cm-gutterElement": { padding: "0 4px 0 16px", minWidth: "28px" },
         ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--active-line)" },
         "&.cm-focused": { outline: "none" },
