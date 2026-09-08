@@ -52,10 +52,12 @@ No image API key or image generation service is used at app runtime.
 
 See [PLAN.md](PLAN.md) for product direction and [prototype decisions](docs/prototype.md)
 for file safety, runtime boundaries, and platform details. Execution and validation
-evidence belongs in [issue 2](https://github.com/kortexa-ai/sideleaf.desktop/issues/2).
-The [first verification record](docs/verification-2026-09-07.md) states exactly what
-was tested on each OS. The current macOS baseline is about 469 MiB across the app
-and webview processes; reducing memory remains work to do.
+evidence is recorded in the [first verification](docs/verification-2026-09-07.md)
+and the [size, speed and Windows follow-up](docs/performance-2026-09-07.md).
+The macOS development package is about 73 MiB. A controlled empty-app measurement
+is about 321 MiB across the host and webview processes; memory remains a major
+prototype limitation. Windows also has a [runtime idle-CPU issue](https://github.com/kortexa-ai/sideleaf.desktop/issues/4).
+`npm run bench:editor` repeats the isolated editing benchmark.
 
 The website is [sideleaf.xyz](https://sideleaf.xyz), maintained separately in
 [kortexa-ai/sideleaf](https://github.com/kortexa-ai/sideleaf).
