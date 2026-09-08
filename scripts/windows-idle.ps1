@@ -59,6 +59,8 @@ public static class SideleafIdleThread {
 }
 $arguments = @($RuntimeArguments) + @('scripts/benchmark-idle.ts')
 $probe = Start-Process -FilePath $binary -ArgumentList $arguments -WorkingDirectory $root -NoNewWindow -PassThru -RedirectStandardOutput "$prefix.jsonl" -RedirectStandardError "$prefix.err"
+# Retain the handle before exit so Windows PowerShell can read the exit code.
+$probeHandle = $probe.Handle
 Start-Sleep -Seconds 5
 $probe.Refresh()
 if ($probe.HasExited) { Get-Content "$prefix.err"; throw 'Probe exited before measurement' }
