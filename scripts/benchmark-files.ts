@@ -1,0 +1,17 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DocumentFile } from "../src/document/files.ts";
+const directory = mkdtempSync(join(tmpdir(), "sideleaf-file-bench-"));
+const path = join(directory, "large.md");
+const paragraph = "# Heading\n\nOne green leaf beside these words.\n\n";
+const text = paragraph.repeat(Math.ceil(9_000_000 / paragraph.length)).slice(0, 9_000_000);
+writeFileSync(path, text);
+let start = performance.now();
+const file = DocumentFile.open(path);
+console.log(JSON.stringify({ phase: "open", milliseconds: performance.now() - start }));
+start = performance.now();
+console.log(JSON.stringify({ phase: "check", changed: file.changed(), milliseconds: performance.now() - start }));
+const draft = file.snapshot(); draft.text = "Fast edit.\n\n" + draft.text;
+start = performance.now(); file.save(draft);
+console.log(JSON.stringify({ phase: "save", milliseconds: performance.now() - start }));
