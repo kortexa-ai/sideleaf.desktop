@@ -96,7 +96,13 @@ try {
         $entry
       })
     }
-    'invoke' { (Find-Target).GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke() }
+    'invoke' {
+      $target=Find-Target; $pattern=$null
+      if ($target.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern,[ref]$pattern)) { $pattern.Invoke() }
+      elseif ($target.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern,[ref]$pattern)) { $pattern.Toggle() }
+      elseif ($target.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)) { $pattern.Select() }
+      else { throw 'Target has no supported button action.' }
+    }
     'setValue' { (Find-Target).GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue([string]$request.text) }
     'keys' {
       $target=if ($request.name -or $request.automationId) { Find-Target } else { $window.element }
