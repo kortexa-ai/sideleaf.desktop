@@ -228,7 +228,10 @@ async function checkDisk() {
   finally { checking = false; }
 }
 
-try {
-  applyDocument(await rpc.request.initial());
-  rpc.send.ready({ userAgent: navigator.userAgent });
-} catch (error) { notice(`Sideleaf could not start: ${(error as Error).message}`); }
+async function initialize() {
+  try {
+    applyDocument(await rpc.request.initial());
+    rpc.send.ready({ userAgent: navigator.userAgent });
+  } catch (error) { notice(`Sideleaf could not start: ${(error as Error).message}`); }
+}
+void initialize();

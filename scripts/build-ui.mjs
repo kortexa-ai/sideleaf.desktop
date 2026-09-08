@@ -5,7 +5,7 @@ await mkdir("dist/ui", { recursive: true });
 await build({
   entryPoints: ["src/ui/app.ts"],
   bundle: true,
-  format: "esm",
+  format: "iife",
   platform: "browser",
   target: ["safari17", "chrome120", "firefox120"],
   outdir: "dist/ui",
