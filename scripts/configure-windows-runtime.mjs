@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 
@@ -31,7 +31,7 @@ try {
 } catch {
   const tools = resolve("tmp/toolchain");
   zig = join(tools, "zig-x86_64-windows-0.16.0/zig.exe");
-  try { await readFile(zig); } catch {
+  try { await access(zig); } catch {
     await mkdir(tools, { recursive: true });
     const response = await fetch("https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip");
     if (!response.ok) throw new Error(`Zig download failed: ${response.status}`);

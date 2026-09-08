@@ -30,6 +30,12 @@ no browser development server is needed. Builds use the exact Electrobun version
 `hutch.config.ts` and `package-lock.json`. The current target is Apple Silicon macOS
 and x64 Windows; other OS/architecture combinations need separate acceptance tests.
 
+On Windows, use `npm run build` and the packaged `bin/launcher.exe` for normal use
+and performance checks. Packaging adds a small native adapter for the pinned
+runtime's idle-CPU issue. Its first build downloads a checksum-verified Zig compiler
+under `tmp/toolchain`; this build tool is not distributed with the app. The direct
+`npm start` / Electrobun development path does not apply this adapter.
+
 The app icon is original fal.ai artwork. Its source and generation prompt are in
 `assets/`; `npm run build:icons` regenerates platform-size images from that source.
 No image API key or image generation service is used at app runtime.
@@ -56,7 +62,8 @@ evidence is recorded in the [first verification](docs/verification-2026-09-07.md
 and the [size, speed and Windows follow-up](docs/performance-2026-09-07.md).
 The macOS development package is about 73 MiB. A controlled empty-app measurement
 is about 321 MiB across the host and webview processes; memory remains a major
-prototype limitation. Windows also has a [runtime idle-CPU issue](https://github.com/kortexa-ai/sideleaf.desktop/issues/4).
+prototype limitation. The packaged Windows app includes an
+[idle-CPU fix and measured verification](docs/windows-runtime-2026-09-07.md).
 `npm run bench:editor` repeats the isolated editing benchmark.
 
 The website is [sideleaf.xyz](https://sideleaf.xyz), maintained separately in
