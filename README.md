@@ -12,7 +12,7 @@ files together when moving an annotated document.
 
 ## Download
 
-Get [Sideleaf 0.1.0](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.0)
+Get [Sideleaf 0.1.1](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.1)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
 the whole ZIP and keep the setup executable beside its payload before running it.

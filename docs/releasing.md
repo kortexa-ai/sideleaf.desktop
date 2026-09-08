@@ -59,6 +59,9 @@ credentials, unreviewed screenshots, or development build directories.
 - Check the packaged app's network behavior: release checks send no document
   content, authorization header, or installation identifier. Offline checks must
   leave the editor usable.
+  Consume and validate the real GitHub response body in the packaged runtime,
+  then verify the native menu's current-version result. The pinned runtime needs
+  `Accept-Encoding: identity` to avoid a gzip decompression error.
 - Review the public source, Git history, issue content, license notices, and
   installer contents. Publish only the tested source revision.
 

@@ -34,6 +34,7 @@ test("automatic checks persist their daily limit and dismissals survive restart"
     assert.equal(options?.redirect, "error");
     assert.equal(options?.body, undefined);
     assert.equal(new Headers(options?.headers).has("Authorization"), false);
+    assert.equal(new Headers(options?.headers).get("Accept-Encoding"), "identity");
     return new Response(JSON.stringify(release(version)));
   };
   const create = () => new UpdateChecker({ installedVersion: "0.1.0", cachePath, now: () => now, fetch: request, onChange: () => {} });

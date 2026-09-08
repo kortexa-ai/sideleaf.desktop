@@ -120,8 +120,10 @@ export class UpdateChecker {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
     try {
+      // The pinned Cottontail runtime can fail to decode GitHub's gzip body.
+      // This small metadata response can bypass that decoder with identity encoding.
       const response = await (this.options.fetch ?? globalThis.fetch)(API_URL, {
-        headers: { Accept: "application/vnd.github+json", "User-Agent": "Sideleaf", "X-GitHub-Api-Version": "2022-11-28" },
+        headers: { Accept: "application/vnd.github+json", "Accept-Encoding": "identity", "User-Agent": "Sideleaf", "X-GitHub-Api-Version": "2022-11-28" },
         redirect: "error", signal: controller.signal,
       });
       if (!response.ok) throw new Error("Release service unavailable.");
