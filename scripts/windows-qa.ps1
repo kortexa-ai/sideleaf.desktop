@@ -104,7 +104,7 @@ try {
       [Windows.Forms.SendKeys]::SendWait([string]$request.keys)
     }
     'paste' {
-      $target=Find-Target
+      $target=if ($request.name -or $request.automationId) { Find-Target } else { $window.element }
       Focus-Target $target
       $previous=[Windows.Forms.Clipboard]::GetDataObject()
       try {

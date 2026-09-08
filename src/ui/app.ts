@@ -30,6 +30,9 @@ const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
   handlers: { messages: { command: (command) => { void perform(command); } } },
 });
+// A person choosing a file must not time out while the host still owns the
+// dialog. Other requests retain the bounded timeout for startup diagnostics.
+const userDialog = { maxRequestTime: Infinity };
 // With the pinned Windows runtime the loopback socket opens but does not deliver
 // renderer requests. Use the SDK's native IPC transport on that platform.
 class SideleafView extends Electroview<typeof rpc> {
@@ -151,7 +154,7 @@ function formatSelection(marker: string): boolean {
   return true;
 }
 async function save(saveAs = false): Promise<boolean> {
-  const result = await rpc.request.save({ id: current.id, draft: draft(), saveAs });
+  const result = await rpc.request.save({ id: current.id, draft: draft(), saveAs }, userDialog);
   if (!result) return false;
   current = result; savedDoc = view.state.doc; savedComments = commentsJSON();
   element("conflict").hidden = true; element("notice").hidden = true;
@@ -168,7 +171,7 @@ async function canLeave(): Promise<boolean> {
     return false;
   }
   if (!dirty) return true;
-  const choice = await rpc.request.confirmDiscard();
+  const choice = await rpc.request.confirmDiscard(undefined, userDialog);
   return choice === "save" ? save() : choice === "discard";
 }
 async function run(operation: () => Promise<void>) {
@@ -188,7 +191,7 @@ async function perform(command: Command) {
   await run(async () => {
     if (command === "save" || command === "saveAs") { await save(command === "saveAs"); return; }
     if (!(await canLeave())) return;
-    if (command === "open") { const next = await rpc.request.open(); if (next) applyDocument(next); }
+    if (command === "open") { const next = await rpc.request.open(undefined, userDialog); if (next) applyDocument(next); }
     else if (command === "new") applyDocument(await rpc.request.newDocument());
     else await rpc.request.finishClose({ quit: command === "quit" });
   });
