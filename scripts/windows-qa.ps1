@@ -74,7 +74,7 @@ try {
   }
   function Focus-Target($target) {
     [void][SideleafQA]::SetForegroundWindow($window.handle)
-    $target.SetFocus()
+    if ($target.Current.IsKeyboardFocusable) { $target.SetFocus() }
     [uint32]$foregroundId=0
     [void][SideleafQA]::GetWindowThreadProcessId([SideleafQA]::GetForegroundWindow(),[ref]$foregroundId)
     if (!$owned.Contains([int]$foregroundId)) { throw 'Foreground window is not owned by Sideleaf; input aborted.' }
