@@ -28,12 +28,14 @@ const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
   handlers: { messages: { command: (command) => { void perform(command); } } },
 });
-const electroview = new Electroview({ rpc });
-setTimeout(() => {
-  window.__electrobunHostBridge?.postMessage(JSON.stringify({ type: "message", id: "diagnostic", payload: {
-    event: "rpc-transport", message: JSON.stringify({ socketState: electroview.hostSocket?.readyState, editorCreated: !!document.querySelector(".cm-content") }),
-  } }));
-}, 1500);
+// With the pinned Windows runtime the loopback socket opens but does not deliver
+// renderer requests. Use the SDK's native IPC transport on that platform.
+class SideleafView extends Electroview<typeof rpc> {
+  override initSocketToHost() {
+    if (window.__electrobunPlatform !== "windows") super.initSocketToHost();
+  }
+}
+new SideleafView({ rpc });
 rpc.send.diagnostic({ event: "editor-starting", message: "Native bridge attached" });
 
 const view = new EditorView({ parent: element("editor"), state: createEditorState("") });

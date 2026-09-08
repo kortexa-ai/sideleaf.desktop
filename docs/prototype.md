@@ -55,6 +55,13 @@ that displays NSSavePanel in the existing app. Windows uses its built-in Windows
 Forms SaveFileDialog through Windows PowerShell; paths are passed as environment
 data, not interpolated into script code. These adapters choose a path only.
 
+The pinned Windows runtime opens its loopback WebSocket but did not deliver the
+editor's startup requests in the packaged test. The native IPC bridge did deliver
+them. Sideleaf therefore uses Electroview's native transport on Windows and keeps
+the default transport on macOS. Recheck this bounded override when updating the SDK.
+Bundled resources also need `views:` in CSP `connect-src` because the framework
+fetches stylesheets to inline them in WebView2.
+
 The preview disables raw HTML, remote/local images, and non-web/non-email external
 links. A restrictive content security policy guards the bundled UI. Markdown and
 comment text are untrusted. No general shell, path-read, or command-execution method
