@@ -8,7 +8,7 @@ export default {
     mainProcess: "cottontail",
     cottontail: { entrypoint: "src/main.ts", minify: true },
     copy: { "dist/ui": "views/main", "dist/native": "native", "LICENSE": "licenses/Sideleaf.txt", "licenses/third-party.txt": "licenses/third-party.txt", "THIRD_PARTY_NOTICES.md": "licenses/README.md" },
-    mac: { bundleCEF: false, bundleWGPU: false, icons: "assets/icon.iconset", codesign: true, notarize: true, createDmg: true },
+    mac: { bundleCEF: false, bundleWGPU: false, icons: "assets/icon.iconset", codesign: true, notarize: true, createDmg: false },
     linux: { bundleCEF: false, bundleWGPU: false },
     win: { bundleCEF: false, bundleWGPU: false, icon: "assets/icon.ico" },
   },

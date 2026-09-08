@@ -17,6 +17,8 @@ On macOS, supply a Developer ID Application identity through
 by Hutch. Keep credentials in your local secret store or ignored environment,
 and never commit them. Both signing and notarization are enabled for stable
 builds. Development builds do not use the signing credentials.
+The final macOS packaging step also uses the local `notarytool` Keychain profile.
+Create that profile with Apple's `notarytool store-credentials` on a release machine.
 
 On Windows, use native Windows Node 24 or newer and Windows PowerShell.
 The build is unsigned. Hutch produces a ZIP containing the setup executable
@@ -30,6 +32,14 @@ compression. Bundling the data allows offline first launch on older system ICU
 versions. HTTP/TLS packs remain available for version checks. The `postWrap` hook
 sets the macOS installer's minimum OS requirement to match the runtime. Do not
 modify a signed app after packaging.
+
+The Mac download is a conventional drag-to-Applications DMG containing the actual
+app. The pinned framework's self-extractor drops extended-attribute signatures
+from generic runtime files. `prepare-release.mjs` extracts the framework's signed
+inner app, restores those signatures and its resource seal, notarizes and staples
+the resulting app, then creates, signs, notarizes and staples the final APFS DMG.
+Use only the final files in `artifacts/release/` for distribution. Recheck this
+workaround when upgrading the framework.
 
 `artifacts/release/` contains versioned installer names and platform checksum
 files. Upload the installers, a combined `SHA256SUMS.txt`, the third-party source
