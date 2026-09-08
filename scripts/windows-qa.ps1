@@ -74,10 +74,17 @@ try {
   }
   function Focus-Target($target) {
     [void][SideleafQA]::SetForegroundWindow($window.handle)
-    if ($target.Current.IsKeyboardFocusable) { $target.SetFocus() }
+    if ($target.Current.IsKeyboardFocusable) {
+      $target.SetFocus()
+      # WebView2 transfers focus across processes asynchronously. Sending input
+      # before UIA confirms focus can silently deliver it to the host window.
+      for ($attempt=0; $attempt -lt 20 -and !$target.Current.HasKeyboardFocus; $attempt++) { Start-Sleep -Milliseconds 50 }
+      if (!$target.Current.HasKeyboardFocus) { throw 'Target did not receive keyboard focus; input aborted.' }
+    }
     [uint32]$foregroundId=0
     [void][SideleafQA]::GetWindowThreadProcessId([SideleafQA]::GetForegroundWindow(),[ref]$foregroundId)
     if (!$owned.Contains([int]$foregroundId)) { throw 'Foreground window is not owned by Sideleaf; input aborted.' }
+    $result.focusedName=[Windows.Automation.AutomationElement]::FocusedElement.Current.Name
   }
 
   switch ($request.action) {
