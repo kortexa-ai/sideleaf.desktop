@@ -6,8 +6,9 @@ import events from "electrobun/main/events";
 import { mkdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DocumentFile } from "./document/files.ts";
+import { SaveTransfer } from "./document/save-transfer.ts";
 import { chooseSavePath } from "./platform/dialogs.ts";
-import { documentMetadata, validateDraft, type Command, type SideleafRPC } from "./shared/contracts.ts";
+import { documentMetadata, type Command, type SideleafRPC } from "./shared/contracts.ts";
 
 const launchTime = performance.now();
 const startupLog = join(Utils.paths.userLogs, "startup.jsonl");
@@ -19,6 +20,7 @@ function diagnostic(event: string, message: string) {
 }
 diagnostic("host-started", "Sideleaf 0.1.0");
 let document = new DocumentFile();
+const saveTransfer = new SaveTransfer();
 let dirty = false;
 let approvedClose = false;
 let dialogOpen = false;
@@ -36,13 +38,15 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         const paths = await Utils.openFileDialog({ allowedFileTypes: "md,markdown,mdown,txt", canChooseDirectory: false, allowsMultipleSelection: false });
         if (!paths[0]) return null;
         const next = DocumentFile.open(paths[0]);
-        document = next; dirty = false; updateTitle();
+        document = next; saveTransfer.clear(); dirty = false; updateTitle();
         return document.snapshot();
       },
-      newDocument: () => { document = new DocumentFile(); dirty = false; updateTitle(); return document.snapshot(); },
+      newDocument: () => { document = new DocumentFile(); saveTransfer.clear(); dirty = false; updateTitle(); return document.snapshot(); },
+      stageSave: (part) => { checkId(part?.id); saveTransfer.append(part); return true; },
       save: async (payload) => {
-        checkId(payload?.id); validateDraft(payload.draft);
+        checkId(payload?.id);
         if (typeof payload.saveAs !== "boolean") throw new Error("Invalid save request.");
+        const draft = saveTransfer.take(payload.transferId);
         let target: string | undefined;
         if (payload.saveAs || !document.path) {
           if (dialogOpen) throw new Error("A file dialog is already open.");
@@ -52,7 +56,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
           if (!target) return null;
         }
         checkId(payload.id);
-        const saved = document.save(payload.draft, target);
+        const saved = document.save(draft, target);
         dirty = false; updateTitle(); return documentMetadata(saved);
       },
       check: ({ id }) => {
@@ -60,7 +64,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         try { return { changed: document.changed(), error: null }; }
         catch (error) { return { changed: true, error: (error as Error).message }; }
       },
-      reload: ({ id }) => { checkId(id); const result = document.reload(); dirty = false; updateTitle(); return result; },
+      reload: ({ id }) => { checkId(id); const result = document.reload(); saveTransfer.clear(); dirty = false; updateTitle(); return result; },
       confirmDiscard: async () => {
         const { response } = await Utils.showMessageBox({ type: "question", title: "Unsaved changes", message: `Save changes to ${document.snapshot().name}?`, detail: "Your text and comments have not been saved.", buttons: ["Save", "Cancel", "Discard Changes"], defaultId: 0, cancelId: 1 });
         return response === 0 ? "save" : response === 2 ? "discard" : "cancel";
@@ -74,6 +78,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       finishClose: ({ quit }) => { approvedClose = true; if (quit) Utils.quit(); else window.close(); return true; },
     },
     messages: {
+      cancelSave: ({ transferId }) => { if (typeof transferId === "string") saveTransfer.clear(transferId); },
       dirty: (payload) => { if (payload?.id === document.id && typeof payload.dirty === "boolean") { dirty = payload.dirty; updateTitle(); } },
       ready: ({ userAgent }) => diagnostic("sideleaf-ready", userAgent),
       diagnostic: (payload) => { if (typeof payload?.event === "string" && typeof payload.message === "string") diagnostic(payload.event.slice(0, 40), payload.message); },

@@ -1,5 +1,8 @@
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_COMMENTS = 1000;
+// Even fully escaped JSON stays well below the runtime's 8 MiB CString limit.
+export const SAVE_CHUNK_CHARACTERS = 256_000;
+export type SaveChunk = { transferId: string; index: number; total: number; text: string };
 
 export type Anchor = {
   from: number;
@@ -31,14 +34,15 @@ export type SideleafRPC = {
       initial: { params: undefined; response: DocumentSnapshot };
       open: { params: undefined; response: DocumentSnapshot | null };
       newDocument: { params: undefined; response: DocumentSnapshot };
-      save: { params: { id: string; draft: Draft; saveAs: boolean }; response: DocumentMetadata | null };
+      stageSave: { params: SaveChunk & { id: string }; response: boolean };
+      save: { params: { id: string; transferId: string; saveAs: boolean }; response: DocumentMetadata | null };
       check: { params: { id: string }; response: { changed: boolean; error: string | null } };
       reload: { params: { id: string }; response: DocumentSnapshot };
       confirmDiscard: { params: undefined; response: "save" | "discard" | "cancel" };
       openLink: { params: { url: string }; response: boolean };
       finishClose: { params: { quit: boolean }; response: boolean };
     };
-    messages: { dirty: { id: string; dirty: boolean }; ready: { userAgent: string }; diagnostic: { event: string; message: string } };
+    messages: { cancelSave: { transferId: string }; dirty: { id: string; dirty: boolean }; ready: { userAgent: string }; diagnostic: { event: string; message: string } };
   };
   webview: {
     requests: {};

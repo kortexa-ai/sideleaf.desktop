@@ -10,7 +10,7 @@ import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
 import { wordCountField } from "./word-count.ts";
 import { makeAnchor } from "../document/anchors.ts";
-import { documentMetadata, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC } from "../shared/contracts.ts";
+import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC } from "../shared/contracts.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
@@ -154,7 +154,16 @@ function formatSelection(marker: string): boolean {
   return true;
 }
 async function save(saveAs = false): Promise<boolean> {
-  const result = await rpc.request.save({ id: current.id, draft: draft(), saveAs }, userDialog);
+  const transferId = crypto.randomUUID();
+  let result: DocumentMetadata | null;
+  try {
+    const serialized = JSON.stringify(draft());
+    const total = Math.ceil(serialized.length / SAVE_CHUNK_CHARACTERS);
+    for (let index = 0; index < total; index++) {
+      await rpc.request.stageSave({ id: current.id, transferId, index, total, text: serialized.slice(index * SAVE_CHUNK_CHARACTERS, (index + 1) * SAVE_CHUNK_CHARACTERS) });
+    }
+    result = await rpc.request.save({ id: current.id, transferId, saveAs }, userDialog);
+  } finally { rpc.send.cancelSave({ transferId }); }
   if (!result) return false;
   current = result; savedDoc = view.state.doc; savedComments = commentsJSON();
   element("conflict").hidden = true; element("notice").hidden = true;
