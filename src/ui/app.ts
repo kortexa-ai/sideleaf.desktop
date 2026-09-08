@@ -10,7 +10,8 @@ import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
 import { wordCountField } from "./word-count.ts";
 import { makeAnchor } from "../document/anchors.ts";
-import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC } from "../shared/contracts.ts";
+import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState } from "../shared/contracts.ts";
+import { APP_VERSION } from "../shared/version.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
@@ -28,7 +29,7 @@ let previewDirty = true;
 
 const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
-  handlers: { messages: { command: (command) => { void perform(command); } } },
+  handlers: { messages: { command: (command) => { void perform(command); }, update: renderUpdate } },
 });
 // A person choosing a file must not time out while the host still owns the
 // dialog. Other requests retain the bounded timeout for startup diagnostics.
@@ -41,6 +42,7 @@ class SideleafView extends Electroview<typeof rpc> {
   }
 }
 new SideleafView({ rpc });
+element("app-version").textContent = `v${APP_VERSION}`;
 rpc.send.diagnostic({ event: "editor-starting", message: "Native bridge attached" });
 
 // The pinned Windows SDK dispatches menu accelerators from CEF, but WebView2
@@ -130,6 +132,17 @@ function refreshDocumentName() {
   element("encoding").textContent = `UTF-8 · ${current.lineEnding === "\r\n" ? "CRLF" : "LF"}`;
 }
 function notice(message: string) { element("notice-text").textContent = message; element("notice").hidden = false; }
+function renderUpdate(state: UpdateState) {
+  const container = element("update-notice"), link = element<HTMLButtonElement>("update-link");
+  container.hidden = state.status === "idle";
+  element("dismiss-update").hidden = state.status === "checking";
+  link.disabled = state.status !== "available";
+  link.textContent = state.status === "available" ? `v${state.version} available ↗`
+    : state.status === "checking" ? "Checking for updates…"
+    : state.status === "current" ? "Sideleaf is up to date"
+    : "Couldn’t check for updates";
+  link.onclick = state.status === "available" ? () => { void rpc.request.openLink({ url: state.url }).catch(() => notice("Couldn’t open the release page.")); } : null;
+}
 function updateSelection() {
   const selection = view.state.selection.main;
   element<HTMLButtonElement>("add-comment").disabled = selection.empty || busy;
@@ -259,6 +272,7 @@ element("add-comment").onclick = beginComment;
 element("comments-toggle").onclick = () => showComments(element("comments-panel").hidden);
 element("comments-close").onclick = () => showComments(false);
 element("dismiss-notice").onclick = () => { element("notice").hidden = true; };
+element("dismiss-update").onclick = () => { void rpc.request.dismissUpdate(); };
 element("cancel-comment").onclick = () => { pendingAnchor = null; element("comment-form").hidden = true; view.focus(); };
 element("comment-form").onsubmit = (event) => {
   event.preventDefault();
@@ -297,6 +311,7 @@ async function checkDisk() {
 async function initialize() {
   try {
     applyDocument(await rpc.request.initial());
+    renderUpdate(await rpc.request.updateState());
     rpc.send.ready({ userAgent: navigator.userAgent });
   } catch (error) {
     const message = `Sideleaf could not start: ${(error as Error).message}`;

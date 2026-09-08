@@ -1,6 +1,6 @@
 # Windows runtime CPU verification — 2026-09-07
 
-This pass used Scrappy, Windows 11 build 26200, WebView2 152.0.4191.66,
+This pass used the Windows test machine, Windows 11 build 26200, WebView2 152.0.4191.66,
 Cottontail 0.6.0-canary.14 (`e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb`),
 and Electrobun 2.0.2-beta.15. It follows the [size and file-safety pass](performance-2026-09-07.md)
 and is tracked in [issue 4](https://github.com/kortexa-ai/sideleaf.desktop/issues/4).
@@ -85,7 +85,7 @@ plus type checking. The rebuilt Windows app also passed real native UI checks:
   stack setting; it did not crash the native process.
 
 All Sideleaf test processes exited and the two temporary scheduled tasks were
-removed. Harmonizer's launcher and runtime retained their original process IDs
+removed. The unrelated application’s launcher and runtime retained their original process IDs
 and start times throughout the checks.
 
 Some WebView2 buttons did not expose an actionable UI Automation pattern during

@@ -51,8 +51,8 @@ baseline also remain to be measured.
 
 An SSH launch ran in non-interactive Session 0 and failed WebView2 window creation.
 The actual test ran in the user's interactive desktop through a Sideleaf-only,
-one-off scheduled task. It used `C:\src\sideleaf.desktop` and a repository-local
-Windows Node toolchain, with no global PATH or Harmonizer changes.
+one-off scheduled task. It used a dedicated Windows checkout and a repository-local
+Windows Node toolchain, with no global PATH or unrelated applications changes.
 
 WebView2 then created CodeMirror but the framework's open loopback socket did not
 deliver renderer requests. Switching Windows to Electroview's native IPC path

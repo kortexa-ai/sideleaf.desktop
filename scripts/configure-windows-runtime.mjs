@@ -13,7 +13,12 @@ if (runtime?.revision !== "e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb" || desktop?
 }
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const originalHash = "abeb0b7889439b3c9d92dd10988bf06c8f2f7744eb60cabdbb1fabea3b1d833b";
-const bin = resolve("build/dev-win-x64/Sideleaf-dev/bin");
+const environment = process.env.ELECTROBUN_BUILD_ENV ?? "dev";
+if (!["dev", "canary", "stable"].includes(environment)) throw new Error("Unknown build environment.");
+const buildDir = resolve("build", `${environment}-win-x64`);
+if (process.env.ELECTROBUN_BUILD_DIR && resolve(process.env.ELECTROBUN_BUILD_DIR) !== buildDir) throw new Error("Unexpected Windows build directory.");
+const name = environment === "stable" ? "Sideleaf" : `Sideleaf-${environment}`;
+const bin = join(buildDir, name, "bin");
 const launcher = join(bin, "launcher.exe");
 const original = join(bin, "electrobun-launcher.exe");
 const currentHash = hash(await readFile(launcher));

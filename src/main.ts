@@ -9,6 +9,8 @@ import { DocumentFile } from "./document/files.ts";
 import { SaveTransfer } from "./document/save-transfer.ts";
 import { chooseSavePath } from "./platform/dialogs.ts";
 import { documentMetadata, type Command, type SideleafRPC } from "./shared/contracts.ts";
+import { APP_VERSION } from "./shared/version.ts";
+import { UpdateChecker } from "./updates.ts";
 
 const launchTime = performance.now();
 const startupLog = join(Utils.paths.userLogs, "startup.jsonl");
@@ -18,12 +20,13 @@ function diagnostic(event: string, message: string) {
   console.info(JSON.stringify(record));
   try { appendFileSync(startupLog, `${JSON.stringify(record)}\n`); } catch { /* Keep the app usable if its log directory is read-only. */ }
 }
-diagnostic("host-started", "Sideleaf 0.1.0");
+diagnostic("host-started", `Sideleaf ${APP_VERSION}`);
 let document = new DocumentFile();
 const saveTransfer = new SaveTransfer();
 let dirty = false;
 let approvedClose = false;
 let dialogOpen = false;
+let updateChecksStarted = false;
 
 function checkId(id: string) {
   if (typeof id !== "string" || id !== document.id) throw new Error("This request belongs to an earlier document. Please try again.");
@@ -34,6 +37,9 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
   handlers: {
     requests: {
       initial: () => { diagnostic("initial-document", "Requested"); return document.snapshot(); },
+      updateState: () => updates.snapshot(),
+      checkUpdates: () => updates.check(true),
+      dismissUpdate: () => updates.dismiss(),
       open: async () => {
         const paths = await Utils.openFileDialog({ allowedFileTypes: "md,markdown,mdown,txt", canChooseDirectory: false, allowsMultipleSelection: false });
         if (!paths[0]) return null;
@@ -80,11 +86,20 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
     messages: {
       cancelSave: ({ transferId }) => { if (typeof transferId === "string") saveTransfer.clear(transferId); },
       dirty: (payload) => { if (payload?.id === document.id && typeof payload.dirty === "boolean") { dirty = payload.dirty; updateTitle(); } },
-      ready: ({ userAgent }) => diagnostic("sideleaf-ready", userAgent),
+      ready: ({ userAgent }) => {
+        diagnostic("sideleaf-ready", userAgent);
+        if (!updateChecksStarted) {
+          updateChecksStarted = true;
+          setTimeout(() => { void updates.check(); }, 15_000);
+          setInterval(() => { void updates.check(); }, 60 * 60 * 1000);
+        }
+      },
       diagnostic: (payload) => { if (typeof payload?.event === "string" && typeof payload.message === "string") diagnostic(payload.event.slice(0, 40), payload.message); },
     },
   },
 });
+
+const updates = new UpdateChecker({ installedVersion: APP_VERSION, cachePath: join(Utils.paths.userData, "updates.json"), onChange: (state) => rpc.send.update(state) });
 
 const window = new BrowserWindow({
   title: "Untitled.md — Sideleaf",
@@ -112,9 +127,12 @@ ApplicationMenu.setApplicationMenu([
   { label: "File", submenu: [{ label: "New", action: "new", accelerator: "CmdOrCtrl+N" }, { label: "Open…", action: "open", accelerator: "CmdOrCtrl+O" }, { type: "divider" }, { label: "Save", action: "save", accelerator: "CmdOrCtrl+S" }, { label: "Save As…", action: "saveAs", accelerator: "CmdOrCtrl+Shift+S" }, { type: "divider" }, { label: "Close", action: "close", accelerator: "CmdOrCtrl+W" }] },
   { label: "Edit", submenu: [{ label: "Undo", action: "undo", accelerator: "CmdOrCtrl+Z" }, { label: "Redo", action: "redo", accelerator: "CmdOrCtrl+Shift+Z" }, { type: "divider" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }, { type: "divider" }, { label: "Find…", action: "find", accelerator: "CmdOrCtrl+F" }, { label: "Add Comment", action: "comment", accelerator: "CmdOrCtrl+Shift+M" }] },
   { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "toggleFullScreen" }] },
+  { label: "Help", submenu: [{ label: "Check for Updates…", action: "checkUpdates" }, { label: "Sideleaf Website", action: "website" }] },
 ]);
 const commands = new Set<Command>(["new", "open", "save", "saveAs", "close", "quit", "comment", "find", "undo", "redo"]);
 ApplicationMenu.on("application-menu-clicked", (event) => {
   const action = (event as { data: { action: Command } }).data.action;
+  if (String(action) === "checkUpdates") { void updates.check(true); return; }
+  if (String(action) === "website") { Utils.openExternal("https://sideleaf.xyz/"); return; }
   if (commands.has(action)) command(action);
 });

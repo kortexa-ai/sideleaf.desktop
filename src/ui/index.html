@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="toolbar">
-    <div class="brand"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 23C4 9 14 4 24 4c0 10-5 20-19 19Z" fill="currentColor"/><path d="M5 23 19 9" stroke="var(--paper)" stroke-width="1.5"/></svg><span>sideleaf</span><span class="prototype">preview</span></div>
+    <div class="brand"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 23C4 9 14 4 24 4c0 10-5 20-19 19Z" fill="currentColor"/><path d="M5 23 19 9" stroke="var(--paper)" stroke-width="1.5"/></svg><span>sideleaf</span><span id="app-version" class="prototype"></span></div>
     <div class="file-actions"><button id="new" title="New document">New</button><button id="open" title="Open a Markdown file">Open…</button><span class="separator"></span><button id="save" class="primary">Save</button></div>
   </header>
   <section class="document-bar" aria-label="Document controls">
@@ -24,7 +24,7 @@
     <section class="reader-pane" aria-label="Markdown preview"><div class="pane-label"><span>PREVIEW</span><span id="preview-status">Live</span></div><div class="reader-scroll"><article id="preview"></article></div></section>
     <aside id="comments-panel" class="comments-panel" aria-label="Comments" hidden><div class="pane-label"><span>COMMENTS</span><button id="comments-close" aria-label="Close comments">×</button></div><div id="comments-list"></div><form id="comment-form" hidden><blockquote id="comment-quote"></blockquote><label for="comment-body">Your comment</label><textarea id="comment-body" rows="4" maxlength="20000" placeholder="Leave a thought…"></textarea><div><button type="button" id="cancel-comment">Cancel</button><button class="primary" type="submit">Add comment</button></div></form></aside>
   </main>
-  <footer class="statusbar"><span id="status" role="status">Opening Sideleaf…</span><span class="status-spacer"></span><span id="selection-status"></span><span id="word-count">0 words</span><span id="encoding">UTF-8 · LF</span></footer>
+  <footer class="statusbar"><span id="status" role="status">Opening Sideleaf…</span><span id="update-notice" class="update-notice" role="status" hidden><button id="update-link"></button><button id="dismiss-update" aria-label="Dismiss update notice">×</button></span><span class="status-spacer"></span><span id="selection-status"></span><span id="word-count">0 words</span><span id="encoding">UTF-8 · LF</span></footer>
   <script src="./bootstrap.js"></script>
   <script src="./app.js"></script>
 </body>

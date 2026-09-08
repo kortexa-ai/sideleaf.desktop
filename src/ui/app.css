@@ -79,3 +79,7 @@ button.primary:hover { filter: brightness(1.12); }
 .statusbar { display: flex; gap: 20px; align-items: center; min-height: 30px; padding: 0 20px; border-top: 1px solid var(--border); background: var(--panel); color: var(--muted); font-size: 10px; flex-shrink: 0; }
 .status-spacer { flex: 1; }
 @media (max-width: 850px) { .document-bar { gap: 10px; } .prototype { display: none; } .reader-scroll { padding-inline: 22px; } .comments-panel { width: 230px; } #filepath { max-width: 230px; } }
+:root .update-notice { display: inline-flex; align-items: center; gap: 3px; }
+:root .update-notice[hidden] { display: none; }
+.update-notice button { padding: 2px 5px; border: 0; background: transparent; color: var(--green); font-size: inherit; }
+.update-notice button:disabled { color: var(--muted); opacity: 1; cursor: default; }

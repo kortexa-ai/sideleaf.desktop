@@ -79,7 +79,7 @@ SSH connection. The driver accepts windows and controls only from this checkout'
 Sideleaf process and its descendants. It checks focus before sending input and
 restores the clipboard after pasting. Dialogs are awaited as asynchronous UI
 operations. The checkout, toolchain, tasks and fixtures are separate from
-Harmonizer. Native keyboard-to-paint latency, CJK IME sessions, screen-reader
+unrelated applications. Native keyboard-to-paint latency, CJK IME sessions, screen-reader
 acceptance, clean-machine installation, signing and distribution remain untested.
 
 Windows native checks also passed Open and Save shortcuts, Unicode clipboard input,

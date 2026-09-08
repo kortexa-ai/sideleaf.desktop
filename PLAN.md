@@ -4,7 +4,7 @@
 
 Build a small, fast, portable Markdown editor that owns its future. The name is
 **Sideleaf**, the domain is **sideleaf.xyz**, and the intended command is `sideleaf`.
-The domain has been purchased. Keep the desktop project and website in separate private
+The domain has been purchased. Keep the public desktop project and private website in separate
 repositories under `kortexa-ai`:
 
 | Repository | Responsibility |
@@ -162,7 +162,9 @@ and add features because daily use needs them.
   dependencies.
 
 No built-in accounts, cloud sync service, telemetry pipeline, model runtime, collaboration
-daemon, or embedded database is required for the first product. Local files can live in a
+daemon, or embedded database is required for the first product. Release checks may contact
+GitHub at most daily and display a quiet, dismissible update link. Installing an update is
+explicit. Describe runtime compatibility downloads and website logs in the privacy policy. Local files can live in a
 user's existing synced folder; that makes external conflict handling more important.
 
 ## Document correctness is the hard part
@@ -245,24 +247,6 @@ Design the richer CLI, interchange, suggestions, actor/revision semantics, trans
 and comparison application as separate work units. Keep the app usable offline and the
 format understandable without Sideleaf. Revisit bundled CEF or native drawing only when
 a reproducible limitation justifies the cost.
-
-## Execution sizing from the initial discussion
-
-These were rough estimates for active coding, debugging, and validation by a coding
-agent, requested explicitly as such. They are neither human-effort estimates nor elapsed
-delivery promises, and they are not measured model benchmarks. The totals are cumulative.
-Tool latency, signing, platform availability, visual review, and unknown engine defects can
-change them substantially. Re-estimate after the first packaged prototype.
-
-| Scope | Initial active-agent range | Main uncertainty |
-| --- | --- | --- |
-| Basic open/edit/save/highlighting/preview prototype | 2–4 hours | Runtime setup and editor integration; the comment gate adds work |
-| Useful macOS editor with navigation, reliable saves/external changes, and basic comments | 8–20 hours total | Document/annotation correctness and native interactions |
-| Polished macOS/Windows/Linux app with reader, comments, workspaces, selected comparisons, and packaging | 30–70 hours total | Cross-engine behavior, accessibility, platform testing |
-| Broad Margin-like CLI and advanced collaboration/transaction workflows | 70–140+ hours total | Concurrency, recovery, format semantics, and advanced review |
-
-The amount of Margin source code is not a sizing basis for this fresh implementation.
-Library reuse saves substantial text-engine work; robust product behavior remains ours.
 
 ## Decisions to make during the prototype
 

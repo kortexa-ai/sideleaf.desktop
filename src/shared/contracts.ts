@@ -27,11 +27,15 @@ export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
   return { id, path, name, lineEnding, notice };
 }
 export type Command = "new" | "open" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo";
+export type UpdateState = { status: "idle" | "checking" | "current" | "error" } | { status: "available"; version: string; url: string };
 
 export type SideleafRPC = {
   bun: {
     requests: {
       initial: { params: undefined; response: DocumentSnapshot };
+      updateState: { params: undefined; response: UpdateState };
+      checkUpdates: { params: undefined; response: UpdateState };
+      dismissUpdate: { params: undefined; response: boolean };
       open: { params: undefined; response: DocumentSnapshot | null };
       newDocument: { params: undefined; response: DocumentSnapshot };
       stageSave: { params: SaveChunk & { id: string }; response: boolean };
@@ -46,7 +50,7 @@ export type SideleafRPC = {
   };
   webview: {
     requests: {};
-    messages: { command: Command };
+    messages: { command: Command; update: UpdateState };
   };
 };
 

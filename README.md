@@ -5,10 +5,25 @@ A small desktop Markdown editor for your words and your files.
 Sideleaf uses Electrobun, Cottontail, CodeMirror 6, and the operating system's webview.
 It is an independent implementation; Margin is a product reference only.
 
-The first prototype supports a single Markdown document, native Open and Save As,
+Sideleaf 0.1 supports a single Markdown document, native Open and Save As,
 literal source editing, live preview, find/replace, and anchored comments with undo.
 Comments are saved beside the document as `filename.md.sideleaf.json`. Keep the two
 files together when moving an annotated document.
+
+## Download
+
+Get [Sideleaf 0.1.0](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.0)
+for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
+The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
+the whole ZIP and keep the setup executable beside its payload before running it.
+Windows also needs Microsoft's WebView2 Evergreen runtime.
+
+Your documents stay on your computer. There are no accounts or writing uploads.
+Sideleaf checks GitHub for a newer stable version once a day and shows a small,
+dismissible notice. Help → Check for Updates checks on demand. Updates open the
+release page and install only when you choose to install them.
+See the [privacy policy](https://sideleaf.xyz/privacy/) and
+[terms](https://sideleaf.xyz/terms/) for details.
 
 ## Run and build
 
@@ -40,7 +55,7 @@ The app icon is original fal.ai artwork. Its source and generation prompt are in
 `assets/`; `npm run build:icons` regenerates platform-size images from that source.
 No image API key or image generation service is used at app runtime.
 
-## Prototype boundaries
+## Early release boundaries
 
 - UTF-8 (with or without BOM), consistent LF or CRLF, files up to 10 MiB. Unsupported
   encodings and mixed line endings are rejected without changing the file.
@@ -53,18 +68,20 @@ No image API key or image generation service is used at app runtime.
 - Comments participate in undo/redo. Editing their selected text makes them visibly
   unanchored; undo restores the prior anchor. Sideleaf metadata is its own versioned
   format, with no claimed Margin interchange compatibility.
-- Development builds are not a signed public release. Tabs, workspaces, advanced
+- Tabs, workspaces, advanced
   review, session recovery, and full accessibility/IME acceptance remain later work.
 
 See [PLAN.md](PLAN.md) for product direction and [prototype decisions](docs/prototype.md)
 for file safety, runtime boundaries, and platform details. Execution and validation
 evidence is recorded in the [first verification](docs/verification-2026-09-07.md)
 and the [size, speed and Windows follow-up](docs/performance-2026-09-07.md).
-The macOS development package is about 73 MiB. A controlled empty-app measurement
-is about 321 MiB across the host and webview processes; memory remains a major
-prototype limitation. The packaged Windows app includes an
+An earlier controlled empty-app measurement was about 321 MiB across the host
+and webview processes; memory remains a limitation under active investigation.
+The packaged Windows app includes an
 [idle-CPU fix and measured verification](docs/windows-runtime-2026-09-07.md).
 `npm run bench:editor` repeats the isolated editing benchmark.
 
-The website is [sideleaf.xyz](https://sideleaf.xyz), maintained separately in
-[kortexa-ai/sideleaf](https://github.com/kortexa-ai/sideleaf).
+The website is [sideleaf.xyz](https://sideleaf.xyz). Sideleaf's own source is
+[MIT-licensed](LICENSE); dependencies retain their
+[third-party licenses](THIRD_PARTY_NOTICES.md). See the
+[release guide](docs/releasing.md) for native builds, signing and validation.

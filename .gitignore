@@ -10,3 +10,11 @@ artifacts/
 .DS_Store
 tmp/
 *.log
+
+# Local signing material and private review evidence.
+*.p8
+*.p12
+*.pfx
+*.pem
+*.key
+*.mobileprovision

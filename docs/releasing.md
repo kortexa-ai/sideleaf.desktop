@@ -1,0 +1,66 @@
+# Releasing Sideleaf
+
+Use native macOS and Windows machines and the exact npm lockfile. The pinned
+runtime currently requires macOS 26.6.2 on Apple Silicon. The Windows release
+is tested on Windows 11 x64 and uses the installed WebView2 Evergreen runtime.
+
+## Build
+
+```sh
+npm ci
+npm run prepare:devkit
+npm run build:release
+```
+
+On macOS, supply a Developer ID Application identity through
+`ELECTROBUN_DEVELOPER_ID` and the complete notarization credential group supported
+by Hutch. Keep credentials in your local secret store or ignored environment,
+and never commit them. Both signing and notarization are enabled for stable
+builds. Development builds do not use the signing credentials.
+
+On Windows, use native Windows Node 24 or newer and Windows PowerShell.
+The build is unsigned. Hutch produces a ZIP containing the setup executable
+and its adjacent payload; users must extract the entire ZIP before running Setup.
+Keep those files together. The native runtime adapter is applied to the payload
+before packaging, so installed apps receive the same CPU fix as development apps.
+
+The `postBuild` hook trims the unused V8 pack, configures the Windows launcher,
+and bundles checksum-verified ICU compatibility data before signing and
+compression. Bundling the data allows offline first launch on older system ICU
+versions. HTTP/TLS packs remain available for version checks. The `postWrap` hook
+sets the macOS installer's minimum OS requirement to match the runtime. Do not
+modify a signed app after packaging.
+
+`artifacts/release/` contains versioned installer names and platform checksum
+files. Upload the installers, a combined `SHA256SUMS.txt`, the third-party source
+materials, and the third-party notice to the release. Never upload local QA logs,
+credentials, unreviewed screenshots, or development build directories.
+
+## Validate before publishing
+
+- Run `npm run validate` on both native platforms.
+- Install from the actual DMG and Windows setup ZIP. Verify launch, Open, Save As,
+  undo/redo, comments, external-write conflicts, and update-menu behavior.
+- On macOS, verify all nested signatures, notarization staples, and Gatekeeper
+  acceptance on the distribution and installed app. Check the app and installer
+  minimum OS metadata against their binaries.
+- On Windows, confirm the setup and launcher remain unsigned as intended, install
+  and uninstall in an isolated test account or directory, and preserve user files.
+- Check the packaged app's network behavior: release checks send no document
+  content, authorization header, or installation identifier. Offline checks must
+  leave the editor usable.
+- Review the public source, Git history, issue content, license notices, and
+  installer contents. Publish only the tested source revision.
+
+## Tag and announce
+
+Keep `package.json`, the npm lockfile, and `src/shared/version.ts` in agreement.
+Create the `vX.Y.Z` tag at the verified source commit. Attach both platform
+installers to the GitHub release and verify anonymous download access and their
+SHA-256 checksums before linking them from the website.
+
+The application checks the latest stable GitHub release at most once per day.
+Tags must be `vMAJOR.MINOR.PATCH`; drafts and prereleases do not trigger notices.
+The notice opens that release's page. Dismissing it hides that version, and
+Help → Check for Updates can reveal it again. There is no automatic install or
+forced restart. Publishing a later stable release is sufficient to notify users.
