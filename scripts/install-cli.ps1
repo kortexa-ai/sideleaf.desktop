@@ -7,11 +7,14 @@ param(
 $ErrorActionPreference = 'Stop'
 $archive = (Resolve-Path -LiteralPath $Package).Path
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
+$node = (Get-Command node.exe -ErrorAction Stop).Source
+$npmEntry = Join-Path (Split-Path $npm) 'node_modules/npm/bin/npm-cli.js'
+if (!(Test-Path -LiteralPath $npmEntry)) { throw 'Use the standard Node.js Windows distribution with npm.' }
 & node -e 'if (parseInt(process.versions.node) < 24) process.exit(1)'
 if ($LASTEXITCODE -ne 0) { throw 'Install Node.js 24+ first.' }
-if ($Uninstall) { & $npm uninstall --global sideleaf-desktop } else { & $npm install --global $archive }
+if ($Uninstall) { & $node $npmEntry uninstall --global sideleaf-desktop } else { & $node $npmEntry install --global $archive }
 if ($LASTEXITCODE -ne 0) { throw 'Native CLI installation failed.' }
-$prefix = (& $npm prefix --global).Trim()
+$prefix = (& $node $npmEntry prefix --global).Trim()
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (!$Uninstall -and @($userPath -split ';' | Where-Object { $_.TrimEnd('\') -ieq $prefix.TrimEnd('\') }).Count) {
   # Existing npm prefix remains shared with other npm commands on uninstall.
