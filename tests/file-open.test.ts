@@ -37,5 +37,6 @@ test("Windows installer registers Sideleaf as a per-user Markdown editor", () =>
   const installer = readFileSync(new URL("../scripts/windows-installer.iss", import.meta.url), "utf8");
   assert.match(installer, /Software\\RegisteredApplications.*ValueName: "Sideleaf"/);
   assert.match(installer, /Capabilities\\FileAssociations.*ValueName: "\.md".*Sideleaf\.Markdown/);
+  assert.match(installer, /Software\\Classes\\\.md\\OpenWithProgids.*ValueType: string.*ValueName: "Sideleaf\.Markdown".*ValueData: ""/);
   assert.match(installer, /launcher\.exe"" --sideleaf-open ""%1/);
 });
