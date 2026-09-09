@@ -40,7 +40,8 @@ JSON
 `--input PATH` supplies the same JSON without shell redirection (useful in
 PowerShell). Read operations are deterministic for unchanged disk bytes. A write
 returns the new revision, text and comments; generated IDs and timestamps record
-that operation. Offsets are zero-based, end-exclusive UTF-16 code units in source
+that operation. CLI writes retain actor attribution in embedded revision metadata,
+including text-only edits. Plain GUI documents remain plain until annotated. Offsets are zero-based, end-exclusive UTF-16 code units in source
 with logical LF separators. Metadata is excluded. Edits cannot split surrogate
 pairs. Actor names explicitly attribute writes and comments, without authentication.
 Thread replies and resolve/reopen are not yet desktop features and remain deferred.

@@ -155,7 +155,7 @@ export class DocumentFile {
       const revision: CommentRevision = { sourceHash: hash(source), comments: structuredClone(draft.comments), actor, savedAt: new Date().toISOString() };
       const revisions = [revision, ...this.revisions.filter((r) => JSON.stringify(r) !== JSON.stringify(revision))].slice(0, 3);
       const metadata: Metadata = { format: "sideleaf-comments", version: 1, revisions };
-      const annotated = draft.comments.length > 0 || this.revisions.length > 0;
+      const annotated = draft.comments.length > 0 || this.revisions.length > 0 || actor !== "local-user";
       const bytes = annotated ? encode(embedMetadata(draft.text, metadata)) : source;
       if (previousDisk ? readDisk(path).signature !== previousDisk.signature : existsSync(path)) throw new Error("The file changed during save. Your draft is still open; save a copy.");
       // Source and all comments now commit with one fsynced atomic replacement.

@@ -120,6 +120,7 @@ const window = new BrowserWindow({
 });
 
 function updateTitle() { window.setTitle(`${dirty ? "● " : ""}${document.snapshot().name} — Sideleaf`); }
+updateTitle();
 function command(action: Command) { rpc.send.command(action); }
 window.on("will-close", (value) => {
   const event = value as { response: { allow: boolean } };
