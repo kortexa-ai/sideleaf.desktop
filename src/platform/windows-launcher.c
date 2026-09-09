@@ -3,6 +3,7 @@
 #include <shellapi.h>
 
 static WCHAR runtimePath[32768];
+static WCHAR workingDirectory[32768];
 static WCHAR commandLine[32768];
 static STARTUPINFOW startup;
 static PROCESS_INFORMATION child;
@@ -19,10 +20,9 @@ void WINAPI sideleafStart(void) {
     while (directory && runtimePath[directory - 1] != L'\\') --directory;
     if (!directory) fail();
     // Shell file-association commands do not provide a working directory.
-    // Electrobun resolves its adjacent resources from the application bin
-    // directory, so make that invariant explicit for every launch path.
-    runtimePath[directory] = 0;
-    if (!SetCurrentDirectoryW(runtimePath)) fail();
+    // Give the child the app's bin directory without mutating this process.
+    for (DWORD i = 0; i < directory; ++i) workingDirectory[i] = runtimePath[i];
+    workingDirectory[directory] = 0;
     const WCHAR filename[] = L"electrobun-launcher.exe";
     if (directory + sizeof(filename) / sizeof(WCHAR) > 32768) fail();
     for (DWORD i = 0; i < sizeof(filename) / sizeof(WCHAR); ++i) runtimePath[directory + i] = filename[i];
@@ -52,7 +52,7 @@ void WINAPI sideleafStart(void) {
     } while (arguments[i++]);
     AttachConsole(ATTACH_PARENT_PROCESS);
     startup.cb = sizeof(startup);
-    if (!CreateProcessW(runtimePath, commandLine, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &child)) fail();
+    if (!CreateProcessW(runtimePath, commandLine, NULL, NULL, TRUE, 0, NULL, workingDirectory, &startup, &child)) fail();
     CloseHandle(child.hThread);
     DWORD result = 1;
     if (WaitForSingleObject(child.hProcess, INFINITE) == WAIT_OBJECT_0) GetExitCodeProcess(child.hProcess, &result);
