@@ -72,7 +72,7 @@ if (window.__electrobunPlatform === "windows") {
   toggle.onkeydown = (event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); openMenu(event.key === "ArrowUp"); } };
   menu.onkeydown = (event) => {
     if (event.key === "Escape") { event.preventDefault(); closeMenu(true); }
-    else if (event.key === "Tab") closeMenu();
+    else if (event.key === "Tab") closeMenu(true);
     else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
       const index = items.indexOf(document.activeElement as HTMLButtonElement);
