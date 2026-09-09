@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $archive = (Resolve-Path -LiteralPath $Package).Path
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
-& node -e 'if (+process.versions.node.split(".")[0] < 24) process.exit(1)'
+& node -e 'if (parseInt(process.versions.node) < 24) process.exit(1)'
 if ($LASTEXITCODE -ne 0) { throw 'Install Node.js 24+ first.' }
 if ($Uninstall) { & $npm uninstall --global sideleaf-desktop } else { & $npm install --global $archive }
 if ($LASTEXITCODE -ne 0) { throw 'Native CLI installation failed.' }
@@ -31,10 +31,16 @@ foreach ($distro in $Distribution) {
   $linuxPath = (& $wsl.Source -d $distro -- wslpath -u $archive).Trim()
   if ($LASTEXITCODE -ne 0) { throw "Could not convert package path for $distro" }
   # Each distro owns its Linux Node/npm installation, including WSL-native files.
-  # Login shell enables an existing nvm installation. No user text is shell code.
+  # Resolve a login-shell Node installation, then pass paths as native arguments.
   $operation = if ($Uninstall) { 'uninstall' } else { 'install' }
   $target = if ($Uninstall) { 'sideleaf-desktop' } else { $linuxPath }
-  & $wsl.Source -d $distro -- bash -lc 'node -e ''if (+process.versions.node.split(".")[0] < 24) process.exit(1)'' && npm "$1" --global "$2"' sideleaf-install $operation $target
+  $nodePath = (& $wsl.Source -d $distro -- bash -lc 'command -v node').Trim()
+  $npmPath = (& $wsl.Source -d $distro -- bash -lc 'command -v npm').Trim()
+  if (!$nodePath.StartsWith('/') -or !$npmPath.StartsWith('/')) { throw "Install Linux Node.js 24+ and npm in $distro first." }
+  $version = (& $wsl.Source -d $distro -- $nodePath --version).Trim()
+  if ($version -notmatch '^v(\d+)\.' -or [int]$Matches[1] -lt 24) { throw "Node.js 24+ is required in $distro." }
+  $binPath = $nodePath.Substring(0, $nodePath.LastIndexOf('/'))
+  & $wsl.Source -d $distro -- env "PATH=${binPath}:/usr/local/bin:/usr/bin:/bin" $nodePath $npmPath $operation --global $target
   if ($LASTEXITCODE -ne 0) { throw "CLI setup failed in $distro. Install Linux Node.js 24+ and npm there, then rerun." }
 }
 Write-Output 'CLI setup complete. Open a new terminal if PATH was updated.'
