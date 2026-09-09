@@ -46,6 +46,7 @@ let pendingAnchor: Anchor | null = null;
 let pendingGeneration = 0;
 let generation = 0;
 let previewDirty = true;
+let lastScratchJSON: string | null = null;
 
 const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
@@ -200,6 +201,10 @@ for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave",
   input.onchange = () => {
     writeSetting(setting, input.checked);
     if (setting === "wrapLines") view.dispatch({ effects: wrapping.reconfigure(input.checked ? EditorView.lineWrapping : []) });
+    if (setting === "keepScratch" && !input.checked) {
+      lastScratchJSON = null;
+      void rpc.request.clearScratch().catch((error) => notice((error as Error).message));
+    }
   };
 }
 
@@ -267,13 +272,20 @@ function updateDirty() {
   if (!current || !savedDoc) return;
   const next = !view.state.doc.eq(savedDoc) || commentsJSON() !== savedComments;
   if (next !== dirty) { dirty = next; rpc.send.dirty({ id: current.id, dirty }); }
+  if (!next && !current.path && lastScratchJSON !== null) {
+    lastScratchJSON = null;
+    void rpc.request.clearScratch().catch((error) => notice((error as Error).message));
+  }
   element("unsaved").hidden = !dirty;
   element("status").textContent = busy ? "Working…" : dirty ? "Unsaved changes" : current.path ? "Saved locally" : "Ready to write";
 }
-function applyDocument(snapshot: DocumentSnapshot) {
+function applyDocument(snapshot: DocumentSnapshot, recovered = false) {
   current = documentMetadata(snapshot);
   view.setState(createEditorState(snapshot.text, snapshot.comments));
-  savedDoc = view.state.doc; savedComments = commentsJSON(); dirty = false; generation++;
+  savedDoc = recovered ? EditorState.create({ doc: "" }).doc : view.state.doc;
+  savedComments = recovered ? "[]" : commentsJSON();
+  lastScratchJSON = recovered ? JSON.stringify(draft()) : null;
+  dirty = false; generation++;
   pendingAnchor = null; element("comment-form").hidden = true; element("conflict").hidden = true;
   previewDirty = true;
   refreshDocumentName(); updateDirty(); updateWordCount(); updatePreview(); renderComments(); updateSelection();
@@ -324,21 +336,35 @@ function formatSelection(marker: string): boolean {
   view.dispatch({ changes: [{ from, insert: marker }, { from: to, insert: marker }], selection: { anchor: from + marker.length, head: to + marker.length }, userEvent: "input" });
   return true;
 }
-async function save(saveAs = false): Promise<boolean> {
+async function stageDraft<T>(complete: (transferId: string) => Promise<T>): Promise<T> {
   const transferId = crypto.randomUUID();
-  let result: DocumentMetadata | null;
   try {
     const serialized = JSON.stringify(draft());
     const total = Math.ceil(serialized.length / SAVE_CHUNK_CHARACTERS);
     for (let index = 0; index < total; index++) {
       await rpc.request.stageSave({ id: current.id, transferId, index, total, text: serialized.slice(index * SAVE_CHUNK_CHARACTERS, (index + 1) * SAVE_CHUNK_CHARACTERS) });
     }
-    result = await rpc.request.save({ id: current.id, transferId, saveAs }, userDialog);
+    return await complete(transferId);
   } finally { rpc.send.cancelSave({ transferId }); }
+}
+async function save(saveAs = false): Promise<boolean> {
+  const result = await stageDraft((transferId) => rpc.request.save({ id: current.id, transferId, saveAs }, userDialog));
   if (!result) return false;
   current = result; savedDoc = view.state.doc; savedComments = commentsJSON();
+  lastScratchJSON = null;
   element("conflict").hidden = true; element("notice").hidden = true;
   refreshDocumentName(); updateDirty(); return true;
+}
+async function persistScratch(): Promise<void> {
+  if (current.path || !settings.keepScratch) return;
+  const serialized = JSON.stringify(draft());
+  if (serialized === lastScratchJSON) return;
+  await stageDraft((transferId) => rpc.request.saveScratch({ id: current.id, transferId }));
+  lastScratchJSON = serialized;
+}
+async function clearScratch(): Promise<void> {
+  lastScratchJSON = null;
+  await rpc.request.clearScratch();
 }
 function hasCommentDraft(): boolean {
   return !!pendingAnchor && !!element<HTMLTextAreaElement>("comment-body").value.trim();
@@ -352,7 +378,10 @@ async function canLeave(): Promise<boolean> {
   }
   if (!dirty) return true;
   const choice = await rpc.request.confirmDiscard(undefined, userDialog);
-  return choice === "save" ? save() : choice === "discard";
+  if (choice === "save") return save();
+  if (choice !== "discard") return false;
+  if (!current.path) await clearScratch();
+  return true;
 }
 async function run(operation: () => Promise<void>) {
   if (busy || !current) return;
@@ -376,10 +405,21 @@ async function perform(command: Command) {
   if (command === "undo" || command === "redo") { (command === "undo" ? undo : redo)(view); view.focus(); return; }
   await run(async () => {
     if (command === "save" || command === "saveAs") { await save(command === "saveAs"); return; }
+    if (command === "quit" && !current.path && dirty && settings.keepScratch) {
+      if (hasCommentDraft()) {
+        showComments(true);
+        notice("Add or cancel the comment you are writing before quitting Sideleaf.");
+        element<HTMLTextAreaElement>("comment-body").focus();
+        return;
+      }
+      await persistScratch();
+      await rpc.request.finishClose({ quit: true });
+      return;
+    }
     if (!(await canLeave())) return;
     if (command === "open") { const next = await rpc.request.open(undefined, userDialog); if (next) applyDocument(next); }
-    else if (command === "new") applyDocument(await rpc.request.newDocument());
-    else await rpc.request.finishClose({ quit: command === "quit" });
+    else if (command === "new" || command === "close") applyDocument(await rpc.request.newDocument());
+    else await rpc.request.finishClose({ quit: true });
   });
 }
 function showComments(show: boolean) {
@@ -462,6 +502,14 @@ element("preview").onclick = (event) => {
 };
 
 setInterval(() => { void checkDisk(); }, 2000);
+setInterval(() => {
+  if (!settings.autoSave || !dirty || busy || !current || view.composing || hasCommentDraft()) return;
+  void run(async () => {
+    if (!dirty) return;
+    if (current.path) await save();
+    else if (settings.keepScratch) await persistScratch();
+  });
+}, 30_000);
 async function checkDisk() {
   if (!current?.path || busy || checking || view.composing) return;
   checking = true;
@@ -478,7 +526,9 @@ async function checkDisk() {
 
 async function initialize() {
   try {
-    applyDocument(await rpc.request.initial());
+    const initial = await rpc.request.initial({ restoreScratch: settings.keepScratch });
+    applyDocument(initial.document, initial.recoveredScratch);
+    if (initial.recoveryError) notice(initial.recoveryError);
     renderUpdate(await rpc.request.updateState());
     rpc.send.ready({ userAgent: navigator.userAgent });
   } catch (error) {

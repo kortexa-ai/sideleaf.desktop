@@ -22,6 +22,7 @@ export type DocumentMetadata = {
   notice: string | null;
 };
 export type DocumentSnapshot = Draft & DocumentMetadata;
+export type InitialDocument = { document: DocumentSnapshot; recoveredScratch: boolean; recoveryError: string | null };
 export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
   const { id, path, name, lineEnding, notice } = snapshot;
   return { id, path, name, lineEnding, notice };
@@ -33,7 +34,7 @@ export type UpdateState = { status: "idle" | "checking" | "current" | "error" } 
 export type SideleafRPC = {
   bun: {
     requests: {
-      initial: { params: undefined; response: DocumentSnapshot };
+      initial: { params: { restoreScratch: boolean }; response: InitialDocument };
       cliAvailability: { params: undefined; response: { wslDistro: string | null } };
       installCLI: { params: { wsl: boolean }; response: boolean };
       updateState: { params: undefined; response: UpdateState };
@@ -44,6 +45,8 @@ export type SideleafRPC = {
       newDocument: { params: undefined; response: DocumentSnapshot };
       stageSave: { params: SaveChunk & { id: string }; response: boolean };
       save: { params: { id: string; transferId: string; saveAs: boolean }; response: DocumentMetadata | null };
+      saveScratch: { params: { id: string; transferId: string }; response: boolean };
+      clearScratch: { params: undefined; response: boolean };
       check: { params: { id: string }; response: { changed: boolean; error: string | null } };
       reload: { params: { id: string }; response: DocumentSnapshot };
       confirmDiscard: { params: undefined; response: "save" | "discard" | "cancel" };

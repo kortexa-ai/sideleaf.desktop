@@ -7,6 +7,7 @@ import { mkdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { DocumentFile } from "./document/files.ts";
+import { ScratchStore } from "./document/scratch.ts";
 import { SaveTransfer } from "./document/save-transfer.ts";
 import { defaultWSLDistro, installCommandLineTool, installWSLCommand } from "./platform/cli-install.ts";
 import { chooseSavePath } from "./platform/dialogs.ts";
@@ -41,6 +42,10 @@ const openArgument = process.argv.indexOf("--sideleaf-open");
 const initialPath = process.env.SIDELEAF_OPEN_PATH ?? (openArgument >= 0 ? process.argv[openArgument + 1] : undefined);
 let document = initialPath ? DocumentFile.open(initialPath) : new DocumentFile();
 const saveTransfer = new SaveTransfer();
+const scratch = new ScratchStore(join(Utils.paths.userData, "untitled-draft.json"));
+let initialDelivered = false;
+let recoveredScratch = false;
+let recoveryError: string | null = null;
 let dirty = false;
 let approvedClose = false;
 let dialogOpen = false;
@@ -55,7 +60,21 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
   handlers: {
     requests: {
-      initial: () => { diagnostic("initial-document", "Requested"); return document.snapshot(); },
+      initial: ({ restoreScratch }) => {
+        if (typeof restoreScratch !== "boolean") throw new Error("Invalid recovery preference.");
+        diagnostic("initial-document", "Requested");
+        if (!initialDelivered && !initialPath && restoreScratch) {
+          try {
+            const draft = scratch.load();
+            if (draft) { document = DocumentFile.fromDraft(draft); recoveredScratch = true; }
+          } catch (error) {
+            recoveryError = "Sideleaf could not restore its untitled draft. The recovery record was left untouched.";
+            diagnostic("scratch-restore-failed", (error as Error).message);
+          }
+        }
+        initialDelivered = true;
+        return { document: document.snapshot(), recoveredScratch, recoveryError };
+      },
       cliAvailability: async () => ({ wslDistro: await defaultWSLDistro() }),
       installCLI: ({ wsl }) => installCLI(wsl === true),
       updateState: () => updates.snapshot(),
@@ -69,10 +88,10 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         const paths = await Utils.openFileDialog({ allowedFileTypes: "md,markdown,mdown,txt", canChooseDirectory: false, allowsMultipleSelection: false });
         if (!paths[0]) return null;
         const next = DocumentFile.open(paths[0]);
-        document = next; saveTransfer.clear(); dirty = false; updateTitle();
+        document = next; saveTransfer.clear(); scratch.clear(); recoveredScratch = false; dirty = false; updateTitle();
         return document.snapshot();
       },
-      newDocument: () => { document = new DocumentFile(); saveTransfer.clear(); dirty = false; updateTitle(); return document.snapshot(); },
+      newDocument: () => { document = new DocumentFile(); saveTransfer.clear(); scratch.clear(); recoveredScratch = false; dirty = false; updateTitle(); return document.snapshot(); },
       stageSave: (part) => { checkId(part?.id); saveTransfer.append(part); return true; },
       save: async (payload) => {
         checkId(payload?.id);
@@ -88,8 +107,15 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         }
         checkId(payload.id);
         const saved = document.save(draft, target);
-        dirty = false; updateTitle(); return documentMetadata(saved);
+        scratch.clear(); recoveredScratch = false; dirty = false; updateTitle(); return documentMetadata(saved);
       },
+      saveScratch: ({ id, transferId }) => {
+        checkId(id);
+        if (document.path) throw new Error("Only an untitled document can use draft recovery.");
+        scratch.save(saveTransfer.take(transferId));
+        return true;
+      },
+      clearScratch: () => { scratch.clear(); recoveredScratch = false; return true; },
       check: ({ id }) => {
         checkId(id);
         try { return { changed: document.changed(), error: null }; }
@@ -169,7 +195,7 @@ async function installCLI(wsl = false): Promise<boolean> {
 function command(action: Command) { rpc.send.command(action); }
 appWindow.on("will-close", (value) => {
   const event = value as { response: { allow: boolean } };
-  if (!approvedClose) { event.response = { allow: false }; command("close"); }
+  if (!approvedClose) { event.response = { allow: false }; command("quit"); }
 });
 events.on("before-quit", (value: unknown) => {
   const event = value as { response: { allow: boolean } };

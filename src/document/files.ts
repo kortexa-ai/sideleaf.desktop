@@ -116,6 +116,14 @@ export class DocumentFile {
     return file;
   }
 
+  static fromDraft(draft: Draft): DocumentFile {
+    validateDraft(draft);
+    const file = new DocumentFile();
+    file.draft = structuredClone(draft);
+    file.notice = "Restored your untitled draft.";
+    return file;
+  }
+
   private load() {
     const disk = readDisk(this.path!);
     const decoded = decodeMarkdown(disk.bytes);
