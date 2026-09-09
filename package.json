@@ -18,9 +18,10 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "validate": "npm run typecheck && npm test",
     "bench:editor": "node --experimental-strip-types scripts/benchmark-editor.ts",
-    "build:release": "npm run validate && npm run build:cli && npm run build:ui && npm run build:native && electrobun build --env=stable && node scripts/prepare-release.mjs",
+    "build:release": "npm run validate && npm run build:cli && npm run build:ui && npm run build:native && electrobun build --env=stable && node scripts/prepare-release.mjs && npm run pack:cli",
     "build:cli": "node scripts/build-cli.mjs",
-    "prepack": "npm run build:cli"
+    "prepack": "npm run build:cli",
+    "pack:cli": "npm run build:cli && npm pack ./dist/cli --pack-destination artifacts/release"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.0",

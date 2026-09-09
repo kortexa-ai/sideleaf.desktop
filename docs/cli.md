@@ -1,9 +1,9 @@
 # Agent command
 
-Build the installable archive with `npm pack`. Install it with
+Build the installable archive with `npm run pack:cli`; it lands in `artifacts/release/`. Install it with
 `npm install -g /absolute/path/sideleaf-desktop-0.1.1.tgz`. Node.js 24+ is required;
 the CLI contains the shared document services and needs no running desktop app.
-The archive is portable between macOS, native Windows and Linux/WSL.
+The archive has no install-time dependencies and is portable between macOS, native Windows and Linux/WSL.
 `sideleaf --help` gives the complete command grammar. JSON is the default output; non-ASCII text uses JSON Unicode escapes so legacy
 PowerShell code pages cannot corrupt returned Markdown or comments.
 

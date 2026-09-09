@@ -103,7 +103,7 @@ must be unpinned once; launch the new Sideleaf and pin that entry. Windows manag
 user pins; the application does not silently rewrite the taskbar's private state.
 See Microsoft's [relaunch property contract](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchcommand).
 
-Build the standalone CLI archive with `npm pack` and include it with distributions.
+Build the standalone CLI archive with `npm run pack:cli` and include it with distributions.
 The desktop package also carries the CLI bundle under `Resources/app/cli`.
 See [command setup](cli.md) for native Windows PATH and per-distribution WSL setup,
 upgrade and uninstall. The CLI uses the user's Node installation, so it adds no
