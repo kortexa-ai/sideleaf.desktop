@@ -26,7 +26,7 @@ export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
   const { id, path, name, lineEnding, notice } = snapshot;
   return { id, path, name, lineEnding, notice };
 }
-export type Command = "new" | "open" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo";
+export type Command = "new" | "open" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo" | "about" | "makeDefaultEditor";
 export type WindowAction = "minimize" | "toggle-maximize" | "close" | "move" | "system-menu" | "titlebar-double-click";
 export type UpdateState = { status: "idle" | "checking" | "current" | "error" } | { status: "available"; version: string; url: string };
 
@@ -39,6 +39,7 @@ export type SideleafRPC = {
       updateState: { params: undefined; response: UpdateState };
       checkUpdates: { params: undefined; response: UpdateState };
       dismissUpdate: { params: undefined; response: boolean };
+      openDefaultApps: { params: undefined; response: boolean };
       open: { params: undefined; response: DocumentSnapshot | null };
       newDocument: { params: undefined; response: DocumentSnapshot };
       stageSave: { params: SaveChunk & { id: string }; response: boolean };

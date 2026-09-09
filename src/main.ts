@@ -61,6 +61,10 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       updateState: () => updates.snapshot(),
       checkUpdates: () => updates.check(true),
       dismissUpdate: () => updates.dismiss(),
+      openDefaultApps: () => {
+        if (process.platform !== "win32") throw new Error("Default Apps is available on Windows only.");
+        return Utils.openExternal("ms-settings:defaultapps");
+      },
       open: async () => {
         const paths = await Utils.openFileDialog({ allowedFileTypes: "md,markdown,mdown,txt", canChooseDirectory: false, allowsMultipleSelection: false });
         if (!paths[0]) return null;
@@ -173,13 +177,13 @@ events.on("before-quit", (value: unknown) => {
 });
 
 if (process.platform !== "win32") ApplicationMenu.setApplicationMenu([
-  { label: "Sideleaf", submenu: [{ role: "about" }, { type: "divider" }, { label: "Install Command Line Tool…", action: "installCLI" }, { type: "divider" }, { role: "hide" }, { role: "hideOthers" }, { role: "showAll" }, { type: "divider" }, { label: "Quit Sideleaf", action: "quit", accelerator: "CmdOrCtrl+Q" }] },
+  { label: "Sideleaf", submenu: [{ label: "About Sideleaf", action: "about" }, { label: "Make Default Editor…", action: "makeDefaultEditor" }, { type: "divider" }, { label: "Install Command Line Tool…", action: "installCLI" }, { type: "divider" }, { role: "hide" }, { role: "hideOthers" }, { role: "showAll" }, { type: "divider" }, { label: "Quit Sideleaf", action: "quit", accelerator: "CmdOrCtrl+Q" }] },
   { label: "File", submenu: [{ label: "New", action: "new", accelerator: "CmdOrCtrl+N" }, { label: "Open…", action: "open", accelerator: "CmdOrCtrl+O" }, { type: "divider" }, { label: "Save", action: "save", accelerator: "CmdOrCtrl+S" }, { label: "Save As…", action: "saveAs", accelerator: "CmdOrCtrl+Shift+S" }, { type: "divider" }, { label: "Close", action: "close", accelerator: "CmdOrCtrl+W" }] },
   { label: "Edit", submenu: [{ label: "Undo", action: "undo", accelerator: "CmdOrCtrl+Z" }, { label: "Redo", action: "redo", accelerator: "CmdOrCtrl+Shift+Z" }, { type: "divider" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }, { type: "divider" }, { label: "Find…", action: "find", accelerator: "CmdOrCtrl+F" }, { label: "Add Comment", action: "comment", accelerator: "CmdOrCtrl+Shift+M" }] },
   { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "toggleFullScreen" }] },
   { label: "Help", submenu: [{ label: "Check for Updates…", action: "checkUpdates" }, { label: "Sideleaf Website", action: "website" }] },
 ]);
-const commands = new Set<Command>(["new", "open", "save", "saveAs", "close", "quit", "comment", "find", "undo", "redo"]);
+const commands = new Set<Command>(["new", "open", "save", "saveAs", "close", "quit", "comment", "find", "undo", "redo", "about", "makeDefaultEditor"]);
 ApplicationMenu.on("application-menu-clicked", (event) => {
   const action = (event as { data: { action: Command } }).data.action;
   if (String(action) === "installCLI") { void installCLI(); return; }

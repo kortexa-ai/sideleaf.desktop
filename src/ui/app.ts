@@ -85,7 +85,6 @@ if (platform === "windows") {
     }
   });
 }
-element("app-version").textContent = `v${APP_VERSION}`;
 rpc.send.diagnostic({ event: "editor-starting", message: "Native bridge attached" });
 
 // The pinned Windows SDK dispatches menu accelerators from CEF, but WebView2
@@ -105,11 +104,12 @@ if (window.__electrobunPlatform === "windows") {
   }, true);
 }
 
-if (window.__electrobunPlatform === "windows") {
+if (window.__electrobunPlatform !== "linux") {
   const container = element("app-menu-container"), toggle = element<HTMLButtonElement>("app-menu-toggle"), menu = element("app-menu");
   container.hidden = false;
   const menuItems = () => [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].filter((item) => !item.hidden);
   async function refreshWSL() {
+    if (platform !== "windows") { element("menu-cli-wsl").hidden = true; return; }
     try { const { wslDistro } = await rpc.request.cliAvailability(); element("menu-cli-wsl").hidden = !wslDistro; } catch { element("menu-cli-wsl").hidden = true; }
   }
   function closeMenu(restoreFocus = false) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); if (restoreFocus) toggle.focus(); }
@@ -130,9 +130,24 @@ if (window.__electrobunPlatform === "windows") {
   container.addEventListener("focusout", (event) => { if (!container.contains(event.relatedTarget as Node)) closeMenu(); });
   for (const [id, wsl] of [["menu-cli", false], ["menu-cli-wsl", true]] as const) element(id).onclick = () => { closeMenu(true); void rpc.request.installCLI({ wsl }).catch((error) => notice(error.message)); };
   void refreshWSL();
+  element("menu-default-editor").onclick = () => { closeMenu(true); showDefaultEditor(); };
   element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
   element("menu-website").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
+  element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
 }
+
+function showAbout() {
+  element("about-version").textContent = `Version ${APP_VERSION}`;
+  element<HTMLDialogElement>("about-dialog").showModal();
+}
+function showDefaultEditor() {
+  if (platform === "windows") { void rpc.request.openDefaultApps().catch((error) => notice(error.message)); return; }
+  element<HTMLDialogElement>("default-editor-dialog").showModal();
+}
+document.querySelectorAll<HTMLButtonElement>("[data-close-dialog]").forEach((button) => {
+  button.onclick = () => element<HTMLDialogElement>(button.dataset.closeDialog!).close();
+});
+element("about-website").onclick = () => { void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
 
 const view = new EditorView({ parent: element("editor"), state: createEditorState("") });
 rpc.send.diagnostic({ event: "editor-created", message: "CodeMirror initialized" });
@@ -279,6 +294,8 @@ async function run(operation: () => Promise<void>) {
 }
 async function perform(command: Command) {
   if (busy || !current) return;
+  if (command === "about") { showAbout(); return; }
+  if (command === "makeDefaultEditor") { showDefaultEditor(); return; }
   if (command === "comment") { beginComment(); return; }
   if (command === "find") { openSearchPanel(view); return; }
   if (command === "undo" || command === "redo") { (command === "undo" ? undo : redo)(view); view.focus(); return; }

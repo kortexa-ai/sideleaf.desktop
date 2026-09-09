@@ -15,6 +15,11 @@ visually quiet.
 - Route Windows caption movement and the system menu through the native HWND;
   the webview can request only a closed set of window actions.
 - Honor the macOS title-bar double-click preference.
+- Group the Windows Sideleaf menu with subtle separators. Keep default-app
+  selection user-controlled through Windows Settings and show About natively.
+- Put the shared hamburger menu in the native caption strip: left on Windows
+  and right on macOS. Keep the macOS application-menu duplicates, theme About
+  like the editor, and align the leaf/app name with the document mark/name.
 
 ## Validation
 
