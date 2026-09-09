@@ -51,6 +51,10 @@ Hutch manages the pinned devkit and Cottontail runtime. No separate Node or npm
 installation is required for development. The current target is Apple Silicon macOS
 and x64 Windows; other OS/architecture combinations need separate acceptance tests.
 
+Use `bun run dev` to rebuild and relaunch the app when the TypeScript UI or host
+changes. Electrobun bundles both directly; Sideleaf separately prepares only the
+installed CLI and the small platform-native helpers.
+
 On Windows, use `bun run build` and the packaged `bin/launcher.exe` for normal use
 and performance checks. Packaging adds a small native adapter for the pinned
 runtime's idle-CPU issue. Its first build downloads a checksum-verified Zig compiler

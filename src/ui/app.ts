@@ -1,4 +1,4 @@
-import "./app.css";
+import "./bootstrap.ts";
 import { Electroview } from "electrobun/view";
 import { basicSetup } from "codemirror";
 import { Compartment, EditorState, Prec, type Text } from "@codemirror/state";
