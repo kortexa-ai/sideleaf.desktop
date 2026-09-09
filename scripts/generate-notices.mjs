@@ -4,18 +4,18 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const lock = JSON.parse(await readFile("package-lock.json", "utf8"));
+const licenses = JSON.parse(execFileSync(process.execPath, ["pm", "licenses", "--prod", "--json"], { encoding: "utf8" }));
+const directories = Object.values(licenses).flat().flatMap((entry) => entry.paths).sort((a, b) => a.localeCompare(b));
 const sources = JSON.parse(await readFile("scripts/third-party-sources.json", "utf8"));
 const sections = ["Sideleaf — third-party copyright and license notices\n\nSideleaf's MIT license does not replace these component licenses.\nSee THIRD_PARTY_NOTICES.md for corresponding source and relinking information."];
 const mit = (await readFile("LICENSE", "utf8")).replace("Copyright (c) 2026 Franci Penov", "Copyright (c) Blackboard Technologies Inc.");
 sections.push(`Cottontail 0.6.0-canary.14 and zig-asar 0.2.7\n\nTheir pinned package.json files declare MIT and Blackboard Technologies Inc. as author.\n\n${mit}`);
 
-for (const [directory, entry] of Object.entries(lock.packages).sort(([a], [b]) => a.localeCompare(b))) {
-  if (!directory || entry.dev) continue;
+for (const directory of directories) {
   const pkg = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
   const files = (await readdir(directory)).filter((name) => /^(license|copying|notice)([.-]|$)/i.test(name)).sort();
   if (!files.length) throw new Error(`Missing license for ${pkg.name}`);
-  sections.push(`${pkg.name} ${pkg.version} (${entry.license})\n\n${(await Promise.all(files.map((name) => readFile(join(directory, name), "utf8")))).join("\n\n")}`);
+  sections.push(`${pkg.name} ${pkg.version} (${pkg.license})\n\n${(await Promise.all(files.map((name) => readFile(join(directory, name), "utf8")))).join("\n\n")}`);
 }
 
 await mkdir("tmp/license-texts", { recursive: true });

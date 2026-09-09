@@ -1,15 +1,15 @@
 # Releasing Sideleaf
 
-Use native macOS and Windows machines and the exact npm lockfile. The pinned
+Use native macOS and Windows machines and the committed `bun.lock`. The pinned
 runtime currently requires macOS 26.6.2 on Apple Silicon. The Windows release
 is tested on Windows 11 x64 and uses the installed WebView2 Evergreen runtime.
 
 ## Build
 
 ```sh
-npm ci
-npm run prepare:devkit
-npm run build:release
+bun install --frozen-lockfile
+bun run prepare:devkit
+bun run build:release
 ```
 
 On macOS, supply a Developer ID Application identity through
@@ -48,7 +48,7 @@ credentials, unreviewed screenshots, or development build directories.
 
 ## Validate before publishing
 
-- Run `npm run validate` on both native platforms.
+- Run `bun run validate` on both native platforms.
 - Install from the actual DMG and Windows setup ZIP. Verify launch, Open, Save As,
   undo/redo, comments, external-write conflicts, and update-menu behavior.
 - On macOS, verify all nested signatures, notarization staples, and Gatekeeper
@@ -67,7 +67,7 @@ credentials, unreviewed screenshots, or development build directories.
 
 ## Tag and announce
 
-Keep `package.json`, the npm lockfile, and `src/shared/version.ts` in agreement.
+Keep `package.json` and `src/shared/version.ts` in agreement.
 Create the `vX.Y.Z` tag at the verified source commit. Attach both platform
 installers to the GitHub release and verify anonymous download access and their
 SHA-256 checksums before linking them from the website.
@@ -104,7 +104,7 @@ user pins; the application does not silently rewrite the taskbar's private state
 See Microsoft's [relaunch property contract](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchcommand).
 
 The CLI ships inside the app and runs with its bundled Cottontail. There is no npm
-package to distribute. Run `npm run test:packaged-cli -- /path/to/bundled/sideleaf`
+package to distribute. Run `bun run test:packaged-cli /path/to/bundled/sideleaf`
 (`sideleaf.exe` on Windows) after packaging. This exercises pipes, input files,
 comments, Unicode and conflict exits with Node/Bun absent from PATH. Test menu
 installation on macOS and Windows, plus default-distro detection and installation

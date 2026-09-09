@@ -4,23 +4,25 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "bun": ">=1.4.0"
   },
   "scripts": {
     "prepare:devkit": "electrobun prepare",
-    "build:ui": "node scripts/build-ui.mjs",
-    "build:icons": "node scripts/build-icons.mjs",
-    "build:native": "node scripts/build-native.mjs",
-    "start": "npm run build:ui && npm run build:native && electrobun dev",
-    "dev": "npm run start",
-    "build": "npm run build:cli && npm run build:ui && npm run build:native && electrobun build --env=dev",
+    "build:ui": "bun scripts/build-ui.mjs",
+    "build:icons": "bun scripts/build-icons.mjs",
+    "build:native": "bun scripts/build-native.mjs",
+    "start": "bun run build:assets && electrobun dev",
+    "dev": "bun run start",
+    "build": "bun run build:assets && electrobun build --env=dev",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "validate": "npm run typecheck && npm test",
-    "bench:editor": "node --experimental-strip-types scripts/benchmark-editor.ts",
-    "build:release": "npm run validate && npm run build:cli && npm run build:ui && npm run build:native && electrobun build --env=stable && node scripts/prepare-release.mjs",
-    "build:cli": "node scripts/build-cli.mjs",
-    "test:packaged-cli": "node scripts/test-packaged-cli.mjs"
+    "test": "bun test ./tests",
+    "validate": "bun run typecheck && bun run test",
+    "bench:editor": "bun scripts/benchmark-editor.ts",
+    "build:release": "bun run validate && bun run build:assets && electrobun build --env=stable && bun scripts/prepare-release.mjs",
+    "build:cli": "bun scripts/build-cli.mjs",
+    "test:packaged-cli": "bun scripts/test-packaged-cli.mjs",
+    "build:notices": "bun scripts/generate-notices.mjs",
+    "build:assets": "bun run build:cli && bun run build:ui && bun run build:native"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.0",
@@ -53,5 +55,6 @@
     "type": "git",
     "url": "https://github.com/kortexa-ai/sideleaf.desktop.git"
   },
-  "homepage": "https://sideleaf.xyz/"
+  "homepage": "https://sideleaf.xyz/",
+  "packageManager": "bun@1.4.0"
 }

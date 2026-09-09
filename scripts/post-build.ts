@@ -12,7 +12,7 @@ const name = process.env.ELECTROBUN_BUILD_ENV === "stable" ? "Sideleaf" : `Sidel
 const root = wrapper ?? join(buildDirectory, process.platform === "darwin" ? `${name}.app` : name);
 if (!wrapper) {
   for (const script of ["scripts/trim-runtime.mjs", "scripts/configure-windows-runtime.mjs"]) {
-    execFileSync("node", [script], { stdio: "inherit" });
+    execFileSync("bun", [script], { stdio: "inherit" });
   }
 
   // Older system ICU versions need this data. Bundle it so first launch works

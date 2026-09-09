@@ -49,7 +49,7 @@ Use that runtime in a local development build of Sideleaf. A modified macOS
 binary needs its own local signature; it does not carry the distributed app's
 Developer ID signature.
 
-`node scripts/generate-notices.mjs` regenerates the notice from installed npm
+`bun run build:notices` regenerates the notice from installed production
 dependencies and the checksum-pinned license inputs in
 `scripts/third-party-sources.json`. Review runtime notices and source materials
 when changing native dependencies.

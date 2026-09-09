@@ -5,7 +5,7 @@ import { wordCountField } from "../src/ui/word-count.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "../src/ui/markdown.ts";
 
 // Measures editor-state transactions and preview parsing, not native key-to-paint
-// latency. Run on both hosts with `npm run bench:editor`; times vary with the CPU.
+// latency. Run on both hosts with `bun run bench:editor`; times vary with the CPU.
 const paragraph = "# Heading\n\nOne green leaf beside these words.\n\n";
 const results = [];
 for (const bytes of [700_000, 9_000_000]) {
@@ -25,4 +25,4 @@ for (const bytes of [700_000, 9_000_000]) {
   if (words !== (state.doc.toString().match(/\S+/g)?.length ?? 0)) throw new Error("Word count mismatch");
   results.push({ bytes, typingMedianMs: timings[30], typingP95Ms: timings[57], previewAndWordCountMs, words });
 }
-console.log(JSON.stringify({ platform: process.platform, architecture: process.arch, node: process.version, results }, null, 2));
+console.log(JSON.stringify({ platform: process.platform, architecture: process.arch, bun: Bun.version, results }, null, 2));

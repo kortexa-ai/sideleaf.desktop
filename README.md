@@ -30,32 +30,35 @@ See the [privacy policy](https://sideleaf.xyz/privacy/) and
 
 ## Run and build
 
-Use Node 24 or newer and npm. On macOS, install the Xcode command-line tools for the
-small native Save-panel adapter. On Windows, use native Windows Node/npm and the
+Use [Bun](https://bun.com/docs/installation) 1.4.0 or newer. On macOS, install the
+Xcode command-line tools for the small native Save-panel adapter. On Windows, use native Windows Bun and the
 installed Microsoft Edge WebView2 Evergreen runtime. Windows PowerShell supplies the
 native Save picker.
 
 ```sh
-npm ci
-npm run prepare:devkit
-npm run validate
-npm start
+bun install --frozen-lockfile
+bun run prepare:devkit
+bun run validate
+bun start
 ```
 
-`npm run build` produces a development package in `build/dev-macos-arm64/` or
+`bun run build` produces a development package in `build/dev-macos-arm64/` or
 `build/dev-win-x64/` on the corresponding machine. Launch the packaged app directly;
 no browser development server is needed. Builds use the exact Electrobun version in
-`hutch.config.ts` and `package-lock.json`. The current target is Apple Silicon macOS
+`hutch.config.ts` and `bun.lock`. `bunfig.toml` runs package CLIs with Bun, including
+the Electrobun bootstrap;
+Hutch manages the pinned devkit and Cottontail runtime. No separate Node or npm
+installation is required for development. The current target is Apple Silicon macOS
 and x64 Windows; other OS/architecture combinations need separate acceptance tests.
 
-On Windows, use `npm run build` and the packaged `bin/launcher.exe` for normal use
+On Windows, use `bun run build` and the packaged `bin/launcher.exe` for normal use
 and performance checks. Packaging adds a small native adapter for the pinned
 runtime's idle-CPU issue. Its first build downloads a checksum-verified Zig compiler
 under `tmp/toolchain`; this build tool is not distributed with the app. The direct
-`npm start` / Electrobun development path does not apply this adapter.
+`bun start` / Electrobun development path does not apply this adapter.
 
 The app icon is original fal.ai artwork. Its source and generation prompt are in
-`assets/`; `npm run build:icons` regenerates platform-size images from that source.
+`assets/`; `bun run build:icons` regenerates platform-size images from that source.
 No image API key or image generation service is used at app runtime.
 
 ## Early release boundaries
@@ -82,7 +85,7 @@ An earlier controlled empty-app measurement was about 321 MiB across the host
 and webview processes; memory remains a limitation under active investigation.
 The packaged Windows app includes an
 [idle-CPU fix and measured verification](docs/windows-runtime-2026-09-07.md).
-`npm run bench:editor` repeats the isolated editing benchmark.
+`bun run bench:editor` repeats the isolated editing benchmark.
 
 The website is [sideleaf.xyz](https://sideleaf.xyz). Sideleaf's own source is
 [MIT-licensed](LICENSE); dependencies retain their

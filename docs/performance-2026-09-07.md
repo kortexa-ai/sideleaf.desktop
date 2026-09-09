@@ -51,7 +51,9 @@ The editing benchmark performs 60 prefix edits with CodeMirror history and comme
 state. The updated run also maintains the incremental word-count field. The
 fixture is repeated Markdown paragraphs, with no comments. These times measure
 state transactions and parsing, **not native keyboard-to-paint latency**. Run
-`npm run bench:editor` to repeat it. The same 9 MB benchmark on Windows measured
+`bun run bench:editor` for the current Bun-based benchmark. The measurements here
+used the original Node runner; compare runtime versions when repeating it.
+The same 9 MB benchmark on Windows measured
 0.021 ms median, 0.067 ms p95 and 24.2 ms preview plus count. A 700 KB fixture also
 runs; all reported word counts are checked against a full independent count.
 
@@ -65,7 +67,7 @@ pass. The 57.3 MiB static Cottontail/JSC executable still dominates installed si
 
 ## Verification and remaining limits
 
-`npm run validate` passes 16 tests on macOS and 15 on Windows, with the POSIX
+The original validation run passed 16 tests on macOS and 15 on Windows, with the POSIX
 symlink test skipped on Windows. Both trimmed packages pass the Cottontail runtime
 smoke for Unicode filenames, UTF-8 BOM/CRLF preservation, atomic saves, comment
 reopen, external conflict rejection, invalid encoding rejection and Save As.

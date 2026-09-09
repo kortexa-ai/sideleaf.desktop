@@ -77,7 +77,8 @@ toolchain, Cottontail packaging, licensing, and API contracts before pinning dep
 Use one main webview per window unless real measurements justify something else. Keep
 document logic testable without a browser and platform adapters small enough to replace.
 Choose a UI framework only if the first slice benefits from it; avoid building a framework
-within the app. Use npm and ordinary repository build scripts.
+within the app. Use Bun for dependency installation, repository scripts, and tests; Hutch owns the
+Electrobun desktop toolchain. Developers do not need a separate Node or npm installation.
 
 Markdown content is untrusted input, even in a local editor. Disable raw HTML initially
 or sanitize it through a reviewed renderer policy. Restrict link schemes, handle external

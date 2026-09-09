@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DocumentFile } from "../src/document/files.ts";
 const cli = (args: string[], input?: object) => {
-  const result = spawnSync(process.execPath, ["--experimental-strip-types", resolve("src/cli.ts"), ...args], { input: input ? JSON.stringify(input) : undefined, encoding: "utf8" });
+  const result = spawnSync(process.execPath, [resolve("src/cli.ts"), ...args], { input: input ? JSON.stringify(input) : undefined, encoding: "utf8" });
   return { status: result.status, data: JSON.parse(result.stdout || result.stderr) };
 };
 test("agent read/edit/comment lifecycle, stale actions and dirty GUI conflict", () => {

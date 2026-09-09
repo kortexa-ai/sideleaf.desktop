@@ -1,0 +1,6 @@
+# Run package CLIs (including Node shebangs) with Bun.
+[run]
+bun = true
+
+[test]
+root = "./tests"

@@ -2,8 +2,8 @@
 
 The first implementation targets Apple Silicon macOS and x64 Windows together, as
 requested during implementation. Electrobun is pinned to `2.0.2-beta.15`; its devkit
-pins application Cottontail to `0.6.0-canary.14` and the npm bootstrap pins Hutch to
-`0.26.0-canary.10`. The main process uses narrow Electrobun API entry points. The
+pins application Cottontail to `0.6.0-canary.14` and the Electrobun bootstrap (run
+with Bun) pins Hutch to `0.26.0-canary.10`. The main process uses narrow Electrobun API entry points. The
 single webview uses bundled DOM/CSS/JavaScript, CodeMirror 6, and markdown-it 15.0.1.
 No Warren, Dawn, CEF, Node, or Bun runtime is bundled intentionally.
 

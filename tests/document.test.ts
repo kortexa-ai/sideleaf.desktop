@@ -105,7 +105,7 @@ test("opening a symlink saves its resolved target without replacing the link", {
 
 
 test("WSL file locations distinguish distro UNC paths from ordinary network shares", () => {
-  assert.deepEqual(wslLocation(String.raw`\\wsl.localhost\Ubuntu\home\francip\notes café.md`), { distro: "Ubuntu", path: "/home/francip/notes café.md" });
+  assert.deepEqual(wslLocation("\\\\wsl.localhost\\Ubuntu\\home\\francip\\notes café.md"), { distro: "Ubuntu", path: "/home/francip/notes café.md" });
   assert.deepEqual(wslLocation(String.raw`\\wsl$\Ubuntu Dev\tmp\notes.md`), { distro: "Ubuntu Dev", path: "/tmp/notes.md" });
   assert.equal(wslLocation(String.raw`\\server\share\notes.md`), null);
   assert.equal(wslLocation(String.raw`C:\notes.md`), null);
