@@ -27,7 +27,8 @@ document lifecycle instead of merely making the app appear in an OS picker.
   and open the app-specific Default Apps page from Sideleaf.
 - Route Windows shell activation through the existing native launcher adapter's
   `--sideleaf-open` path so Unicode and spaced filenames retain their argument
-  boundary.
+  boundary. Set its working directory explicitly because Windows association
+  launches do not inherit the app's `bin` directory from a shortcut.
 - Suppress the collapsed final block margin that made a short non-empty preview
   show a scrollbar despite fitting in the pane.
 

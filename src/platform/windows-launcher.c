@@ -18,6 +18,11 @@ void WINAPI sideleafStart(void) {
     DWORD directory = length;
     while (directory && runtimePath[directory - 1] != L'\\') --directory;
     if (!directory) fail();
+    // Shell file-association commands do not provide a working directory.
+    // Electrobun resolves its adjacent resources from the application bin
+    // directory, so make that invariant explicit for every launch path.
+    runtimePath[directory] = 0;
+    if (!SetCurrentDirectoryW(runtimePath)) fail();
     const WCHAR filename[] = L"electrobun-launcher.exe";
     if (directory + sizeof(filename) / sizeof(WCHAR) > 32768) fail();
     for (DWORD i = 0; i < sizeof(filename) / sizeof(WCHAR); ++i) runtimePath[directory + i] = filename[i];
