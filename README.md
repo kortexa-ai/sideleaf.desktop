@@ -23,7 +23,7 @@ Windows also needs Microsoft's WebView2 Evergreen runtime.
 
 Your documents stay on your computer. There are no accounts or writing uploads.
 Sideleaf checks GitHub for a newer stable version once a day and shows a small,
-dismissible notice. Help → Check for Updates on macOS, or the Sideleaf ▾ menu on Windows, checks on demand. Updates open the
+dismissible notice. Help → Check for Updates on macOS, or the hamburger menu on Windows, checks on demand. Updates open the
 release page and install only when you choose to install them.
 See the [privacy policy](https://sideleaf.xyz/privacy/) and
 [terms](https://sideleaf.xyz/terms/) for details.
@@ -69,17 +69,18 @@ No image API key or image generation service is used at app runtime.
 
 - UTF-8 (with or without BOM), consistent LF or CRLF, files up to 10 MiB. Unsupported
   encodings and mixed line endings are rejected without changing the file.
-- Saves are explicit. Clean external changes reload; unsaved changes show a conflict
-  with Save a copy and Reload options. There is no autosave or crash recovery for
-  unsaved editor buffers yet.
+- Autosave runs every 30 seconds by default. Named documents save to their file;
+  one untitled draft can recover from private local app data after a restart. Both
+  behaviors have simple settings. Closing a dirty document still offers Save,
+  Discard, or Cancel, and external changes show Save a copy and Reload options.
 - Markdown preview supports common Markdown and tables. Raw HTML and image loading
   are disabled. Only HTTP, HTTPS, and email links open externally. The preview shows
   the first 200,000 characters of large files; the complete source remains editable.
 - Comments participate in undo/redo. Editing their selected text makes them visibly
   unanchored; undo restores the prior anchor. Sideleaf metadata is its own versioned
   format, with no claimed Margin interchange compatibility.
-- Tabs, workspaces, advanced
-  review, session recovery, and full accessibility/IME acceptance remain later work.
+- Tabs, workspaces, advanced review, recovery for multiple untitled drafts, and full
+  accessibility/IME acceptance remain later work.
 
 See [PLAN.md](PLAN.md) for product direction and [prototype decisions](docs/prototype.md)
 for file safety, runtime boundaries, and platform details. Execution and validation
