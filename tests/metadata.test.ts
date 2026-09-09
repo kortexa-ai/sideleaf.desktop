@@ -42,3 +42,13 @@ test("disagreeing embedded and legacy metadata fails without dropping either cop
   writeFileSync(`${path}.sideleaf.json`, JSON.stringify({ format: "sideleaf-comments", version: 1, revisions: [{ sourceHash: hash("Other"), comments: [] }] }));
   assert.throws(() => DocumentFile.open(path), /disagree/);
 });
+
+test("unchanged annotated saves and Save As preserve retained revisions", () => {
+  const path = fixture(); const file = DocumentFile.open(path); const draft = file.snapshot();
+  draft.comments.push({ id: "a", body: "First", createdAt: "today", anchor: makeAnchor(draft.text, 0, 5) });
+  file.save(draft); draft.comments[0]!.body = "Second"; file.save(draft);
+  const before = readFileSync(path), history = file.history(), revision = file.revision();
+  for (let i = 0; i < 5; i++) file.save(draft);
+  assert.deepEqual(readFileSync(path), before); assert.deepEqual(file.history(), history); assert.equal(file.revision(), revision);
+  file.save(draft, `${path}-copy.md`); assert.deepEqual(file.history(), history);
+});

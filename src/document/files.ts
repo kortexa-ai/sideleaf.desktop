@@ -152,7 +152,9 @@ export class DocumentFile {
       if (source.length > MAX_DOCUMENT_BYTES) throw new Error("Markdown source exceeds 10 MiB.");
       // Reserve the block even on plain saves; never silently hide user content.
       if (splitMetadata(draft.text).metadata) throw new Error("Source contains reserved Sideleaf metadata.");
-      const revision: CommentRevision = { sourceHash: hash(source), comments: structuredClone(draft.comments), actor, savedAt: new Date().toISOString() };
+      const previousRevision = this.revisions[0];
+      const unchanged = this.disk?.metadata === null && previousRevision?.sourceHash === hash(source) && JSON.stringify(previousRevision.comments) === JSON.stringify(draft.comments);
+      const revision: CommentRevision = unchanged ? previousRevision : { sourceHash: hash(source), comments: structuredClone(draft.comments), actor, savedAt: new Date().toISOString() };
       const revisions = [revision, ...this.revisions.filter((r) => JSON.stringify(r) !== JSON.stringify(revision))].slice(0, 3);
       const metadata: Metadata = { format: "sideleaf-comments", version: 1, revisions };
       const annotated = draft.comments.length > 0 || this.revisions.length > 0 || actor !== "local-user";
