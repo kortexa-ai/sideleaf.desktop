@@ -52,3 +52,11 @@ test("unchanged annotated saves and Save As preserve retained revisions", () => 
   assert.deepEqual(readFileSync(path), before); assert.deepEqual(file.history(), history); assert.equal(file.revision(), revision);
   file.save(draft, `${path}-copy.md`); assert.deepEqual(file.history(), history);
 });
+
+test("editing a reopened snapshot cannot mutate prior saved comment revisions", () => {
+  const path = fixture(); let file = DocumentFile.open(path); let draft = file.snapshot();
+  draft.comments.push({ id: "a", body: "Original", createdAt: "today", anchor: makeAnchor(draft.text, 0, 5) }); file.save(draft);
+  file = DocumentFile.open(path); draft = file.snapshot(); draft.comments[0]!.body = "Updated";
+  assert.equal(file.snapshot().comments[0]!.body, "Original"); file.save(draft, undefined, "agent:test");
+  const history = DocumentFile.open(path).history(); assert.equal(history[0]!.actor, "agent:test"); assert.equal(history[1]!.comments[0]!.body, "Original");
+});

@@ -82,7 +82,7 @@ export class DocumentFile {
   history(): CommentRevision[] { return structuredClone(this.revisions); }
 
   snapshot(): DocumentSnapshot {
-    return { ...this.draft, id: this.id, path: this.path, name: this.path ? basename(this.path) : "Untitled.md", lineEnding: this.lineEnding, notice: this.notice };
+    return { ...structuredClone(this.draft), id: this.id, path: this.path, name: this.path ? basename(this.path) : "Untitled.md", lineEnding: this.lineEnding, notice: this.notice };
   }
 
   static open(path: string): DocumentFile {
