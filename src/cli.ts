@@ -64,8 +64,18 @@ async function main() {
       if (!app && wsl) inputError("Use --app with the installed Windows bin/launcher.exe path (in /mnt/c/...) for desktop opening from WSL.");
       app ??= join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "ai.kortexa.sideleaf", "stable", "app", "bin", "launcher.exe");
       if (!existsSync(app)) inputError("Sideleaf launcher was not found. Use --app PATH.");
-      const child = spawn(resolve(app), ["--sideleaf-open", path], { detached: true, stdio: "ignore", cwd: dirname(resolve(app)), env: { ...process.env, SIDELEAF_OPEN_PATH: path } });
-      await new Promise<void>((accept, reject) => { child.once("spawn", accept); child.once("error", reject); }); child.unref();
+      if (wsl) {
+        const nativeApp = execFileSync("wslpath", ["-w", resolve(app)], { encoding: "utf8" }).trim();
+        const nativeFolder = execFileSync("wslpath", ["-w", dirname(resolve(app))], { encoding: "utf8" }).trim();
+        const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+        // Start in a native Windows process so the app outlives WSL interop's
+        // short-lived command and receives the requested file in its environment.
+        const script = `$ErrorActionPreference = 'Stop'; $env:SIDELEAF_OPEN_PATH = ${literal(path)}; Start-Process -FilePath ${literal(nativeApp)} -WorkingDirectory ${literal(nativeFolder)}`;
+        execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { stdio: "ignore" });
+      } else {
+        const child = spawn(resolve(app), ["--sideleaf-open", path], { detached: true, stdio: "ignore", cwd: dirname(resolve(app)), env: { ...process.env, SIDELEAF_OPEN_PATH: path } });
+        await new Promise<void>((accept, reject) => { child.once("spawn", accept); child.once("error", reject); }); child.unref();
+      }
     }
     output({ ok: true, path }); return;
   }
