@@ -4,7 +4,8 @@ Build the installable archive with `npm pack`. Install it with
 `npm install -g /absolute/path/sideleaf-desktop-0.1.1.tgz`. Node.js 24+ is required;
 the CLI contains the shared document services and needs no running desktop app.
 The archive is portable between macOS, native Windows and Linux/WSL.
-`sideleaf --help` gives the complete command grammar. JSON is the default output.
+`sideleaf --help` gives the complete command grammar. JSON is the default output; non-ASCII text uses JSON Unicode escapes so legacy
+PowerShell code pages cannot corrupt returned Markdown or comments.
 
 On Windows, run `scripts/install-cli.ps1 -Package C:\path\sideleaf-desktop-0.1.1.tgz`.
 It installs the native command, adds npm's command directory to your user PATH

@@ -29,7 +29,9 @@ attribution, not authenticated identities. Exit: 0 success, 2 input/usage,
 3 revision conflict or writer lock, 1 filesystem/runtime failure.
 Use --input PATH instead of stdin. Node.js 24+ is required.
 `;
-function output(value: unknown) { process.stdout.write(`${JSON.stringify(value)}\n`); }
+// ASCII JSON survives legacy PowerShell code pages without corrupting Unicode.
+function json(value: unknown) { return JSON.stringify(value).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`); }
+function output(value: unknown) { process.stdout.write(`${json(value)}\n`); }
 function inputError(message: string): never { throw Object.assign(new Error(message), { exitCode: 2 }); }
 function integer(value: unknown): number { if (!Number.isSafeInteger(value) || (value as number) < 0) inputError("Offsets must be nonnegative UTF-16 integers."); return value as number; }
 function body(value: unknown): string { if (typeof value !== "string" || !value.trim() || value.length > 20_000) inputError("Comment body must contain 1–20,000 characters."); return value; }
@@ -116,5 +118,5 @@ async function main() {
 }
 main().catch((error) => {
   const code = error.exitCode ?? (/changed on disk|changed during|holds this document|Revision conflict/.test(error.message) ? 3 : 1);
-  process.stderr.write(`${JSON.stringify({ ok: false, error: error.message, code })}\n`); process.exitCode = code;
+  process.stderr.write(`${json({ ok: false, error: error.message, code })}\n`); process.exitCode = code;
 });

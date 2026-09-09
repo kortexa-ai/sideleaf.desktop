@@ -9,7 +9,7 @@ repositories under `kortexa-ai`:
 
 | Repository | Responsibility |
 | --- | --- |
-| `sideleaf.desktop` | Desktop app, document behavior, packaging, and eventual CLI |
+| `sideleaf.desktop` | Desktop app, document behavior, packaging, and agent CLI |
 | `sideleaf` | Website and distribution entry point; a parking page initially |
 
 This is a new implementation. Margin is a product specification and a source of
@@ -68,7 +68,7 @@ toolchain, Cottontail packaging, licensing, and API contracts before pinning dep
 1. **Native host:** windows, application menus, native file dialogs, file associations,
    OS open-file events, filesystem access, file watching, and packaging.
 2. **Document services:** stable document identity, content revisions, saves, conflicts,
-   annotations, comparison snapshots, and eventual CLI operations.
+   annotations, comparison snapshots, and agent CLI operations.
 3. **Editor/viewer UI:** CodeMirror, Markdown preview, tabs, file navigation, selection
    presentation, and comment interactions.
 4. **Typed bridge:** explicit requests and events between host and webview. Validate
@@ -198,9 +198,8 @@ save semantics, comment format, conflict handling, or revision model.
   symlinks, and interrupted writes. “Saved” must mean the intended data reached disk.
 - **External writes:** identify self-writes; reload clean documents safely; preserve unsaved
   edits when disk changes conflict. Do not silently pick whichever writer finished last.
-- **Annotations:** choose metadata storage deliberately. Decide sidecar versus embedded
-  metadata, portability, anchor context, and failure handling when content and comments
-  cannot be committed together. An orphaned comment is preferable to a wrong anchor.
+- **Annotations:** use the embedded format and retain legacy migration backups.
+  Preserve portability, anchor context, and recovery when a save cannot complete. An orphaned comment is preferable to a wrong anchor.
 - **Recovery:** retain recoverable unsaved state without modifying the original file behind
   the user's back. Test crash and failed-save paths before relying on autosave.
 
