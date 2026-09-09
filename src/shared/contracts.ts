@@ -33,6 +33,8 @@ export type SideleafRPC = {
   bun: {
     requests: {
       initial: { params: undefined; response: DocumentSnapshot };
+      cliAvailability: { params: undefined; response: { wslDistro: string | null } };
+      installCLI: { params: { wsl: boolean }; response: boolean };
       updateState: { params: undefined; response: UpdateState };
       checkUpdates: { params: undefined; response: UpdateState };
       dismissUpdate: { params: undefined; response: boolean };

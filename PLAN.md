@@ -168,6 +168,11 @@ and add features because daily use needs them.
 
 - Ship an installable `sideleaf` CLI on macOS, Windows and WSL for opening files,
   reading/editing Markdown and listing/adding/updating/removing comments without a GUI.
+- Use the app's bundled Cottontail runtime for the CLI. End users never need Node,
+  Bun or npm. macOS and Windows expose an installation command in the Sideleaf menu;
+  the Windows installer also offers native CLI installation. A separate Windows menu
+  command installs a WSL wrapper into the detected default distro, only when available.
+  The Windows installer never modifies WSL.
 - Share embedded metadata and document services, deterministic JSON reads, explicit
   actor attribution, UTF-16 coordinates, and mandatory revision preconditions.
 - Keep watch events, suggestions and richer review operations separately scoped.

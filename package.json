@@ -1,6 +1,6 @@
 {
   "name": "sideleaf-desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "engines": {
@@ -18,10 +18,9 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "validate": "npm run typecheck && npm test",
     "bench:editor": "node --experimental-strip-types scripts/benchmark-editor.ts",
-    "build:release": "npm run validate && npm run build:cli && npm run build:ui && npm run build:native && electrobun build --env=stable && node scripts/prepare-release.mjs && npm run pack:cli",
+    "build:release": "npm run validate && npm run build:cli && npm run build:ui && npm run build:native && electrobun build --env=stable && node scripts/prepare-release.mjs",
     "build:cli": "node scripts/build-cli.mjs",
-    "prepack": "npm run build:cli",
-    "pack:cli": "npm run build:cli && npm pack ./dist/cli --pack-destination artifacts/release"
+    "test:packaged-cli": "node scripts/test-packaged-cli.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.0",
@@ -54,14 +53,5 @@
     "type": "git",
     "url": "https://github.com/kortexa-ai/sideleaf.desktop.git"
   },
-  "homepage": "https://sideleaf.xyz/",
-  "bin": {
-    "sideleaf": "dist/cli/sideleaf.mjs"
-  },
-  "files": [
-    "dist/cli",
-    "scripts/install-cli.ps1",
-    "scripts/install-cli.sh",
-    "docs/cli.md"
-  ]
+  "homepage": "https://sideleaf.xyz/"
 }

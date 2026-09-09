@@ -10,6 +10,8 @@ literal source editing, live preview, find/replace, and anchored comments with u
 Comments and retained revision metadata are embedded in the Markdown file; copy the
 `.md` file to carry them with your writing. Existing comment sidecars migrate on save.
 The [agent CLI](docs/cli.md) reads and edits documents/comments without a running GUI.
+Install it from the Sideleaf menu (or Windows Setup); it uses the bundled Cottontail
+runtime and needs no separate Node, Bun, or npm installation.
 
 ## Download
 

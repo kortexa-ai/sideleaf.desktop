@@ -1,24 +1,32 @@
-# Agent command
+# Command line tool
 
-Build the installable archive with `npm run pack:cli`; it lands in `artifacts/release/`. Install it with
-`npm install -g /absolute/path/sideleaf-desktop-0.1.1.tgz`. Node.js 24+ is required;
-the CLI contains the shared document services and needs no running desktop app.
-The archive has no install-time dependencies and is portable between macOS, native Windows and Linux/WSL.
-`sideleaf --help` gives the complete command grammar. JSON is the default output; non-ASCII text uses JSON Unicode escapes so legacy
-PowerShell code pages cannot corrupt returned Markdown or comments.
+Sideleaf includes its command-line tool and Cottontail runtime. End users do not
+need Node, Bun, npm, or a running desktop window.
 
-On Windows, run `scripts/install-cli.ps1 -Package C:\path\sideleaf-desktop-0.1.1.tgz`.
-It installs the native command, adds npm's command directory to your user PATH
-if needed, and lists installed WSL distributions. Add `-Distribution Ubuntu`
-(or an array of exact distribution names) to install into selected distributions.
-Each needs its own Linux Node.js 24+ and npm. No WSL installation is required for
-native use. Rerun the same setup after adding a distribution or updating Sideleaf.
-Use `-Uninstall` with the same distributions to remove commands; npm's shared PATH
-entry remains because other commands can use it. `npm uninstall -g sideleaf-desktop`
-also works independently in each shell. npm replaces commands in place on upgrade.
+- **macOS:** choose **Sideleaf → Install Command Line Tool…**. Sideleaf creates
+  `/usr/local/bin/sideleaf`, linked to the command inside the app. macOS asks for
+  administrator authorization only if that directory is not writable. Keep the app
+  in Applications; moving it requires rerunning the menu command. An unrelated
+  existing command is never overwritten.
+- **Windows:** select **Install the sideleaf command-line tool** in Setup, or choose
+  **Sideleaf → Install Command Line Tool…** later. Both add the app's `bin` directory
+  to the current user's PATH. Open a new terminal afterward. Windows uninstall removes
+  that exact PATH entry and its installed files; no administrator account is required.
+- **WSL:** Windows shows **Install Command Line Tool in WSL…** only when WSL has an
+  available default distribution. It confirms the distro name and installs there only.
+  Setup never modifies WSL. The wrapper uses the Windows app's bundled runtime through
+  WSL interoperability, translating document and input-file paths. No Linux JS runtime
+  is needed. After changing the default distro, run the menu command again to install
+  there. WSL interoperability must be enabled.
 
-On macOS/WSL, `sh scripts/install-cli.sh /path/to/archive.tgz` is equivalent to the
-npm installation. Use a user-owned Node installation; elevated access is unnecessary.
+The command follows desktop updates because it runs from the installed app.
+`sideleaf --help` describes commands. JSON output escapes non-ASCII characters so
+legacy Windows code pages cannot corrupt text.
+
+On macOS, remove the command link before removing the app: `sudo rm /usr/local/bin/sideleaf`.
+In each WSL distro where you installed it, `sudo rm /usr/local/bin/sideleaf` removes the
+wrapper. Windows uninstall does not start or modify any WSL distro. A retained WSL
+wrapper reports that the app is missing instead of running a stale copied CLI.
 
 ```sh
 sideleaf read 'notes café.md' > snapshot.json
@@ -60,8 +68,7 @@ Uncooperative editors can still race the final filesystem rename.
 identifier; `--app /path/Sideleaf.app` selects a particular build. On Windows use
 `--app 'C:\path\to\Sideleaf\bin\launcher.exe'` if automatic discovery fails.
 Paths with spaces/Unicode are passed as arguments, never evaluated as shell code.
-In WSL, document operations use Linux directly for both `/mnt/c/...` and native
-Linux files; Windows drive paths are converted with `wslpath`. To open the Windows
-GUI from WSL, use `--app /mnt/c/path/to/Sideleaf/bin/launcher.exe`. Drive and native
-WSL document paths are converted to Windows drive/UNC paths in the current distro.
-This requires WSL interoperability and access to that distro from Windows.
+In WSL, the wrapper translates relative paths, `/mnt/...` paths and native Linux
+paths into Windows drive/UNC paths. Windows drive paths are also accepted. Pipes
+and `--input` work; `sideleaf open FILE` finds the installed Windows app automatically.
+This requires WSL interoperability and Windows access to the current distro.

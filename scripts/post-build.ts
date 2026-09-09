@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 // Run before Hutch signs, compresses, and wraps the final application.
@@ -36,6 +36,11 @@ if (!wrapper) {
   writeFileSync(destination, data);
 }
 if (process.platform === "darwin") {
+  if (!wrapper) {
+    const command = join(root, "Contents/MacOS/sideleaf");
+    copyFileSync("src/platform/cli-launcher.sh", command);
+    chmodSync(command, 0o755);
+  }
   // This is the actual minimum encoded in the pinned Cottontail Mach-O binary.
   const plist = join(root, "Contents", "Info.plist");
   const buddy = "/usr/libexec/PlistBuddy";

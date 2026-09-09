@@ -57,6 +57,13 @@ const platform = process.platform === "darwin" ? "macos" : process.platform === 
 if ((platform === "macos" && process.arch !== "arm64") || (platform === "windows" && process.arch !== "x64") || !platform) {
   throw new Error("This release supports native macOS arm64 and Windows x64 builds.");
 }
+if (platform === "windows") {
+  execFileSync(process.execPath, ["scripts/build-windows-installer.mjs"], { stdio: "inherit" });
+  const archive = resolve("artifacts", "win-x64-Sideleaf-Setup.zip");
+  const installer = resolve("artifacts/release", `Sideleaf-${version}-windows-x64-setup.exe`);
+  const literal = (value) => "'" + value.replaceAll("'", "''") + "'";
+  execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Compress-Archive -LiteralPath ${literal(installer)} -DestinationPath ${literal(archive)} -Force`], { stdio: "inherit" });
+}
 const source = platform === "macos" ? await macDiskImage() : join("artifacts", "win-x64-Sideleaf-Setup.zip");
 const target = platform === "macos" ? `Sideleaf-${version}-macos-arm64.dmg` : `Sideleaf-${version}-windows-x64-setup.zip`;
 const output = "artifacts/release";

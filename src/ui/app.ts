@@ -65,9 +65,12 @@ if (window.__electrobunPlatform === "windows") {
 if (window.__electrobunPlatform === "windows") {
   const container = element("app-menu-container"), toggle = element<HTMLButtonElement>("app-menu-toggle"), menu = element("app-menu");
   container.hidden = false;
-  const items = [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
+  const menuItems = () => [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].filter((item) => !item.hidden);
+  async function refreshWSL() {
+    try { const { wslDistro } = await rpc.request.cliAvailability(); element("menu-cli-wsl").hidden = !wslDistro; } catch { element("menu-cli-wsl").hidden = true; }
+  }
   function closeMenu(restoreFocus = false) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); if (restoreFocus) toggle.focus(); }
-  function openMenu(last = false) { menu.hidden = false; toggle.setAttribute("aria-expanded", "true"); items[last ? items.length - 1 : 0]!.focus(); }
+  function openMenu(last = false) { const items = menuItems(); void refreshWSL(); menu.hidden = false; toggle.setAttribute("aria-expanded", "true"); items[last ? items.length - 1 : 0]!.focus(); }
   toggle.onclick = () => { if (menu.hidden) openMenu(); else closeMenu(true); };
   toggle.onkeydown = (event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); openMenu(event.key === "ArrowUp"); } };
   menu.onkeydown = (event) => {
@@ -75,12 +78,15 @@ if (window.__electrobunPlatform === "windows") {
     else if (event.key === "Tab") closeMenu(true);
     else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
+      const items = menuItems();
       const index = items.indexOf(document.activeElement as HTMLButtonElement);
       items[event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]!.focus();
     }
   };
   document.addEventListener("pointerdown", (event) => { if (!container.contains(event.target as Node)) closeMenu(); });
   container.addEventListener("focusout", (event) => { if (!container.contains(event.relatedTarget as Node)) closeMenu(); });
+  for (const [id, wsl] of [["menu-cli", false], ["menu-cli-wsl", true]] as const) element(id).onclick = () => { closeMenu(true); void rpc.request.installCLI({ wsl }).catch((error) => notice(error.message)); };
+  void refreshWSL();
   element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
   element("menu-website").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
 }

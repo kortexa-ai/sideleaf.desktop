@@ -103,8 +103,21 @@ must be unpinned once; launch the new Sideleaf and pin that entry. Windows manag
 user pins; the application does not silently rewrite the taskbar's private state.
 See Microsoft's [relaunch property contract](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchcommand).
 
-Build the standalone CLI archive with `npm run pack:cli` and include it with distributions.
-The desktop package also carries the CLI bundle under `Resources/app/cli`.
-See [command setup](cli.md) for native Windows PATH and per-distribution WSL setup,
-upgrade and uninstall. The CLI uses the user's Node installation, so it adds no
-second runtime to the desktop bundle.
+The CLI ships inside the app and runs with its bundled Cottontail. There is no npm
+package to distribute. Run `npm run test:packaged-cli -- /path/to/bundled/sideleaf`
+(`sideleaf.exe` on Windows) after packaging. This exercises pipes, input files,
+comments, Unicode and conflict exits with Node/Bun absent from PATH. Test menu
+installation on macOS and Windows, plus default-distro detection and installation
+on Windows with and without WSL. See [command setup](cli.md).
+
+The Windows release uses Inno Setup **6.7.3** for its CLI checkbox, per-user PATH,
+shortcuts and uninstall lifecycle. This is a build-only tool. Install the official
+[compiler](https://github.com/jrsoftware/issrc/releases/tag/is-6_7_3), verify its
+Authenticode publisher is `Pyrsys B.V.`, and set `SIDELEAF_ISCC` to `ISCC.exe`.
+The installer download's SHA-256 is
+`9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732`.
+The repository-local fallback path is `tmp/toolchain/inno/ISCC.exe`.
+Setup installs to the same canonical app directory and retires the previous
+Electrobun uninstall registration only when it owns that exact directory.
+It does not touch preferences, document files, or WSL. Test both selected and
+unselected CLI installation, upgrades, and uninstall in an isolated directory.

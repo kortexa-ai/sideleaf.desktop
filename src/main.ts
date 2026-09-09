@@ -7,6 +7,7 @@ import { mkdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DocumentFile } from "./document/files.ts";
 import { SaveTransfer } from "./document/save-transfer.ts";
+import { defaultWSLDistro, installCommandLineTool, installWSLCommand } from "./platform/cli-install.ts";
 import { chooseSavePath } from "./platform/dialogs.ts";
 import { documentMetadata, type Command, type SideleafRPC } from "./shared/contracts.ts";
 import { APP_VERSION } from "./shared/version.ts";
@@ -44,6 +45,8 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
   handlers: {
     requests: {
       initial: () => { diagnostic("initial-document", "Requested"); return document.snapshot(); },
+      cliAvailability: async () => ({ wslDistro: await defaultWSLDistro() }),
+      installCLI: ({ wsl }) => installCLI(wsl === true),
       updateState: () => updates.snapshot(),
       checkUpdates: () => updates.check(true),
       dismissUpdate: () => updates.dismiss(),
@@ -121,6 +124,23 @@ const window = new BrowserWindow({
 
 function updateTitle() { window.setTitle(`${dirty ? "● " : ""}${document.snapshot().name} — Sideleaf`); }
 updateTitle();
+let cliInstallationOpen = false;
+async function installCLI(wsl = false): Promise<boolean> {
+  if (cliInstallationOpen) return false;
+  cliInstallationOpen = true;
+  try {
+    const distro = wsl ? await defaultWSLDistro() : null;
+    if (wsl && !distro) throw new Error("WSL has no available default distribution.");
+    const { response } = await Utils.showMessageBox({ type: "question", title: "Install Command Line Tool", message: wsl ? `Install sideleaf in ${distro}?` : "Install the sideleaf command?", detail: wsl ? "This installs into your default WSL distribution only and uses the Windows app's bundled runtime." : "Use sideleaf from a terminal to read and edit Markdown and comments. No Node or Bun installation is needed.", buttons: ["Install", "Cancel"], defaultId: 0, cancelId: 1 });
+    if (response !== 0) return false;
+    const detail = wsl ? await installWSLCommand(distro!) : await installCommandLineTool();
+    await Utils.showMessageBox({ type: "info", title: "Command Line Tool Installed", message: "sideleaf is ready", detail, buttons: ["OK"] });
+    return true;
+  } catch (error) {
+    await Utils.showMessageBox({ type: "error", title: "Command Installation", message: "Could not install the command", detail: (error as Error).message, buttons: ["OK"] });
+    return false;
+  } finally { cliInstallationOpen = false; }
+}
 function command(action: Command) { rpc.send.command(action); }
 window.on("will-close", (value) => {
   const event = value as { response: { allow: boolean } };
@@ -132,7 +152,7 @@ events.on("before-quit", (value: unknown) => {
 });
 
 if (process.platform !== "win32") ApplicationMenu.setApplicationMenu([
-  { label: "Sideleaf", submenu: [{ role: "about" }, { type: "divider" }, { role: "hide" }, { role: "hideOthers" }, { role: "showAll" }, { type: "divider" }, { label: "Quit Sideleaf", action: "quit", accelerator: "CmdOrCtrl+Q" }] },
+  { label: "Sideleaf", submenu: [{ role: "about" }, { type: "divider" }, { label: "Install Command Line Tool…", action: "installCLI" }, { type: "divider" }, { role: "hide" }, { role: "hideOthers" }, { role: "showAll" }, { type: "divider" }, { label: "Quit Sideleaf", action: "quit", accelerator: "CmdOrCtrl+Q" }] },
   { label: "File", submenu: [{ label: "New", action: "new", accelerator: "CmdOrCtrl+N" }, { label: "Open…", action: "open", accelerator: "CmdOrCtrl+O" }, { type: "divider" }, { label: "Save", action: "save", accelerator: "CmdOrCtrl+S" }, { label: "Save As…", action: "saveAs", accelerator: "CmdOrCtrl+Shift+S" }, { type: "divider" }, { label: "Close", action: "close", accelerator: "CmdOrCtrl+W" }] },
   { label: "Edit", submenu: [{ label: "Undo", action: "undo", accelerator: "CmdOrCtrl+Z" }, { label: "Redo", action: "redo", accelerator: "CmdOrCtrl+Shift+Z" }, { type: "divider" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }, { type: "divider" }, { label: "Find…", action: "find", accelerator: "CmdOrCtrl+F" }, { label: "Add Comment", action: "comment", accelerator: "CmdOrCtrl+Shift+M" }] },
   { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "toggleFullScreen" }] },
@@ -141,6 +161,7 @@ if (process.platform !== "win32") ApplicationMenu.setApplicationMenu([
 const commands = new Set<Command>(["new", "open", "save", "saveAs", "close", "quit", "comment", "find", "undo", "redo"]);
 ApplicationMenu.on("application-menu-clicked", (event) => {
   const action = (event as { data: { action: Command } }).data.action;
+  if (String(action) === "installCLI") { void installCLI(); return; }
   if (String(action) === "checkUpdates") { void updates.check(true); return; }
   if (String(action) === "website") { Utils.openExternal("https://sideleaf.xyz/"); return; }
   if (commands.has(action)) command(action);

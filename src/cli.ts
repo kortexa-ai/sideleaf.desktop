@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -27,7 +26,7 @@ Offsets are zero-based UTF-16 code units in logical LF source, end-exclusive.
 Use read.revision as --if-revision for every write. Actor names are explicit
 attribution, not authenticated identities. Exit: 0 success, 2 input/usage,
 3 revision conflict or writer lock, 1 filesystem/runtime failure.
-Use --input PATH instead of stdin. Node.js 24+ is required.
+Use --input PATH instead of stdin. The desktop app supplies the runtime.
 `;
 // ASCII JSON survives legacy PowerShell code pages without corrupting Unicode.
 function json(value: unknown) { return JSON.stringify(value).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`); }
