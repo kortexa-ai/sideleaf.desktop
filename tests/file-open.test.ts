@@ -40,5 +40,5 @@ test("Windows installer registers Sideleaf as a per-user Markdown editor", () =>
   assert.match(installer, /Software\\Classes\\\.md\\OpenWithProgids.*ValueType: string.*ValueName: "Sideleaf\.Markdown".*ValueData: ""/);
   assert.match(installer, /launcher\.exe"" --sideleaf-open ""%1/);
   const launcher = readFileSync(new URL("../src/platform/windows-launcher.c", import.meta.url), "utf8");
-  assert.match(launcher, /workingDirectory\[directory\] = 0;.*CreateProcessW\([^;]+workingDirectory/s);
+  assert.match(launcher, /lstrcpynW\(workingDirectory, runtimePath, \(int\)directory \+ 1\).*CreateProcessW\([^;]+workingDirectory/s);
 });

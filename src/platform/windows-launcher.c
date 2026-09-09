@@ -21,8 +21,7 @@ void WINAPI sideleafStart(void) {
     if (!directory) fail();
     // Shell file-association commands do not provide a working directory.
     // Give the child the app's bin directory without mutating this process.
-    for (DWORD i = 0; i < directory; ++i) workingDirectory[i] = runtimePath[i];
-    workingDirectory[directory] = 0;
+    if (!lstrcpynW(workingDirectory, runtimePath, (int)directory + 1)) fail();
     const WCHAR filename[] = L"electrobun-launcher.exe";
     if (directory + sizeof(filename) / sizeof(WCHAR) > 32768) fail();
     for (DWORD i = 0; i < sizeof(filename) / sizeof(WCHAR); ++i) runtimePath[directory + i] = filename[i];
