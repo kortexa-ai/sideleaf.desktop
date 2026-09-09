@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shellapi.h>
 
 static WCHAR runtimePath[32768];
 static WCHAR commandLine[32768];
@@ -26,6 +27,17 @@ void WINAPI sideleafStart(void) {
     // those pages. JSC still applies the native bounds and its guard reserve.
     // Set this before the runtime starts; JSC latches it at VM creation.
     if (!SetEnvironmentVariableW(L"JSC_maxPerThreadStackUsage", L"134217728")) fail();
+
+    // Electrobun consumes launcher arguments when starting its script runtime.
+    // Carry the explicitly requested file through the environment instead. This
+    // also works when WSL interoperability does not forward arbitrary env vars.
+    int argumentCount = 0;
+    LPWSTR *parsedArguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
+    if (!parsedArguments) fail();
+    if (argumentCount == 3 && lstrcmpW(parsedArguments[1], L"--sideleaf-open") == 0) {
+        if (!SetEnvironmentVariableW(L"SIDELEAF_OPEN_PATH", parsedArguments[2])) fail();
+    }
+    LocalFree(parsedArguments);
 
     const WCHAR *arguments = GetCommandLineW();
     DWORD i = 0;
