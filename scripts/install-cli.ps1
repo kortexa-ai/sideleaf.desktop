@@ -31,19 +31,19 @@ if ($ListWsl -or !$Distribution.Count) {
 }
 foreach ($distro in $Distribution) {
   if ($distro -notin $available) { throw "WSL distribution is not installed: $distro" }
-  $linuxPath = (& $wsl.Source -d $distro -- wslpath -u $archive).Trim()
+  $linuxPath = (& $wsl.Source -d $distro --exec wslpath -u $archive).Trim()
   if ($LASTEXITCODE -ne 0) { throw "Could not convert package path for $distro" }
   # Each distro owns its Linux Node/npm installation, including WSL-native files.
   # Resolve a login-shell Node installation, then pass paths as native arguments.
   $operation = if ($Uninstall) { 'uninstall' } else { 'install' }
   $target = if ($Uninstall) { 'sideleaf-desktop' } else { $linuxPath }
-  $nodePath = (& $wsl.Source -d $distro -- bash -lc 'command -v node').Trim()
-  $npmPath = (& $wsl.Source -d $distro -- bash -lc 'command -v npm').Trim()
+  $nodePath = (& $wsl.Source -d $distro --exec bash -lc 'command -v node').Trim()
+  $npmPath = (& $wsl.Source -d $distro --exec bash -lc 'command -v npm').Trim()
   if (!$nodePath.StartsWith('/') -or !$npmPath.StartsWith('/')) { throw "Install Linux Node.js 24+ and npm in $distro first." }
-  $version = (& $wsl.Source -d $distro -- $nodePath --version).Trim()
+  $version = (& $wsl.Source -d $distro --exec $nodePath --version).Trim()
   if ($version -notmatch '^v(\d+)\.' -or [int]$Matches[1] -lt 24) { throw "Node.js 24+ is required in $distro." }
   $binPath = $nodePath.Substring(0, $nodePath.LastIndexOf('/'))
-  & $wsl.Source -d $distro -- env "PATH=${binPath}:/usr/local/bin:/usr/bin:/bin" $nodePath $npmPath $operation --global $target
+  & $wsl.Source -d $distro --exec env "PATH=${binPath}:/usr/local/bin:/usr/bin:/bin" $nodePath $npmPath $operation --global $target
   if ($LASTEXITCODE -ne 0) { throw "CLI setup failed in $distro. Install Linux Node.js 24+ and npm there, then rerun." }
 }
 Write-Output 'CLI setup complete. Open a new terminal if PATH was updated.'
