@@ -57,7 +57,7 @@ static void configure_shortcut(const KNOWNFOLDERID *folder) {
     if (_wcsnicmp(target, root, wcslen(root)) != 0) goto done;
     if (FAILED(IShellLinkW_QueryInterface(link, &IID_IPropertyStore, (void **)&store))) goto done;
     if (SUCCEEDED(put(store, &PKEY_AppUserModel_ID, identity)) && SUCCEEDED(IPropertyStore_Commit(store))) {
-        IShellLinkW_SetPath(link, launcher);
+        // Keep the installer entry point so its uninstall target check still works.
         IShellLinkW_SetIconLocation(link, launcher, 0);
         WCHAR bin[32768]; wcscpy(bin, launcher); *wcsrchr(bin, L'\\') = 0;
         IShellLinkW_SetWorkingDirectory(link, bin);

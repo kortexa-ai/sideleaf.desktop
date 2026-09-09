@@ -60,7 +60,7 @@ async function main() {
       if (wsl) path = execFileSync("wslpath", ["-w", path], { encoding: "utf8" }).trim();
       let app = override;
       if (!app && wsl) inputError("Use --app with the installed Windows bin/launcher.exe path (in /mnt/c/...) for desktop opening from WSL.");
-      app ??= join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "ai.kortexa.sideleaf", "stable", "bin", "launcher.exe");
+      app ??= join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "ai.kortexa.sideleaf", "stable", "app", "bin", "launcher.exe");
       if (!existsSync(app)) inputError("Sideleaf launcher was not found. Use --app PATH.");
       const child = spawn(resolve(app), ["--sideleaf-open", path], { detached: true, stdio: "ignore", cwd: dirname(resolve(app)), env: { ...process.env, SIDELEAF_OPEN_PATH: path } });
       await new Promise<void>((accept, reject) => { child.once("spawn", accept); child.once("error", reject); }); child.unref();
