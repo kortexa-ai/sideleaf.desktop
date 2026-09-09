@@ -4,11 +4,14 @@ import * as ApplicationMenu from "electrobun/main/app-menu";
 import * as Utils from "electrobun/main/utils";
 import events from "electrobun/main/events";
 import { mkdirSync, appendFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { DocumentFile } from "./document/files.ts";
 import { SaveTransfer } from "./document/save-transfer.ts";
 import { defaultWSLDistro, installCommandLineTool, installWSLCommand } from "./platform/cli-install.ts";
 import { chooseSavePath } from "./platform/dialogs.ts";
+import { handleWindowAction } from "./platform/window-controls.ts";
+import { loadWindowsChrome, type WindowsChrome } from "./platform/windows-chrome.ts";
 import { documentMetadata, type Command, type SideleafRPC } from "./shared/contracts.ts";
 import { APP_VERSION } from "./shared/version.ts";
 import { UpdateChecker } from "./updates.ts";
@@ -17,6 +20,13 @@ import { migrateIdentityData, windowsIdentity } from "./platform/identity.ts";
 
 migrateIdentityData();
 const configureWindowsIdentity = await windowsIdentity();
+const configureWindowsChrome = await loadWindowsChrome();
+const macDoubleClick = (() => {
+  if (process.platform !== "darwin") return "Maximize";
+  try { return execFileSync("defaults", ["read", "-g", "AppleActionOnDoubleClick"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+  catch { return "Maximize"; }
+})();
+let windowsChrome: WindowsChrome | undefined;
 
 const launchTime = performance.now();
 const startupLog = join(Utils.paths.userLogs, "startup.jsonl");
@@ -35,6 +45,7 @@ let dirty = false;
 let approvedClose = false;
 let dialogOpen = false;
 let updateChecksStarted = false;
+let appWindow: BrowserWindow;
 
 function checkId(id: string) {
   if (typeof id !== "string" || id !== document.id) throw new Error("This request belongs to an earlier document. Please try again.");
@@ -91,7 +102,15 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         if (!["https:", "http:", "mailto:"].includes(parsed.protocol)) throw new Error("Only web and email links can be opened from the preview.");
         return Utils.openExternal(parsed.href);
       },
-      finishClose: ({ quit }) => { approvedClose = true; if (quit) Utils.quit(); else window.close(); return true; },
+      windowAction: ({ action }): boolean => {
+        if (action === "titlebar-double-click") {
+          if (process.platform !== "darwin") throw new Error("Unknown window action.");
+          if (macDoubleClick === "None" || appWindow.isFullScreen()) return true;
+          return handleWindowAction(appWindow, macDoubleClick === "Minimize" ? "minimize" : "toggle-maximize");
+        }
+        return handleWindowAction(appWindow, action, windowsChrome);
+      },
+      finishClose: ({ quit }) => { approvedClose = true; if (quit) Utils.quit(); else appWindow.close(); return true; },
     },
     messages: {
       cancelSave: ({ transferId }) => { if (typeof transferId === "string") saveTransfer.clear(transferId); },
@@ -112,17 +131,19 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
 
 const updates = new UpdateChecker({ installedVersion: APP_VERSION, cachePath: join(Utils.paths.userData, "updates.json"), onChange: (state) => rpc.send.update(state) });
 
-const window = new BrowserWindow({
+appWindow = new BrowserWindow({
   title: "Untitled.md — Sideleaf",
   url: "views://main/index.html",
   renderer: "native",
+  titleBarStyle: process.platform === "darwin" || process.platform === "win32" ? "hiddenInset" : "default",
   frame: { width: 1180, height: 780 },
   spellCheck: true,
   navigationRules: JSON.stringify(["^*", "views://main/*"]),
   rpc,
 });
+windowsChrome = configureWindowsChrome?.(appWindow);
 
-function updateTitle() { window.setTitle(`${dirty ? "● " : ""}${document.snapshot().name} — Sideleaf`); }
+function updateTitle() { appWindow.setTitle(`${dirty ? "● " : ""}${document.snapshot().name} — Sideleaf`); }
 updateTitle();
 let cliInstallationOpen = false;
 async function installCLI(wsl = false): Promise<boolean> {
@@ -142,7 +163,7 @@ async function installCLI(wsl = false): Promise<boolean> {
   } finally { cliInstallationOpen = false; }
 }
 function command(action: Command) { rpc.send.command(action); }
-window.on("will-close", (value) => {
+appWindow.on("will-close", (value) => {
   const event = value as { response: { allow: boolean } };
   if (!approvedClose) { event.response = { allow: false }; command("close"); }
 });

@@ -27,6 +27,7 @@ export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
   return { id, path, name, lineEnding, notice };
 }
 export type Command = "new" | "open" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo";
+export type WindowAction = "minimize" | "toggle-maximize" | "close" | "move" | "system-menu" | "titlebar-double-click";
 export type UpdateState = { status: "idle" | "checking" | "current" | "error" } | { status: "available"; version: string; url: string };
 
 export type SideleafRPC = {
@@ -46,6 +47,7 @@ export type SideleafRPC = {
       reload: { params: { id: string }; response: DocumentSnapshot };
       confirmDiscard: { params: undefined; response: "save" | "discard" | "cancel" };
       openLink: { params: { url: string }; response: boolean };
+      windowAction: { params: { action: WindowAction }; response: boolean };
       finishClose: { params: { quit: boolean }; response: boolean };
     };
     messages: { cancelSave: { transferId: string }; dirty: { id: string; dirty: boolean }; ready: { userAgent: string }; diagnostic: { event: string; message: string } };

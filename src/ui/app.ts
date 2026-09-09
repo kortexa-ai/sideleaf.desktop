@@ -10,7 +10,7 @@ import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
 import { wordCountField } from "./word-count.ts";
 import { makeAnchor } from "../document/anchors.ts";
-import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState } from "../shared/contracts.ts";
+import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState, type WindowAction } from "../shared/contracts.ts";
 import { APP_VERSION } from "../shared/version.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -42,6 +42,49 @@ class SideleafView extends Electroview<typeof rpc> {
   }
 }
 new SideleafView({ rpc });
+const platform = window.__electrobunPlatform;
+document.body.dataset.platform = platform;
+element("window-controls").hidden = platform !== "windows";
+async function windowAction(action: WindowAction) {
+  try { await rpc.request.windowAction({ action }); }
+  catch (error) { notice((error as Error).message || String(error)); }
+}
+element("window-minimize").addEventListener("click", () => { void windowAction("minimize"); });
+element("window-maximize").addEventListener("click", () => { void windowAction("toggle-maximize"); });
+element("window-close").addEventListener("click", () => { void windowAction("close"); });
+// macOS uses the SDK drag region and native traffic lights. Windows enters
+// the system caption loop for snapping and dragging out of maximized state.
+if (platform === "macos") {
+  element("topbar").addEventListener("dblclick", (event) => {
+    if (event.target instanceof Element && !event.target.closest("button, .electrobun-webkit-app-region-no-drag")) {
+      void windowAction("titlebar-double-click");
+    }
+  });
+}
+if (platform === "windows") {
+  const header = element("topbar");
+  header.classList.remove("electrobun-webkit-app-region-drag");
+  const isCaption = (target: EventTarget | null) => target instanceof Element && !target.closest("button, .electrobun-webkit-app-region-no-drag");
+  let lastDown = { at: 0, x: 0, y: 0 };
+  header.addEventListener("mousedown", (event) => {
+    if (event.button !== 0 || !isCaption(event.target)) return;
+    event.preventDefault();
+    const doubleClick = performance.now() - lastDown.at < 500 && Math.hypot(event.screenX - lastDown.x, event.screenY - lastDown.y) < 5;
+    lastDown = { at: doubleClick ? 0 : performance.now(), x: event.screenX, y: event.screenY };
+    void windowAction(doubleClick ? "toggle-maximize" : "move");
+  });
+  header.addEventListener("contextmenu", (event) => {
+    if (!isCaption(event.target)) return;
+    event.preventDefault();
+    void windowAction("system-menu");
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.altKey && event.code === "Space") {
+      event.preventDefault();
+      void windowAction("system-menu");
+    }
+  });
+}
 element("app-version").textContent = `v${APP_VERSION}`;
 rpc.send.diagnostic({ event: "editor-starting", message: "Native bridge attached" });
 

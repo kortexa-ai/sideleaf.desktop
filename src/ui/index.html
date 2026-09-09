@@ -8,10 +8,19 @@
   <link rel="stylesheet" href="./app.css">
 </head>
 <body>
-  <header class="toolbar">
-    <div class="brand"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 23C4 9 14 4 24 4c0 10-5 20-19 19Z" fill="currentColor"/><path d="M5 23 19 9" stroke="var(--paper)" stroke-width="1.5"/></svg><span>sideleaf</span><span id="app-version" class="prototype"></span></div>
-    <div id="app-menu-container" class="app-menu-container" hidden><button id="app-menu-toggle" aria-expanded="false" aria-controls="app-menu" aria-haspopup="menu" title="Sideleaf application menu">Sideleaf ▾</button><div id="app-menu" role="menu" aria-label="Sideleaf" hidden><button role="menuitem" id="menu-cli">Install Command Line Tool…</button><button role="menuitem" id="menu-cli-wsl" hidden>Install Command Line Tool in WSL…</button><button role="menuitem" id="menu-updates">Check for Updates…</button><button role="menuitem" id="menu-website">Sideleaf Website ↗</button></div></div>
-    <div class="file-actions"><button id="new" title="New document">New</button><button id="open" title="Open a Markdown file">Open…</button><span class="separator"></span><button id="save" class="primary">Save</button></div>
+  <header id="topbar" class="electrobun-webkit-app-region-drag">
+    <div class="window-chrome" aria-label="Window title bar">
+      <div id="window-controls" class="window-controls electrobun-webkit-app-region-no-drag" role="group" aria-label="Window controls" hidden>
+        <button id="window-minimize" type="button" aria-label="Minimize" title="Minimize"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10"/></svg></button>
+        <button id="window-maximize" type="button" aria-label="Maximize" title="Maximize"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 1.5h9v9h-9z"/></svg></button>
+        <button id="window-close" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m1.5 1.5 9 9m0-9-9 9"/></svg></button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="brand"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 23C4 9 14 4 24 4c0 10-5 20-19 19Z" fill="currentColor"/><path d="M5 23 19 9" stroke="var(--paper)" stroke-width="1.5"/></svg><span>sideleaf</span><span id="app-version" class="prototype"></span></div>
+      <div id="app-menu-container" class="app-menu-container" hidden><button id="app-menu-toggle" aria-expanded="false" aria-controls="app-menu" aria-haspopup="menu" title="Sideleaf application menu">Sideleaf ▾</button><div id="app-menu" role="menu" aria-label="Sideleaf" hidden><button role="menuitem" id="menu-cli">Install Command Line Tool…</button><button role="menuitem" id="menu-cli-wsl" hidden>Install Command Line Tool in WSL…</button><button role="menuitem" id="menu-updates">Check for Updates…</button><button role="menuitem" id="menu-website">Sideleaf Website ↗</button></div></div>
+      <div class="file-actions"><button id="new" title="New document">New</button><button id="open" title="Open a Markdown file">Open…</button><span class="separator"></span><button id="save" class="primary">Save</button></div>
+    </div>
   </header>
   <section class="document-bar" aria-label="Document controls">
     <div class="document-name"><span class="file-symbol" aria-hidden="true">¶</span><div><strong id="filename">Untitled.md</strong><span id="filepath">A little room for your words.</span></div><span id="unsaved" aria-label="Unsaved changes" hidden>●</span></div>
