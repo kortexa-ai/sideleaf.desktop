@@ -127,7 +127,9 @@ if (window.__electrobunPlatform !== "linux") {
     }
   };
   document.addEventListener("pointerdown", (event) => { if (!container.contains(event.target as Node)) closeMenu(); });
-  container.addEventListener("focusout", (event) => { if (!container.contains(event.relatedTarget as Node)) closeMenu(); });
+  // Do not dismiss on focusout: WebKit may move focus outside the menu before
+  // delivering the item's click. Outside pointer input, Escape, and Tab close
+  // the menu without racing activation.
   for (const [id, wsl] of [["menu-cli", false], ["menu-cli-wsl", true]] as const) element(id).onclick = () => { closeMenu(true); void rpc.request.installCLI({ wsl }).catch((error) => notice(error.message)); };
   void refreshWSL();
   element("menu-default-editor").onclick = () => { closeMenu(true); showDefaultEditor(); };
@@ -138,7 +140,9 @@ if (window.__electrobunPlatform !== "linux") {
 
 function showAbout() {
   element("about-version").textContent = `Version ${APP_VERSION}`;
-  element<HTMLDialogElement>("about-dialog").showModal();
+  const dialog = element<HTMLDialogElement>("about-dialog");
+  dialog.showModal();
+  dialog.focus({ preventScroll: true });
 }
 function showDefaultEditor() {
   if (platform === "windows") { void rpc.request.openDefaultApps().catch((error) => notice(error.message)); return; }
