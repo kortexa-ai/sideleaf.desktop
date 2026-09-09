@@ -62,6 +62,29 @@ if (window.__electrobunPlatform === "windows") {
   }, true);
 }
 
+if (window.__electrobunPlatform === "windows") {
+  const container = element("app-menu-container"), toggle = element<HTMLButtonElement>("app-menu-toggle"), menu = element("app-menu");
+  container.hidden = false;
+  const items = [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
+  function closeMenu(restoreFocus = false) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); if (restoreFocus) toggle.focus(); }
+  function openMenu(last = false) { menu.hidden = false; toggle.setAttribute("aria-expanded", "true"); items[last ? items.length - 1 : 0]!.focus(); }
+  toggle.onclick = () => { if (menu.hidden) openMenu(); else closeMenu(true); };
+  toggle.onkeydown = (event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); openMenu(event.key === "ArrowUp"); } };
+  menu.onkeydown = (event) => {
+    if (event.key === "Escape") { event.preventDefault(); closeMenu(true); }
+    else if (event.key === "Tab") closeMenu();
+    else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const index = items.indexOf(document.activeElement as HTMLButtonElement);
+      items[event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]!.focus();
+    }
+  };
+  document.addEventListener("pointerdown", (event) => { if (!container.contains(event.target as Node)) closeMenu(); });
+  container.addEventListener("focusout", (event) => { if (!container.contains(event.relatedTarget as Node)) closeMenu(); });
+  element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
+  element("menu-website").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
+}
+
 const view = new EditorView({ parent: element("editor"), state: createEditorState("") });
 rpc.send.diagnostic({ event: "editor-created", message: "CodeMirror initialized" });
 

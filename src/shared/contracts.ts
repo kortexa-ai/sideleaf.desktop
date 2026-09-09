@@ -12,7 +12,7 @@ export type Anchor = {
   suffix: string;
   state: "attached" | "orphaned";
 };
-export type Comment = { id: string; body: string; createdAt: string; anchor: Anchor };
+export type Comment = { id: string; body: string; createdAt: string; author?: string; updatedAt?: string; updatedBy?: string; anchor: Anchor };
 export type Draft = { text: string; comments: Comment[] };
 export type DocumentMetadata = {
   id: string;
@@ -66,6 +66,9 @@ export function validateDraft(value: unknown): asserts value is Draft {
     if (!comment || typeof comment.id !== "string" || !comment.id || ids.has(comment.id) || comment.id.length > 100 ||
       typeof comment.body !== "string" || comment.body.length > 20_000 || !comment.body.trim() ||
       typeof comment.createdAt !== "string" || comment.createdAt.length > 40) throw new Error("Invalid comment.");
+    for (const field of ["author", "updatedBy", "updatedAt"] as const) {
+      if (comment[field] !== undefined && (typeof comment[field] !== "string" || !comment[field]!.trim() || comment[field]!.length > 200)) throw new Error("Invalid comment attribution.");
+    }
     ids.add(comment.id);
     const anchor = comment.anchor;
     if (!anchor || !Number.isInteger(anchor.from) || !Number.isInteger(anchor.to) || anchor.from < 0 || anchor.to < anchor.from ||

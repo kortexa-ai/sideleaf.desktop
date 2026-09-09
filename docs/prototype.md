@@ -21,24 +21,37 @@ All annotation offsets are UTF-16 code units in the logical editor document.
 
 Each open document has a fresh host-issued ID. The webview can save only that opened
 document; Save As obtains a path from a native picker. A SHA-256 fingerprint includes
-both the source bytes and comment sidecar. It is checked before every save, and a
+the complete file and any legacy comment sidecar. It is checked before every save, and a
 two-second poll detects external writes. Reload creates a history boundary. Saving
 preserves undo history. Comment insertion/removal and anchor changes share the text
 editor's history; they do not create a separate conflicting undo stack.
 
-Comment sidecars use `sideleaf-comments`, version 1. Each revision records the hash
-of the exact source bytes and its complete comment set. A save atomically replaces
-the sidecar first with the new revision and the preceding source revision, then
-atomically replaces the Markdown file. On reopen, the matching source hash selects
-the appropriate comment set. This makes interruption between the two replacements
-recoverable without embedding annotations in the user's Markdown. Invalid sidecars
-are rejected, and unrelated destination annotations are never silently overwritten.
+Embedded metadata uses `sideleaf-comments`, version 1. The terminal envelope is
+exactly two newlines, `<!-- sideleaf:metadata`, a newline, one JSON object, a newline,
+`-->`, and a final newline. All envelope separators use the source file's LF/CRLF
+style. The two leading newlines belong to the envelope, preserving source that has
+no final newline. JSON escapes `<`, `>`, `&` and `-` as Unicode escapes to prevent
+comment terminators. Metadata never enters the source editor or preview.
 
-If an external source revision matches neither stored hash, reattachment requires
-exact quotation and surrounding context at one location. Uncertain or deleted text
-leaves an unanchored comment. The app retains its draft after save errors. Metadata
-written before an unsuccessful source save can cause the next save to report a
-conflict; save a copy or reload the matching prior revision rather than guessing.
+Source is limited to 10 MiB of UTF-8 and metadata to 10 MiB. Each of up to three
+retained revisions contains SHA-256 of exact source bytes (including BOM and original
+line endings), complete comments, and optional actor/save timestamp. These are
+comment recovery revisions, not full historical text. The CLI's write precondition
+hash covers the complete on-disk document and any legacy sidecar. New files without
+comments/history have no envelope; unchanged plain saves preserve the file itself.
+
+Legacy version-1 sidecars remain readable, including the two-revision interrupted-save
+recovery case. Saving embeds the selected comment set plus both retained revisions
+in one atomic replacement. Only after exact readback succeeds is the sidecar renamed
+to `filename.md.sideleaf.json.migrated-UUID`. Keep that backup for recovery. Save As
+leaves the original sidecar untouched. If both formats exist, every legacy revision
+must also exist identically in the envelope; otherwise opening fails and preserves
+both for deliberate reconciliation. Invalid/unsupported blocks fail without rewriting.
+
+If external source matches no stored hash, reattachment requires exact quotation and
+surrounding context at one location. Uncertain/deleted text remains unanchored. Saves
+retain the GUI draft on error. A per-document exclusive `.sideleaf.lock` serializes
+cooperative GUI/CLI writers; stale locks require owner verification before removal.
 
 Atomic replacement uses an exclusive temporary file in the target directory, flush,
 rename, and directory flush where supported. Existing file mode is preserved. Opening

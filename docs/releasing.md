@@ -77,3 +77,34 @@ Tags must be `vMAJOR.MINOR.PATCH`; drafts and prereleases do not trigger notices
 The notice opens that release's page. Dismissing it hides that version, and
 Help → Check for Updates can reveal it again. There is no automatic install or
 forced restart. Publishing a later stable release is sufficient to notify users.
+
+## Identity and upgrades
+
+The canonical identifier is `ai.kortexa.sideleaf`. Verify both the outer and inner
+macOS Info.plist and Windows `Resources/version.json` after packaging. The old
+identifier was `xyz.sideleaf.desktop`; preserve its data directory. First launch
+copies `updates.json` into the corresponding new identifier/channel directory only
+when the new preference file is absent. Existing preferences win. Old diagnostic
+logs remain at their old location; new logs use the canonical identifier. Documents
+live independently of the application identifier and require no path migration.
+
+On macOS, replace the installed Sideleaf.app in its existing Applications location;
+Launch Services then reads the new bundle identity. On Windows the identifier changes
+the installer-managed directory and uninstall registry key. Install the new build,
+launch it once to migrate preferences and update the Sideleaf shortcuts, then remove
+the previous installation using its own uninstaller. Do not run the old uninstaller
+before the new app has migrated preferences. The native adapter only updates shortcuts
+whose targets belong to its own installation. It does not alter file associations.
+
+The Windows window and installed shortcuts use the same explicit AppUserModelID.
+Relaunch command/name/icon properties point at the Sideleaf launcher, preserving the
+JSC stack-limit adapter. Old pins made from Cottontail or the previous identifier
+must be unpinned once; launch the new Sideleaf and pin that entry. Windows manages
+user pins; the application does not silently rewrite the taskbar's private state.
+See Microsoft's [relaunch property contract](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchcommand).
+
+Build the standalone CLI archive with `npm pack` and include it with distributions.
+The desktop package also carries the CLI bundle under `Resources/app/cli`.
+See [command setup](cli.md) for native Windows PATH and per-distribution WSL setup,
+upgrade and uninstall. The CLI uses the user's Node installation, so it adds no
+second runtime to the desktop bundle.

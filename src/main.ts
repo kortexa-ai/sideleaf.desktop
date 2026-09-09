@@ -12,6 +12,11 @@ import { documentMetadata, type Command, type SideleafRPC } from "./shared/contr
 import { APP_VERSION } from "./shared/version.ts";
 import { UpdateChecker } from "./updates.ts";
 
+import { migrateIdentityData, windowsIdentity } from "./platform/identity.ts";
+
+migrateIdentityData();
+const configureWindowsIdentity = await windowsIdentity();
+
 const launchTime = performance.now();
 const startupLog = join(Utils.paths.userLogs, "startup.jsonl");
 try { mkdirSync(Utils.paths.userLogs, { recursive: true }); writeFileSync(startupLog, "", { mode: 0o600 }); } catch { /* Diagnostics must not prevent startup. */ }
@@ -21,7 +26,9 @@ function diagnostic(event: string, message: string) {
   try { appendFileSync(startupLog, `${JSON.stringify(record)}\n`); } catch { /* Keep the app usable if its log directory is read-only. */ }
 }
 diagnostic("host-started", `Sideleaf ${APP_VERSION}`);
-let document = new DocumentFile();
+const openArgument = process.argv.indexOf("--sideleaf-open");
+const initialPath = process.env.SIDELEAF_OPEN_PATH ?? (openArgument >= 0 ? process.argv[openArgument + 1] : undefined);
+let document = initialPath ? DocumentFile.open(initialPath) : new DocumentFile();
 const saveTransfer = new SaveTransfer();
 let dirty = false;
 let approvedClose = false;
@@ -88,6 +95,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       dirty: (payload) => { if (payload?.id === document.id && typeof payload.dirty === "boolean") { dirty = payload.dirty; updateTitle(); } },
       ready: ({ userAgent }) => {
         diagnostic("sideleaf-ready", userAgent);
+        diagnostic("windows-identity", String(configureWindowsIdentity()));
         if (!updateChecksStarted) {
           updateChecksStarted = true;
           setTimeout(() => { void updates.check(); }, 15_000);
@@ -122,10 +130,10 @@ events.on("before-quit", (value: unknown) => {
   if (!approvedClose) { event.response = { allow: false }; command("quit"); }
 });
 
-ApplicationMenu.setApplicationMenu([
+if (process.platform !== "win32") ApplicationMenu.setApplicationMenu([
   { label: "Sideleaf", submenu: [{ role: "about" }, { type: "divider" }, { role: "hide" }, { role: "hideOthers" }, { role: "showAll" }, { type: "divider" }, { label: "Quit Sideleaf", action: "quit", accelerator: "CmdOrCtrl+Q" }] },
   { label: "File", submenu: [{ label: "New", action: "new", accelerator: "CmdOrCtrl+N" }, { label: "Open…", action: "open", accelerator: "CmdOrCtrl+O" }, { type: "divider" }, { label: "Save", action: "save", accelerator: "CmdOrCtrl+S" }, { label: "Save As…", action: "saveAs", accelerator: "CmdOrCtrl+Shift+S" }, { type: "divider" }, { label: "Close", action: "close", accelerator: "CmdOrCtrl+W" }] },
-  { label: "Edit", submenu: [{ label: "Undo", action: "undo", accelerator: "CmdOrCtrl+Z" }, { label: "Redo", action: "redo", accelerator: process.platform === "win32" ? "Ctrl+Y" : "CmdOrCtrl+Shift+Z" }, { type: "divider" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }, { type: "divider" }, { label: "Find…", action: "find", accelerator: "CmdOrCtrl+F" }, { label: "Add Comment", action: "comment", accelerator: "CmdOrCtrl+Shift+M" }] },
+  { label: "Edit", submenu: [{ label: "Undo", action: "undo", accelerator: "CmdOrCtrl+Z" }, { label: "Redo", action: "redo", accelerator: "CmdOrCtrl+Shift+Z" }, { type: "divider" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }, { type: "divider" }, { label: "Find…", action: "find", accelerator: "CmdOrCtrl+F" }, { label: "Add Comment", action: "comment", accelerator: "CmdOrCtrl+Shift+M" }] },
   { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "toggleFullScreen" }] },
   { label: "Help", submenu: [{ label: "Check for Updates…", action: "checkUpdates" }, { label: "Sideleaf Website", action: "website" }] },
 ]);

@@ -85,6 +85,18 @@ links through a deliberate native action, and prevent rendered content from acqu
 the host bridge. Define local-image resolution and remote-image loading behavior before
 enabling them. Never turn the bridge into arbitrary command or filesystem execution.
 
+### Portable annotations and application identity
+
+The canonical application identifier is `ai.kortexa.sideleaf` across bundle metadata
+and Windows taskbar integration. Website and repository names are independent.
+
+Store comments and up to three retained source-hash-linked comment revisions in a
+versioned terminal JSON HTML comment inside the Markdown file. The editor and reader
+show only literal source; metadata is managed by shared document services. Existing
+sidecars migrate on a verified atomic save and remain as uniquely named backups.
+Plain files without annotation history remain plain. Full text snapshots, document
+comparison, multi-file transactions and semantic merge remain deferred.
+
 ## What system webviews cost us
 
 System webviews are a reasonable starting choice. They move the browser engine out of
@@ -152,11 +164,13 @@ and add features because daily use needs them.
 - Consider `.marginreview` interchange only after a compatibility decision.
 - Applying a comparison must participate in coherent document revision and undo behavior.
 
-### CLI and advanced collaboration, later still
+### Agent CLI and later collaboration
 
-- Start an eventual `sideleaf` CLI with opening files through the desktop app.
-- Consider deterministic JSON, bounded reads, comments, review operations, watch events,
-  suggestions, and explicit actor identity after the document services are stable.
+- Ship an installable `sideleaf` CLI on macOS, Windows and WSL for opening files,
+  reading/editing Markdown and listing/adding/updating/removing comments without a GUI.
+- Share embedded metadata and document services, deterministic JSON reads, explicit
+  actor attribution, UTF-16 coordinates, and mandatory revision preconditions.
+- Keep watch events, suggestions and richer review operations separately scoped.
 - Revisions, idempotency, concurrent writes, multi-file transactions, recovery, reconciliation,
   and semantic merge require their own design and adversarial fixtures. They are not MVP
   dependencies.
@@ -252,7 +266,7 @@ a reproducible limitation justifies the cost.
 
 - Exact supported OS versions and architectures, and tested runtime/toolchain pins.
 - Markdown dialect and parser, raw HTML policy, image loading, and renderer extensions.
-- Annotation storage and whether Markdown/comment/review interchange with Margin is needed.
+- Markdown/comment/review interchange with Margin, if needed.
 - Save/autosave policy, crash recovery, external conflict UI, and comment history semantics.
 - A UI framework, if one adds enough value to justify the dependency.
 - Measured launch, memory, document size, typing, and scrolling budgets.

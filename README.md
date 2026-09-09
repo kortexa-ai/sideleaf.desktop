@@ -7,8 +7,9 @@ It is an independent implementation; Margin is a product reference only.
 
 Sideleaf 0.1 supports a single Markdown document, native Open and Save As,
 literal source editing, live preview, find/replace, and anchored comments with undo.
-Comments are saved beside the document as `filename.md.sideleaf.json`. Keep the two
-files together when moving an annotated document.
+Comments and retained revision metadata are embedded in the Markdown file; copy the
+`.md` file to carry them with your writing. Existing comment sidecars migrate on save.
+The [agent CLI](docs/cli.md) reads and edits documents/comments without a running GUI.
 
 ## Download
 
@@ -20,7 +21,7 @@ Windows also needs Microsoft's WebView2 Evergreen runtime.
 
 Your documents stay on your computer. There are no accounts or writing uploads.
 Sideleaf checks GitHub for a newer stable version once a day and shows a small,
-dismissible notice. Help → Check for Updates checks on demand. Updates open the
+dismissible notice. Help → Check for Updates on macOS, or the Sideleaf ▾ menu on Windows, checks on demand. Updates open the
 release page and install only when you choose to install them.
 See the [privacy policy](https://sideleaf.xyz/privacy/) and
 [terms](https://sideleaf.xyz/terms/) for details.

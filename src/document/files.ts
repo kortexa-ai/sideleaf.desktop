@@ -1,14 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { MAX_DOCUMENT_BYTES, validateDraft, type Comment, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
+import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
 import { relocateComment } from "./anchors.ts";
 
-type CommentRevision = { sourceHash: string; comments: Comment[] };
-type Sidecar = { format: "sideleaf-comments"; version: 1; revisions: CommentRevision[] };
+import { hash, parseMetadata, splitMetadata, embedMetadata, type Metadata, type CommentRevision } from "./metadata.ts";
 type DiskState = { bytes: Buffer; metadata: Buffer | null; mode: number; signature: string };
 
-const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const metadataPath = (path: string) => `${path}.sideleaf.json`;
 
 function readOptional(path: string): Buffer | null {
@@ -19,7 +17,7 @@ function readOptional(path: string): Buffer | null {
 function regularFile(path: string) {
   const stat = lstatSync(path);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("The file was replaced by a link or is no longer a regular file. Reopen it before saving.");
-  if (stat.size > MAX_DOCUMENT_BYTES) throw new Error("This prototype supports documents up to 10 MiB.");
+  if (stat.size > 2 * MAX_DOCUMENT_BYTES) throw new Error("This prototype supports documents up to 10 MiB.");
   return stat;
 }
 
@@ -33,7 +31,7 @@ function readDisk(path: string): DiskState {
 }
 
 export function decodeMarkdown(bytes: Uint8Array): { text: string; bom: boolean; lineEnding: "\n" | "\r\n" } {
-  if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This prototype supports documents up to 10 MiB.");
+  if (bytes.byteLength > 2 * MAX_DOCUMENT_BYTES) throw new Error("This prototype supports documents up to 10 MiB.");
   const bom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
   let text: string;
   try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bom ? bytes.subarray(3) : bytes); }
@@ -44,26 +42,6 @@ export function decodeMarkdown(bytes: Uint8Array): { text: string; bom: boolean;
     throw new Error("Mixed or classic Mac line endings are not supported yet. Sideleaf has left the file unchanged.");
   }
   return { text: text.replaceAll("\r\n", "\n"), bom, lineEnding: text.includes("\r\n") ? "\r\n" : "\n" };
-}
-
-function parseSidecar(bytes: Buffer | null): Sidecar {
-  if (bytes === null) return { format: "sideleaf-comments", version: 1, revisions: [] };
-  let data: Sidecar;
-  try { data = JSON.parse(bytes.toString("utf8")); }
-  catch { throw new Error("The Sideleaf comment sidecar is not valid JSON. Repair or move it before opening this document; it will not be overwritten."); }
-  if (data?.format !== "sideleaf-comments" || data.version !== 1 || !Array.isArray(data.revisions) || data.revisions.length > 2) {
-    throw new Error("This comment sidecar uses an unsupported format. It will not be overwritten.");
-  }
-  for (const revision of data.revisions) {
-    if (typeof revision?.sourceHash !== "string" || !/^[a-f0-9]{64}$/.test(revision.sourceHash) || !Array.isArray(revision.comments)) {
-      throw new Error("Invalid comment revision in sidecar.");
-    }
-    // Stored offsets may refer to a prior source revision. Validate their shape
-    // without treating an old range as authority over the current file.
-    validateDraft({ text: "", comments: revision.comments.map((c) => ({ ...c, anchor: { ...c.anchor, state: "orphaned" } })) });
-    if (revision.comments.some((c) => !["attached", "orphaned"].includes(c.anchor.state))) throw new Error("Invalid stored anchor state.");
-  }
-  return data;
 }
 
 // The temporary file stays beside its target, so rename is atomic on a local
@@ -98,6 +76,10 @@ export class DocumentFile {
   private lineEnding: "\n" | "\r\n" = "\n";
   private draft: Draft = { text: "", comments: [] };
   private notice: string | null = null;
+  private revisions: CommentRevision[] = [];
+
+  revision(): string { return this.disk ? hash(this.disk.signature) : hash(""); }
+  history(): CommentRevision[] { return structuredClone(this.revisions); }
 
   snapshot(): DocumentSnapshot {
     return { ...this.draft, id: this.id, path: this.path, name: this.path ? basename(this.path) : "Untitled.md", lineEnding: this.lineEnding, notice: this.notice };
@@ -113,8 +95,17 @@ export class DocumentFile {
   private load() {
     const disk = readDisk(this.path!);
     const decoded = decodeMarkdown(disk.bytes);
-    const sidecar = parseSidecar(disk.metadata);
-    const sourceHash = hash(disk.bytes);
+    const embedded = splitMetadata(decoded.text);
+    decoded.text = embedded.text;
+    const sourceBytes = Buffer.from(`${decoded.bom ? "\uFEFF" : ""}${decoded.text.replaceAll("\n", decoded.lineEnding)}`);
+    if (sourceBytes.length > MAX_DOCUMENT_BYTES) throw new Error("Markdown source exceeds 10 MiB.");
+    const legacy = parseMetadata(disk.metadata, true);
+    if (embedded.metadata && disk.metadata && legacy.revisions.some((r) => !embedded.metadata!.revisions.some((e) => JSON.stringify(e) === JSON.stringify(r)))) {
+      throw new Error("Embedded metadata and the legacy sidecar disagree. Preserve both and reconcile them before saving.");
+    }
+    const sidecar = embedded.metadata ?? legacy;
+    this.revisions = sidecar.revisions;
+    const sourceHash = hash(sourceBytes);
     const matched = sidecar.revisions.find((r) => r.sourceHash === sourceHash);
     const selected = matched ?? sidecar.revisions[0];
     const comments = (selected?.comments ?? []).map((c) => relocateComment(c, decoded.text, !!matched));
@@ -133,46 +124,53 @@ export class DocumentFile {
     return this.snapshot();
   }
 
-  save(draft: Draft, target?: string): DocumentSnapshot {
+  save(draft: Draft, target?: string, actor = "local-user"): DocumentSnapshot {
     validateDraft(draft);
     if (draft.text.includes("\r")) throw new Error("Editor text must use logical LF line endings.");
     const path = target ? join(realpathSync(dirname(resolve(target))), basename(target)) : this.path;
     if (!path) throw new Error("Choose a file location first.");
-    const samePath = path === this.path;
-    const previousDisk = existsSync(path) ? readDisk(path) : null;
-    if (!previousDisk && existsSync(metadataPath(path))) throw new Error("An existing Sideleaf sidecar is already at that location. Choose a new filename.");
-    if (samePath && (!previousDisk || previousDisk.signature !== this.disk?.signature)) {
-      throw new Error("The file or comments changed on disk. Save a copy, or reload the disk version before saving.");
-    }
-    // A selected Save As destination may already have independent annotations.
-    // Refuse to overwrite those; a new filename is the safe prototype path.
-    if (!samePath && previousDisk?.metadata) throw new Error("That destination already has Sideleaf comments. Choose a new filename.");
-    const encodedText = draft.text.replaceAll("\n", this.lineEnding);
-    const bytes = Buffer.from(`${this.bom ? "\uFEFF" : ""}${encodedText}`, "utf8");
-    if (bytes.length > MAX_DOCUMENT_BYTES) throw new Error("This prototype supports documents up to 10 MiB.");
-    const revision: CommentRevision = { sourceHash: hash(bytes), comments: draft.comments };
-    const oldRevisions = parseSidecar(samePath ? previousDisk?.metadata ?? null : null).revisions;
-    const oldRevision = previousDisk ? oldRevisions.find((r) => r.sourceHash === hash(previousDisk.bytes)) : undefined;
-    const revisions = [revision];
-    if (previousDisk && hash(previousDisk.bytes) !== revision.sourceHash) {
-      revisions.push(oldRevision ?? { sourceHash: hash(previousDisk.bytes), comments: samePath ? this.draft.comments : [] });
-    }
-    const metadata = Buffer.from(`${JSON.stringify({ format: "sideleaf-comments", version: 1, revisions } satisfies Sidecar, null, 2)}\n`);
-    if (metadata.length > MAX_DOCUMENT_BYTES) throw new Error("The comment sidecar exceeds the prototype's 10 MiB limit. Nothing was saved.");
-    // Commit comments first with both source revisions. A crash or failed source
-    // write leaves a complete comment set for the old file; a successful source
-    // rename selects the new set. No parse/reserialize of Markdown takes place.
-    if (draft.comments.length || previousDisk?.metadata) atomicWrite(metadataPath(path), metadata);
-    try {
-      // Check source bytes again after the metadata write; never hide a writer
-      // that raced the first check. The editor retains its draft on every error.
-      if (previousDisk && hash(readFileSync(path)) !== hash(previousDisk.bytes)) throw new Error("The source changed during save. Your draft is still open; save a copy.");
-      if (!previousDisk && existsSync(path)) throw new Error("A file appeared at this location during save. Choose a new filename.");
-      atomicWrite(path, bytes, previousDisk?.mode ?? 0o644);
-    } catch (error) {
-      this.notice = "Save did not finish. The draft is still open and the previous comment revision remains in the sidecar.";
+    // Cooperative desktop/CLI writers serialize the check-and-replace sequence.
+    // An abandoned lock is deliberately never stolen based only on its age.
+    const lock = `${path}.sideleaf.lock`;
+    let fd: number;
+    try { fd = openSync(lock, "wx", 0o600); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Another Sideleaf writer holds this document's lock. Retry after it finishes; recover an abandoned lock only after checking its owner.");
       throw error;
     }
+    try {
+      writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+      const samePath = path === this.path;
+      const previousDisk = existsSync(path) ? readDisk(path) : null;
+      if (!previousDisk && existsSync(metadataPath(path))) throw new Error("An existing Sideleaf sidecar is already at that location. Choose a new filename.");
+      if (samePath && (!previousDisk || previousDisk.signature !== this.disk?.signature)) throw new Error("The file or comments changed on disk. Save a copy, or reload the disk version before saving.");
+      // A selected Save As destination may already have independent annotations.
+      // Refuse to overwrite those; a new filename is the safe path.
+      if (!samePath && previousDisk && (previousDisk.metadata || splitMetadata(decodeMarkdown(previousDisk.bytes).text).metadata)) throw new Error("That destination already has Sideleaf comments. Choose a new filename.");
+      const encode = (text: string) => Buffer.from(`${this.bom ? "\uFEFF" : ""}${text.replaceAll("\n", this.lineEnding)}`, "utf8");
+      const source = encode(draft.text);
+      if (source.length > MAX_DOCUMENT_BYTES) throw new Error("Markdown source exceeds 10 MiB.");
+      // Reserve the block even on plain saves; never silently hide user content.
+      if (splitMetadata(draft.text).metadata) throw new Error("Source contains reserved Sideleaf metadata.");
+      const revision: CommentRevision = { sourceHash: hash(source), comments: structuredClone(draft.comments), actor, savedAt: new Date().toISOString() };
+      const revisions = [revision, ...this.revisions.filter((r) => JSON.stringify(r) !== JSON.stringify(revision))].slice(0, 3);
+      const metadata: Metadata = { format: "sideleaf-comments", version: 1, revisions };
+      const annotated = draft.comments.length > 0 || this.revisions.length > 0;
+      const bytes = annotated ? encode(embedMetadata(draft.text, metadata)) : source;
+      if (previousDisk ? readDisk(path).signature !== previousDisk.signature : existsSync(path)) throw new Error("The file changed during save. Your draft is still open; save a copy.");
+      // Source and all comments now commit with one fsynced atomic replacement.
+      // Avoid replacing an unchanged plain file (including its inode/mtime).
+      if (!previousDisk || !previousDisk.bytes.equals(bytes)) atomicWrite(path, bytes, previousDisk?.mode ?? 0o644);
+      if (!readFileSync(path).equals(bytes)) throw new Error("The file changed immediately after save. Reload or save a copy.");
+      if (samePath && previousDisk?.metadata) {
+        if (!readOptional(metadataPath(path))?.equals(previousDisk.metadata)) throw new Error("The sidecar changed during migration. Both copies were retained.");
+        // Retire only after verifying the complete embedded file. Keep the old
+        // recovery revisions in a uniquely named backup, never delete them.
+        renameSync(metadataPath(path), `${metadataPath(path)}.migrated-${randomUUID()}`);
+      }
+      this.revisions = annotated ? revisions : [];
+    } finally { closeSync(fd); unlinkSync(lock); }
+
     this.path = path;
     this.disk = readDisk(path);
     this.draft = structuredClone(draft);

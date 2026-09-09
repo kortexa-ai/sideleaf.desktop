@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, readFileSync, writeFileSync, statSync, chmodSync, mkdirSync, symlinkSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync, chmodSync, mkdirSync, symlinkSync, realpathSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { splitMetadata } from "../src/document/metadata.ts";
 import { DocumentFile, decodeMarkdown } from "../src/document/files.ts";
 import { makeAnchor, relocateComment } from "../src/document/anchors.ts";
 import { validateDraft } from "../src/shared/contracts.ts";
@@ -18,7 +20,7 @@ test("a literal UTF-8 BOM/CRLF file survives comment save without rewriting", ()
   const draft = file.snapshot();
   draft.comments.push({ id: "one", createdAt: "2026-09-07", body: "Keep this wording", anchor: makeAnchor(draft.text, 9, 22) });
   file.save(draft);
-  assert.deepEqual(readFileSync(path), bytes);
+  assert.equal(splitMetadata(decodeMarkdown(readFileSync(path)).text).text, decodeMarkdown(bytes).text);
   const reopened = DocumentFile.open(path).snapshot();
   assert.deepEqual(reopened.comments, draft.comments);
   assert.equal(reopened.lineEnding, "\r\n");
@@ -50,15 +52,23 @@ test("Save As keeps the original document and rejects another document's annotat
   assert.equal(readFileSync(collision, "utf8"), "Other");
 });
 
-test("the two-revision sidecar recovers the correct comments if source replacement was interrupted", () => {
-  const { path } = fixture(); const file = DocumentFile.open(path); const original = readFileSync(path);
-  const old = file.snapshot();
+test("legacy interrupted-save recovery migrates both revisions into a portable file", () => {
+  const { path, folder } = fixture(); const original = readFileSync(path);
+  const old = DocumentFile.open(path).snapshot();
   old.comments.push({ id: "old", body: "Original", createdAt: "2026-09-07", anchor: makeAnchor(old.text, 2, 7) });
-  file.save(old);
-  file.save({ text: `${old.text}Later\n`, comments: [...old.comments, { id: "new", body: "Later thought", createdAt: "2026-09-07", anchor: makeAnchor(`${old.text}Later\n`, old.text.length, old.text.length + 5) }] });
-  writeFileSync(path, original);
-  const recovered = DocumentFile.open(path).snapshot();
-  assert.deepEqual(recovered.comments, old.comments); assert.match(recovered.notice!, /interrupted save/);
+  const revisions = [
+    { sourceHash: createHash("sha256").update("failed new source").digest("hex"), comments: [] },
+    { sourceHash: createHash("sha256").update(original).digest("hex"), comments: old.comments },
+  ];
+  writeFileSync(`${path}.sideleaf.json`, JSON.stringify({ format: "sideleaf-comments", version: 1, revisions }));
+  const file = DocumentFile.open(path); assert.match(file.snapshot().notice!, /interrupted save/);
+  file.save(file.snapshot());
+  assert.equal(existsSync(`${path}.sideleaf.json`), false);
+  assert.ok(readdirSync(folder).some((name) => name.includes(".migrated-")));
+  assert.deepEqual(DocumentFile.open(path).snapshot().comments, old.comments);
+  assert.equal(DocumentFile.open(path).history().length, 3);
+  const copy = join(folder, "only-markdown.md"); writeFileSync(copy, readFileSync(path));
+  assert.deepEqual(DocumentFile.open(copy).snapshot().comments, old.comments);
 });
 
 test("failed destination writes leave original bytes intact", () => {

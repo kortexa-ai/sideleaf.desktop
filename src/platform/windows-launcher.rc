@@ -1,1 +1,6 @@
 1 ICON "assets/icon.ico"
+
+STRINGTABLE
+BEGIN
+  101 "Sideleaf"
+END

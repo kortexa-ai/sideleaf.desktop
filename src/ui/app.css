@@ -83,3 +83,8 @@ button.primary:hover { filter: brightness(1.12); }
 :root .update-notice[hidden] { display: none; }
 .update-notice button { padding: 2px 5px; border: 0; background: transparent; color: var(--green); font-size: inherit; }
 .update-notice button:disabled { color: var(--muted); opacity: 1; cursor: default; }
+
+.app-menu-container { position: relative; margin-left: auto; }
+#app-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; min-width: 205px; padding: 6px; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px #0002; }
+#app-menu button { display: block; width: 100%; text-align: left; border: 0; }
+#app-menu button:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
