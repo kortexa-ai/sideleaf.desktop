@@ -1,5 +1,17 @@
 import type { Anchor, Comment } from "../shared/contracts.ts";
 
+export function commentRange(text: string, from: number, to: number): { from: number; to: number } {
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to > text.length) {
+    throw new Error("Invalid comment selection.");
+  }
+  if (to > from) return { from, to };
+  const lineFrom = text.lastIndexOf("\n", Math.max(0, from - 1)) + 1;
+  const nextBreak = text.indexOf("\n", from);
+  const lineTo = nextBreak < 0 ? text.length : nextBreak;
+  if (lineFrom === lineTo) throw new Error("Write something on this line before adding a comment.");
+  return { from: lineFrom, to: lineTo };
+}
+
 export function makeAnchor(text: string, from: number, to: number): Anchor {
   if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > text.length || to - from > 8192) {
     throw new Error("Select between 1 and 8,192 characters to comment on.");

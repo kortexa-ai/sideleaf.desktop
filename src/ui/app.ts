@@ -9,12 +9,32 @@ import { openSearchPanel } from "@codemirror/search";
 import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
 import { wordCountField } from "./word-count.ts";
-import { makeAnchor } from "../document/anchors.ts";
+import { commentRange, makeAnchor } from "../document/anchors.ts";
 import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState, type WindowAction } from "../shared/contracts.ts";
 import { APP_VERSION } from "../shared/version.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
+const wrapping = new Compartment();
+type Setting = "wrapLines" | "autoSave" | "keepScratch";
+const settingKeys: Record<Setting, string> = {
+  wrapLines: "sideleaf.wrapLines",
+  autoSave: "sideleaf.autoSave",
+  keepScratch: "sideleaf.keepScratch",
+};
+function readSetting(setting: Setting): boolean {
+  try { const value = localStorage.getItem(settingKeys[setting]); return value === null ? true : value === "true"; }
+  catch { return true; }
+}
+const settings: Record<Setting, boolean> = {
+  wrapLines: readSetting("wrapLines"),
+  autoSave: readSetting("autoSave"),
+  keepScratch: readSetting("keepScratch"),
+};
+function writeSetting(setting: Setting, value: boolean) {
+  settings[setting] = value;
+  try { localStorage.setItem(settingKeys[setting], String(value)); } catch { /* Keep the in-memory preference usable. */ }
+}
 let current: DocumentMetadata;
 let savedDoc: Text;
 let savedComments = "[]";
@@ -104,6 +124,22 @@ if (window.__electrobunPlatform === "windows") {
   }, true);
 }
 
+if (platform === "macos") {
+  const shortcuts: Record<string, () => void> = {
+    w: () => setMode("write"),
+    s: () => setMode("split"),
+    r: () => setMode("read"),
+    c: beginComment,
+  };
+  document.addEventListener("keydown", (event) => {
+    if (!event.metaKey || !event.altKey || event.ctrlKey || event.shiftKey || event.isComposing) return;
+    const action = shortcuts[event.key.toLowerCase()];
+    if (!action) return;
+    event.preventDefault(); event.stopPropagation();
+    if (!event.repeat) action();
+  }, true);
+}
+
 if (window.__electrobunPlatform !== "linux") {
   const container = element("app-menu-container"), toggle = element<HTMLButtonElement>("app-menu-toggle"), menu = element("app-menu");
   container.hidden = false;
@@ -113,9 +149,13 @@ if (window.__electrobunPlatform !== "linux") {
     try { const { wslDistro } = await rpc.request.cliAvailability(); element("menu-cli-wsl").hidden = !wslDistro; } catch { element("menu-cli-wsl").hidden = true; }
   }
   function closeMenu(restoreFocus = false) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); if (restoreFocus) toggle.focus(); }
-  function openMenu(last = false) { const items = menuItems(); void refreshWSL(); menu.hidden = false; toggle.setAttribute("aria-expanded", "true"); items[last ? items.length - 1 : 0]!.focus(); }
+  function openMenu(focus: "first" | "last" | null = null) {
+    closeSettings();
+    const items = menuItems(); void refreshWSL(); menu.hidden = false; toggle.setAttribute("aria-expanded", "true");
+    if (focus) items[focus === "last" ? items.length - 1 : 0]!.focus();
+  }
   toggle.onclick = () => { if (menu.hidden) openMenu(); else closeMenu(true); };
-  toggle.onkeydown = (event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); openMenu(event.key === "ArrowUp"); } };
+  toggle.onkeydown = (event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); openMenu(event.key === "ArrowUp" ? "last" : "first"); } };
   menu.onkeydown = (event) => {
     if (event.key === "Escape") { event.preventDefault(); closeMenu(true); }
     else if (event.key === "Tab") closeMenu(true);
@@ -136,6 +176,31 @@ if (window.__electrobunPlatform !== "linux") {
   element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
   element("menu-website").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
   element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
+}
+
+const settingsContainer = element("settings-container");
+const settingsToggle = element<HTMLButtonElement>("settings-toggle");
+const settingsPanel = element("settings-panel");
+if (platform !== "linux") settingsContainer.hidden = false;
+function closeSettings(restoreFocus = false) {
+  settingsPanel.hidden = true; settingsToggle.setAttribute("aria-expanded", "false");
+  if (restoreFocus) settingsToggle.focus();
+}
+function showSettings() {
+  element("app-menu").hidden = true;
+  element("app-menu-toggle").setAttribute("aria-expanded", "false");
+  settingsPanel.hidden = false; settingsToggle.setAttribute("aria-expanded", "true");
+}
+settingsToggle.onclick = () => { if (settingsPanel.hidden) showSettings(); else closeSettings(true); };
+settingsPanel.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeSettings(true); } });
+document.addEventListener("pointerdown", (event) => { if (!settingsContainer.contains(event.target as Node)) closeSettings(); });
+element("settings-close").onclick = () => closeSettings(true);
+for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave", "autoSave"], ["setting-keep-scratch", "keepScratch"]] as const) {
+  const input = element<HTMLInputElement>(id); input.checked = settings[setting];
+  input.onchange = () => {
+    writeSetting(setting, input.checked);
+    if (setting === "wrapLines") view.dispatch({ effects: wrapping.reconfigure(input.checked ? EditorView.lineWrapping : []) });
+  };
 }
 
 function showAbout() {
@@ -162,7 +227,7 @@ function createEditorState(text: string, comments: Draft["comments"] = []) {
     extensions: [
       Prec.highest(keymap.of([{ key: "Mod-Shift-m", run: () => { beginComment(); return true; } }])),
       basicSetup, markdown(), commentField.init(() => comments), commentHistory, wordCountField,
-      readonly.of(EditorState.readOnly.of(false)), EditorView.lineWrapping,
+      readonly.of(EditorState.readOnly.of(false)), wrapping.of(settings.wrapLines ? EditorView.lineWrapping : []),
       placeholder("# A fresh page\n\nStart writing, or open a Markdown file."),
       EditorView.contentAttributes.of({ "aria-label": "Markdown editor", spellcheck: "true", autocapitalize: "off", autocorrect: "off" }),
       keymap.of([{ key: "Mod-b", run: () => formatSelection("**") }, { key: "Mod-i", run: () => formatSelection("*") }]),
@@ -236,14 +301,16 @@ function renderUpdate(state: UpdateState) {
 }
 function updateSelection() {
   const selection = view.state.selection.main;
-  element<HTMLButtonElement>("add-comment").disabled = selection.empty || busy;
   const line = view.state.doc.lineAt(selection.head);
+  element<HTMLButtonElement>("add-comment").disabled = busy || (selection.empty && line.length === 0);
   element("selection-status").textContent = selection.empty ? `Ln ${line.number}, Col ${selection.head - line.from + 1}` : `${selection.to - selection.from} selected`;
 }
 function updatePreview() {
   if (!previewDirty || element("workspace").dataset.mode === "write") return;
   const source = view.state.doc.sliceString(0, PREVIEW_LIMIT);
-  element("preview").innerHTML = source.trim() ? renderMarkdown(source) : '<div class="empty-reader"><span class="empty-leaf">❧</span><h1>Make yourself a little space.</h1><p>Your words will take shape here.<br>Write on the left, or open a Markdown file.</p></div>';
+  const preview = element("preview"), empty = !source.trim();
+  preview.parentElement!.classList.toggle("is-empty", empty);
+  preview.innerHTML = empty ? '<div class="empty-reader"><h1>Make yourself a little space.</h1><img src="./assets/empty-state.png" alt="A young leafy plant growing among quiet hills"><p class="growth-title">Good writing grows here.</p><p class="growth-copy">Ideas take root in quiet spaces.</p></div>' : renderMarkdown(source);
   element("preview-status").textContent = view.state.doc.length > PREVIEW_LIMIT ? "First 200,000 characters" : "Live";
   previewDirty = false;
 }
@@ -298,7 +365,11 @@ async function run(operation: () => Promise<void>) {
 }
 async function perform(command: Command) {
   if (busy || !current) return;
+  if (command === "modeWrite" || command === "modeSplit" || command === "modeRead") {
+    setMode(command === "modeWrite" ? "write" : command === "modeSplit" ? "split" : "read"); return;
+  }
   if (command === "about") { showAbout(); return; }
+  if (command === "settings") { showSettings(); return; }
   if (command === "makeDefaultEditor") { showDefaultEditor(); return; }
   if (command === "comment") { beginComment(); return; }
   if (command === "find") { openSearchPanel(view); return; }
@@ -323,8 +394,12 @@ function beginComment() {
     element<HTMLTextAreaElement>("comment-body").focus();
     return;
   }
-  const { from, to } = view.state.selection.main;
-  try { pendingAnchor = makeAnchor(view.state.doc.toString(), from, to); }
+  const selection = view.state.selection.main;
+  try {
+    const { from, to } = commentRange(view.state.doc.toString(), selection.from, selection.to);
+    if (selection.empty) view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
+    pendingAnchor = makeAnchor(view.state.doc.toString(), from, to);
+  }
   catch (error) { notice((error as Error).message); return; }
   pendingGeneration = generation;
   showComments(true); element("comment-form").hidden = false;
@@ -359,7 +434,7 @@ function setMode(mode: string) {
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => { if (button.tagName === "BUTTON") button.setAttribute("aria-pressed", String(button.dataset.mode === mode)); });
   if (mode !== "read") view.focus();
 }
-for (const action of ["new", "open", "save"] as const) element(action).onclick = () => { void perform(action); };
+for (const action of ["new", "open", "find", "save"] as const) element(action).onclick = () => { void perform(action); };
 document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((button) => { button.onclick = () => setMode(button.dataset.mode!); });
 element("add-comment").onclick = beginComment;
 element("comments-toggle").onclick = () => showComments(element("comments-panel").hidden);

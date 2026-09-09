@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { EditorState } from "@codemirror/state";
 import { history, undo, redo, isolateHistory } from "@codemirror/commands";
 import { commentField, commentHistory, setComments } from "../src/ui/comments.ts";
-import { makeAnchor } from "../src/document/anchors.ts";
+import { commentRange, makeAnchor } from "../src/document/anchors.ts";
 import { renderMarkdown } from "../src/ui/markdown.ts";
 
 test("comments follow UTF-16 edits and survive delete/undo/redo in CodeMirror history", () => {
@@ -20,6 +20,13 @@ test("comments follow UTF-16 edits and survive delete/undo/redo in CodeMirror hi
   assert.equal(undo(target), true); assert.equal(state.field(commentField)[0]!.anchor.from, 6);
   assert.equal(undo(target), true); assert.equal(state.field(commentField).length, 0);
   assert.equal(redo(target), true); assert.deepEqual(state.field(commentField), [comment]);
+});
+
+test("an empty comment selection expands to the complete current line", () => {
+  const text = "First line\nThe current line\nLast line";
+  assert.deepEqual(commentRange(text, 18, 18), { from: 11, to: 27 });
+  assert.deepEqual(commentRange(text, 2, 7), { from: 2, to: 7 });
+  assert.throws(() => commentRange("First\n\nThird", 6, 6), /Write something on this line/);
 });
 
 test("Markdown cannot inject scripts, privileged links, raw HTML or remote images", () => {
