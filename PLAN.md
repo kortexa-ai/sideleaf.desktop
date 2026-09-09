@@ -12,11 +12,9 @@ repositories under `kortexa-ai`:
 | `sideleaf.desktop` | Desktop app, document behavior, packaging, and agent CLI |
 | `sideleaf` | Website and distribution entry point; a parking page initially |
 
-This is a new implementation. Margin is a product specification and a source of
-observable workflow ideas. Do not port, copy, translate, or use its implementation as
-the architectural blueprint. “From first principles” means designing Sideleaf's own
-product and document boundaries; it does not mean writing every text or rendering
-primitive ourselves. Third-party JavaScript libraries are explicitly welcome.
+This is an independent implementation. “From first principles” means designing
+Sideleaf's own product and document boundaries; it does not mean writing every text or
+rendering primitive ourselves. Third-party JavaScript libraries are explicitly welcome.
 
 The priorities are reliable editing, ordinary portable files, a small application
 bundle, responsive interaction, and low operational complexity. Measure these goals
@@ -24,21 +22,15 @@ instead of assuming the framework guarantees them.
 
 ## Why take a stab at a new app
 
-Depending on upstream acceptance is an uncertain maintenance strategy. A hard fork of
-Margin would give us control, but it would also retain the existing product and platform
-architecture. A bounded fresh prototype tests whether the desired smaller architecture
-can deliver the daily workflow at a manageable maintenance cost.
-
-Keep the installed Margin available while Sideleaf proves itself. Fix an urgent Margin
-problem if it blocks current work, but avoid growing two full products in parallel.
-Do not make unmerged upstream contributions a prerequisite for Sideleaf. This does not
-assume that open-source projects generally reject contributions.
+Owning the implementation makes maintenance decisions direct, but a bounded prototype
+must still prove that this smaller architecture can deliver the daily workflow at a
+manageable maintenance cost. Keep the scope focused while Sideleaf proves itself and do
+not make unrelated upstream work a prerequisite for progress.
 
 The first decision gate is a working editor with one trustworthy comment workflow.
 Continue if it feels good and preserves documents reliably. If basic editing or native
 integration proves unsuitable after a bounded investigation, reconsider the architecture
-or a Margin hard fork deliberately. Do not pursue feature parity merely because a
-prototype exists.
+deliberately. Do not pursue feature parity merely because a prototype exists.
 
 ## Architecture decisions
 
@@ -51,7 +43,7 @@ prototype exists.
 | Native drawing | No Warren requirement | Its rendering layer is not needed for the first editor/viewer |
 | Browser distribution | No bundled Chromium/CEF initially | Test system engines first; revisit only for a demonstrated platform blocker |
 | Persistence | Ordinary local Markdown files | No account, hosted database, or daemon required to open and edit documents |
-| Source | Independent implementation | Margin supplies product expectations, not implementation code |
+| Source | Independent implementation | Keep product and document boundaries owned by Sideleaf |
 
 Pin an exact tested Electrobun/Cottontail toolchain during the first implementation
 slice. Do not write a second application runtime or import all of Zendo's functionality.
@@ -102,7 +94,7 @@ comparison, multi-file transactions and semantic merge remain deferred.
 
 System webviews are a reasonable starting choice. They move the browser engine out of
 the app bundle; they do not remove its memory, process, layout, or startup costs. A webview
-app is not automatically faster or lighter in RAM than Margin's native Swift app.
+app is not automatically fast or light in RAM.
 
 The operating systems supply different engines and runtime versions. At planning time,
 the documented system renderer paths are WKWebView on macOS, WebView2 on Windows, and
@@ -130,7 +122,7 @@ A custom GPU editor would add text shaping, line wrapping, hit testing, composit
 clipboard, accessibility, and caret behavior to our responsibilities. Warren/Dawn may
 also affect bundle size. There is no demonstrated need for that work in this product.
 
-## Product specification from Margin
+## Product specification
 
 These are workflow references, not an instruction to ship every feature. Start smaller
 and add features because daily use needs them.
@@ -155,14 +147,14 @@ and add features because daily use needs them.
 - Preserve anchors through nearby edits. For deleted or ambiguous target text, keep the
   comment and make its orphaned state explicit instead of attaching it to unrelated text.
 - Treat gutter markers, highlights, focus, and keyboard access as part of the interaction.
-- If format compatibility with Margin is wanted, implement it from a documented format
+- If external review-format compatibility is wanted, implement it from a documented
   specification and fixtures, with round-trip checks. Do not silently claim compatibility.
 
 ### Comparison, later
 
 - Compare two explicit document snapshots without requiring a Git repository.
 - Show bounded, understandable diffs and selection-based discussion.
-- Consider `.marginreview` interchange only after a compatibility decision.
+- Consider a dedicated review-package interchange only after a compatibility decision.
 - Applying a comparison must participate in coherent document revision and undo behavior.
 
 ### Agent CLI and later collaboration
@@ -232,7 +224,8 @@ placeholder architecture that depends on a normal browser-only development serve
 
 **Exit:** daily interaction feels responsive and the fixture workflows survive save/reopen
 and external edits without data loss or silent anchor corruption. Compare measurements
-against Margin on the same machine and files. Record engine/runtime versions.
+against an explicitly recorded native baseline on the same machine and files. Record
+engine/runtime versions.
 
 This is the go/no-go gate for expanding the new implementation. Set measured performance
 budgets after collecting the baseline; do not publish invented RAM, size, or launch claims.
@@ -245,8 +238,8 @@ budgets after collecting the baseline; do not publish invented RAM, size, or lau
 - Make source/reader switching, links, local images, and large-file behavior predictable.
 - Validate native file associations, open-file events, multiple windows, and accessibility.
 
-**Exit:** use Sideleaf for normal personal editing without depending on Margin for basic
-document operations. Fix correctness and usability defects before widening the feature set.
+**Exit:** use Sideleaf for normal personal editing without another editor for basic document
+operations. Fix correctness and usability defects before widening the feature set.
 
 ### 3. Establish supported platforms and polished distribution
 
@@ -272,7 +265,7 @@ a reproducible limitation justifies the cost.
 
 - Exact supported OS versions and architectures, and tested runtime/toolchain pins.
 - Markdown dialect and parser, raw HTML policy, image loading, and renderer extensions.
-- Markdown/comment/review interchange with Margin, if needed.
+- External Markdown/comment/review interchange, if needed.
 - Save/autosave policy, crash recovery, external conflict UI, and comment history semantics.
 - A UI framework, if one adds enough value to justify the dependency.
 - Measured launch, memory, document size, typing, and scrolling budgets.
@@ -285,8 +278,6 @@ durable product and architecture reference.
 
 ## References
 
-- Local product reference: `../margin/README.md` and its public product documentation.
-  Refer to documented and observable behavior, not source implementation.
 - Local stack example: `../zendo.sh`, particularly its desktop build setup and system-webview
   composer integration. Read its local instructions before borrowing patterns.
 - [Electrobun cross-platform development](https://framework.blackboard.sh/electrobun/guides/cross-platform-development/)

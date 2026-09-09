@@ -48,4 +48,29 @@ if (process.platform === "darwin") {
   let present = false;
   try { execFileSync(buddy, ["-c", `Print :${value}`, plist], { stdio: "ignore" }); present = true; } catch { /* Add a missing key. */ }
   execFileSync(buddy, ["-c", present ? `Set :${value} 26.6.2` : `Add :${value} string 26.6.2`, plist]);
+  if (!wrapper) {
+    // Electrobun currently exports one app-specific UTI per extension. macOS
+    // identifies Markdown as net.daringfireball.markdown, so claim that shared
+    // type and import its tags instead of competing with synthetic identifiers.
+    for (const key of ["UTExportedTypeDeclarations", "UTImportedTypeDeclarations"]) {
+      try { execFileSync(buddy, ["-c", `Delete :${key}`, plist], { stdio: "ignore" }); } catch { /* Optional generated key. */ }
+    }
+    execFileSync(buddy, ["-c", "Delete :CFBundleDocumentTypes:0:LSItemContentTypes", plist]);
+    for (const command of [
+      "Add :CFBundleDocumentTypes:0:LSItemContentTypes array",
+      "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string net.daringfireball.markdown",
+      "Add :UTImportedTypeDeclarations array",
+      "Add :UTImportedTypeDeclarations:0 dict",
+      "Add :UTImportedTypeDeclarations:0:UTTypeIdentifier string net.daringfireball.markdown",
+      "Add :UTImportedTypeDeclarations:0:UTTypeDescription string Markdown document",
+      "Add :UTImportedTypeDeclarations:0:UTTypeConformsTo array",
+      "Add :UTImportedTypeDeclarations:0:UTTypeConformsTo:0 string public.plain-text",
+      "Add :UTImportedTypeDeclarations:0:UTTypeTagSpecification dict",
+      "Add :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension array",
+      "Add :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:0 string md",
+      "Add :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:1 string markdown",
+      "Add :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.filename-extension:2 string mdown",
+      "Add :UTImportedTypeDeclarations:0:UTTypeTagSpecification:public.mime-type string text/markdown",
+    ]) execFileSync(buddy, ["-c", command, plist]);
+  }
 }

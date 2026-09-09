@@ -51,6 +51,9 @@ credentials, unreviewed screenshots, or development build directories.
 - Run `bun run validate` on both native platforms.
 - Install from the actual DMG and Windows setup ZIP. Verify launch, Open, Save As,
   undo/redo, comments, external-write conflicts, and update-menu behavior.
+- On both platforms, confirm Sideleaf is offered for `.md` files, make it the
+  default through the OS UI, and open a Unicode/spaced filename. Repeat while a
+  dirty Sideleaf document is open and exercise Save, Cancel, and Discard.
 - On macOS, verify all nested signatures, notarization staples, and Gatekeeper
   acceptance on the distribution and installed app. Check the app and installer
   minimum OS metadata against their binaries.
@@ -89,12 +92,13 @@ logs remain at their old location; new logs use the canonical identifier. Docume
 live independently of the application identifier and require no path migration.
 
 On macOS, replace the installed Sideleaf.app in its existing Applications location;
-Launch Services then reads the new bundle identity. On Windows the identifier changes
+Launch Services then reads the new bundle identity and Markdown document types. On Windows the identifier changes
 the installer-managed directory and uninstall registry key. Install the new build,
 launch it once to migrate preferences and update the Sideleaf shortcuts, then remove
 the previous installation using its own uninstaller. Do not run the old uninstaller
 before the new app has migrated preferences. The native adapter only updates shortcuts
-whose targets belong to its own installation. It does not alter file associations.
+whose targets belong to its own installation. The installer registers Sideleaf's
+per-user Markdown capabilities without changing the user's selected defaults.
 
 The Windows window and installed shortcuts use the same explicit AppUserModelID.
 Relaunch command/name/icon properties point at the Sideleaf launcher, preserving the

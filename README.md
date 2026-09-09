@@ -3,7 +3,7 @@
 A small desktop Markdown editor for your words and your files.
 
 Sideleaf uses Electrobun, Cottontail, CodeMirror 6, and the operating system's webview.
-It is an independent implementation; Margin is a product reference only.
+It is an independent implementation with its own product and document boundaries.
 
 Sideleaf 0.1 supports a single Markdown document, native Open and Save As,
 literal source editing, live preview, find/replace, and anchored comments with undo.
@@ -77,8 +77,8 @@ No image API key or image generation service is used at app runtime.
   are disabled. Only HTTP, HTTPS, and email links open externally. The preview shows
   the first 200,000 characters of large files; the complete source remains editable.
 - Comments participate in undo/redo. Editing their selected text makes them visibly
-  unanchored; undo restores the prior anchor. Sideleaf metadata is its own versioned
-  format, with no claimed Margin interchange compatibility.
+  unanchored; undo restores the prior anchor. Sideleaf metadata uses its own versioned,
+  documented format.
 - Tabs, workspaces, advanced review, recovery for multiple untitled drafts, and full
   accessibility/IME acceptance remain later work.
 

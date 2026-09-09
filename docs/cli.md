@@ -73,3 +73,9 @@ In WSL, the wrapper translates relative paths, `/mnt/...` paths and native Linux
 paths into Windows drive/UNC paths. Windows drive paths are also accepted. Pipes
 and `--input` work; `sideleaf open FILE` finds the installed Windows app automatically.
 This requires WSL interoperability and Windows access to the current distro.
+
+The installed desktop app also registers `md`, `markdown`, and `mdown` as
+editable Markdown document types. Finder's Open With menu and Windows Default
+Apps can therefore select Sideleaf, while the final default remains the user's
+choice. OS-opened documents use the same unsaved-change confirmation as the
+app's Open command.

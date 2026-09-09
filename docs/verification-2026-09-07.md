@@ -37,15 +37,12 @@ the next optimization work, not a passed low-memory gate.
 | Windows host initialization to editor ready | 1.13 s after the native IPC fix; excludes launcher/runtime import time |
 | macOS empty Sideleaf, full process group physical footprint | 468.8 MiB |
 | macOS large fixture, Sideleaf split view physical footprint | 528.3 MiB |
-| Margin 0.5.1, same machine and large fixture, source view | 67.6 MiB physical footprint; about 7.2 MiB bundle |
 
 macOS memory was measured with `/usr/bin/footprint --noCategories`, including the
 Sideleaf launcher, Cottontail, WebContent, GPU and Networking processes. It is not
-the Cottontail RSS alone. Margin was used only as an observable product; its source
-view and Sideleaf's split view are different workloads. Even with that qualification,
-Sideleaf currently uses substantially more memory. The stack has not yet met the
-low-memory aim. A cold-cache launch, typing-latency distribution, and Windows memory
-baseline also remain to be measured.
+the Cottontail RSS alone. The stack has not yet met the low-memory aim. A cold-cache
+launch, typing-latency distribution, and Windows memory baseline also remain to be
+measured.
 
 ## Windows startup diagnosis
 
@@ -61,4 +58,4 @@ The content policy also permits bundled stylesheet fetches needed by the framewo
 
 Full CJK composition, accessibility, clean-machine WebView2 installation, autosave
 recovery, file associations, signing/notarization and distribution remain later
-acceptance work. Keep the installed Margin available while Sideleaf is a prototype.
+acceptance work.

@@ -1,8 +1,9 @@
+import { pathFromLaunch, setFileActivationReceiver, takeInitialFileActivation } from "./platform/file-open.ts";
+import events from "electrobun/main/events";
 import { BrowserWindow } from "electrobun/main/browser-window";
 import { BrowserView } from "electrobun/main/browser-view";
 import * as ApplicationMenu from "electrobun/main/app-menu";
 import * as Utils from "electrobun/main/utils";
-import events from "electrobun/main/events";
 import { mkdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -13,7 +14,7 @@ import { defaultWSLDistro, installCommandLineTool, installWSLCommand } from "./p
 import { chooseSavePath } from "./platform/dialogs.ts";
 import { handleWindowAction } from "./platform/window-controls.ts";
 import { loadWindowsChrome, type WindowsChrome } from "./platform/windows-chrome.ts";
-import { documentMetadata, type Command, type SideleafRPC } from "./shared/contracts.ts";
+import { documentMetadata, type Command, type DocumentSnapshot, type SideleafRPC } from "./shared/contracts.ts";
 import { APP_VERSION } from "./shared/version.ts";
 import { UpdateChecker } from "./updates.ts";
 
@@ -38,19 +39,38 @@ function diagnostic(event: string, message: string) {
   try { appendFileSync(startupLog, `${JSON.stringify(record)}\n`); } catch { /* Keep the app usable if its log directory is read-only. */ }
 }
 diagnostic("host-started", `Sideleaf ${APP_VERSION}`);
-const openArgument = process.argv.indexOf("--sideleaf-open");
-const initialPath = process.env.SIDELEAF_OPEN_PATH ?? (openArgument >= 0 ? process.argv[openArgument + 1] : undefined);
-let document = initialPath ? DocumentFile.open(initialPath) : new DocumentFile();
+const launchPath = pathFromLaunch(process.argv, process.env.SIDELEAF_OPEN_PATH) ?? takeInitialFileActivation();
+let hasInitialPath = launchPath !== null;
+let document = launchPath ? DocumentFile.open(launchPath) : new DocumentFile();
 const saveTransfer = new SaveTransfer();
 const scratch = new ScratchStore(join(Utils.paths.userData, "untitled-draft.json"));
 let initialDelivered = false;
 let recoveredScratch = false;
 let recoveryError: string | null = null;
+let pendingOpenPath: string | null = null;
+let rendererReady = false;
 let dirty = false;
 let approvedClose = false;
 let dialogOpen = false;
 let updateChecksStarted = false;
 let appWindow: BrowserWindow;
+
+function adoptDocument(next: DocumentFile): DocumentSnapshot {
+  document = next; saveTransfer.clear(); scratch.clear(); recoveredScratch = false; dirty = false; updateTitle();
+  return document.snapshot();
+}
+
+// When the app is already open, let the renderer run the same dirty-document
+// flow as File → Open before the host consumes the pending path.
+setFileActivationReceiver((path) => {
+  if (!initialDelivered) {
+    try { document = DocumentFile.open(path); hasInitialPath = true; }
+    catch (error) { recoveryError = `Sideleaf could not open the selected Markdown file: ${(error as Error).message}`; diagnostic("file-activation-failed", (error as Error).message); }
+    return;
+  }
+  pendingOpenPath = path;
+  if (rendererReady) rpc.send.command("openExternal");
+});
 
 function checkId(id: string) {
   if (typeof id !== "string" || id !== document.id) throw new Error("This request belongs to an earlier document. Please try again.");
@@ -63,7 +83,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       initial: ({ restoreScratch }) => {
         if (typeof restoreScratch !== "boolean") throw new Error("Invalid recovery preference.");
         diagnostic("initial-document", "Requested");
-        if (!initialDelivered && !initialPath && restoreScratch) {
+        if (!initialDelivered && !hasInitialPath && restoreScratch) {
           try {
             const draft = scratch.load();
             if (draft) { document = DocumentFile.fromDraft(draft); recoveredScratch = true; }
@@ -82,15 +102,19 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       dismissUpdate: () => updates.dismiss(),
       openDefaultApps: () => {
         if (process.platform !== "win32") throw new Error("Default Apps is available on Windows only.");
-        return Utils.openExternal("ms-settings:defaultapps");
+        return Utils.openExternal("ms-settings:defaultapps?registeredAppUser=Sideleaf");
       },
       open: async () => {
         const paths = await Utils.openFileDialog({ allowedFileTypes: "md,markdown,mdown,txt", canChooseDirectory: false, allowsMultipleSelection: false });
         if (!paths[0]) return null;
-        const next = DocumentFile.open(paths[0]);
-        document = next; saveTransfer.clear(); scratch.clear(); recoveredScratch = false; dirty = false; updateTitle();
-        return document.snapshot();
+        return adoptDocument(DocumentFile.open(paths[0]));
       },
+      openPending: () => {
+        if (!pendingOpenPath) return null;
+        const path = pendingOpenPath; pendingOpenPath = null;
+        return adoptDocument(DocumentFile.open(path));
+      },
+      cancelPendingOpen: () => { pendingOpenPath = null; return true; },
       newDocument: () => { document = new DocumentFile(); saveTransfer.clear(); scratch.clear(); recoveredScratch = false; dirty = false; updateTitle(); return document.snapshot(); },
       stageSave: (part) => { checkId(part?.id); saveTransfer.append(part); return true; },
       save: async (payload) => {
@@ -146,8 +170,10 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       cancelSave: ({ transferId }) => { if (typeof transferId === "string") saveTransfer.clear(transferId); },
       dirty: (payload) => { if (payload?.id === document.id && typeof payload.dirty === "boolean") { dirty = payload.dirty; updateTitle(); } },
       ready: ({ userAgent }) => {
+        rendererReady = true;
         diagnostic("sideleaf-ready", userAgent);
         diagnostic("windows-identity", String(configureWindowsIdentity()));
+        if (pendingOpenPath) rpc.send.command("openExternal");
         if (!updateChecksStarted) {
           updateChecksStarted = true;
           setTimeout(() => { void updates.check(); }, 15_000);

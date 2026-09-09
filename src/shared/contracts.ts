@@ -27,7 +27,7 @@ export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
   const { id, path, name, lineEnding, notice } = snapshot;
   return { id, path, name, lineEnding, notice };
 }
-export type Command = "new" | "open" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo" | "modeWrite" | "modeSplit" | "modeRead" | "about" | "settings" | "makeDefaultEditor";
+export type Command = "new" | "open" | "openExternal" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo" | "modeWrite" | "modeSplit" | "modeRead" | "about" | "settings" | "makeDefaultEditor";
 export type WindowAction = "minimize" | "toggle-maximize" | "close" | "move" | "system-menu" | "titlebar-double-click";
 export type UpdateState = { status: "idle" | "checking" | "current" | "error" } | { status: "available"; version: string; url: string };
 
@@ -42,6 +42,8 @@ export type SideleafRPC = {
       dismissUpdate: { params: undefined; response: boolean };
       openDefaultApps: { params: undefined; response: boolean };
       open: { params: undefined; response: DocumentSnapshot | null };
+      openPending: { params: undefined; response: DocumentSnapshot | null };
+      cancelPendingOpen: { params: undefined; response: boolean };
       newDocument: { params: undefined; response: DocumentSnapshot };
       stageSave: { params: SaveChunk & { id: string }; response: boolean };
       save: { params: { id: string; transferId: string; saveAs: boolean }; response: DocumentMetadata | null };

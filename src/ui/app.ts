@@ -47,10 +47,14 @@ let pendingGeneration = 0;
 let generation = 0;
 let previewDirty = true;
 let lastScratchJSON: string | null = null;
+let pendingExternalOpen = false;
 
 const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
-  handlers: { messages: { command: (command) => { void perform(command); }, update: renderUpdate } },
+  handlers: { messages: { command: (command) => {
+    if (command === "openExternal") { pendingExternalOpen = true; void performPendingExternalOpen(); }
+    else void perform(command);
+  }, update: renderUpdate } },
 });
 // A person choosing a file must not time out while the host still owns the
 // dialog. Other requests retain the bounded timeout for startup diagnostics.
@@ -390,10 +394,23 @@ async function run(operation: () => Promise<void>) {
   updateDirty(); updateSelection();
   try { await operation(); }
   catch (error) { notice((error as Error).message || String(error)); }
-  finally { busy = false; view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(false)) }); updateDirty(); updateSelection(); }
+  finally {
+    busy = false; view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(false)) }); updateDirty(); updateSelection();
+    if (pendingExternalOpen) queueMicrotask(() => { void performPendingExternalOpen(); });
+  }
+}
+async function performPendingExternalOpen() {
+  if (!pendingExternalOpen || busy || !current) return;
+  pendingExternalOpen = false;
+  await run(async () => {
+    if (!(await canLeave())) { await rpc.request.cancelPendingOpen(); return; }
+    const next = await rpc.request.openPending();
+    if (next) applyDocument(next);
+  });
 }
 async function perform(command: Command) {
   if (busy || !current) return;
+  if (command === "openExternal") { pendingExternalOpen = true; await performPendingExternalOpen(); return; }
   if (command === "modeWrite" || command === "modeSplit" || command === "modeRead") {
     setMode(command === "modeWrite" ? "write" : command === "modeSplit" ? "split" : "read"); return;
   }
@@ -531,6 +548,7 @@ async function initialize() {
     if (initial.recoveryError) notice(initial.recoveryError);
     renderUpdate(await rpc.request.updateState());
     rpc.send.ready({ userAgent: navigator.userAgent });
+    if (pendingExternalOpen) void performPendingExternalOpen();
   } catch (error) {
     const message = `Sideleaf could not start: ${(error as Error).message}`;
     notice(message);

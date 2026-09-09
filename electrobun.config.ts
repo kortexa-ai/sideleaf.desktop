@@ -2,7 +2,13 @@ import type { ElectrobunConfig } from "electrobun";
 import { APP_VERSION } from "./src/shared/version.ts";
 
 export default {
-  app: { name: "Sideleaf", identifier: "ai.kortexa.sideleaf", version: APP_VERSION, description: "A Markdown editor for your words and your files." },
+  app: {
+    name: "Sideleaf",
+    identifier: "ai.kortexa.sideleaf",
+    version: APP_VERSION,
+    description: "A Markdown editor for your words and your files.",
+    fileAssociations: [{ ext: ["md", "markdown", "mdown"], name: "Markdown document", role: "Editor" }],
+  },
   scripts: { postBuild: "scripts/post-build.ts", postWrap: "scripts/post-build.ts" },
   build: {
     mainProcess: "cottontail",
