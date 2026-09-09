@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -6,6 +7,22 @@ import { relocateComment } from "./anchors.ts";
 
 import { hash, parseMetadata, splitMetadata, embedMetadata, type Metadata, type CommentRevision } from "./metadata.ts";
 type DiskState = { bytes: Buffer; metadata: Buffer | null; mode: number; signature: string };
+
+// Windows UNC access to WSL does not expose Linux permission bits through stat.
+// Keep Linux responsible for private staging and modes; Cottontail still performs
+// document parsing, conflict checks, writes and the atomic replacement.
+export function wslLocation(path: string): { distro: string; path: string } | null {
+  const match = /^\\\\(?:wsl\$|wsl\.localhost)\\([^\\]+)\\(.*)$/i.exec(path);
+  return match ? { distro: match[1]!, path: "/" + match[2]!.replaceAll("\\", "/") } : null;
+}
+function linuxFileCommand(path: string, command: string, args: string[] = []): string {
+  const location = wslLocation(path);
+  if (!location) throw new Error("Invalid WSL file path.");
+  return execFileSync(join(process.env.SystemRoot ?? "C:\\Windows", "System32/wsl.exe"),
+    ["--distribution", location.distro, "--exec", command, ...args, location.path],
+    { encoding: "utf8", windowsHide: true, timeout: 20_000, stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+const isWSL = (path: string) => process.platform === "win32" && wslLocation(path) !== null;
 
 const metadataPath = (path: string) => `${path}.sideleaf.json`;
 
@@ -27,7 +44,8 @@ function readDisk(path: string): DiskState {
   const sidecarPath = metadataPath(path);
   if (existsSync(sidecarPath)) regularFile(sidecarPath);
   const metadata = readOptional(sidecarPath);
-  return { bytes, metadata, mode: stat.mode & 0o777, signature: `${hash(bytes)}:${metadata === null ? "none" : hash(metadata)}` };
+  const mode = isWSL(path) ? Number.parseInt(linuxFileCommand(path, "stat", ["-c", "%a", "--"]), 8) & 0o777 : stat.mode & 0o777;
+  return { bytes, metadata, mode, signature: `${hash(bytes)}:${metadata === null ? "none" : hash(metadata)}` };
 }
 
 export function decodeMarkdown(bytes: Uint8Array): { text: string; bom: boolean; lineEnding: "\n" | "\r\n" } {
@@ -50,12 +68,18 @@ export function atomicWrite(path: string, bytes: Uint8Array, mode = 0o600): void
   const temp = join(dirname(path), `.${basename(path)}.sideleaf-${randomUUID()}.tmp`);
   let fd: number | undefined;
   try {
-    fd = openSync(temp, "wx", mode);
+    const wsl = isWSL(path);
+    // Make the empty staging file private before any Markdown reaches it. POSIX
+    // noclobber provides exclusive creation, including rejection of symlinks.
+    if (wsl) linuxFileCommand(temp, "/bin/sh", ["-c", 'umask 077; set -C; : > "$1"', "sideleaf"]);
+    fd = openSync(temp, wsl ? "r+" : "wx", mode);
     writeFileSync(fd, bytes);
-    fchmodSync(fd, mode);
+    if (!wsl) fchmodSync(fd, mode);
     fsyncSync(fd);
     closeSync(fd); fd = undefined;
+    if (wsl) linuxFileCommand(temp, "chmod", [mode.toString(8), "--"]);
     renameSync(temp, path);
+    if (wsl) linuxFileCommand(dirname(path), "sync", ["-f", "--"]);
     // Directory sync is supported on macOS/Linux. A failed sync is surfaced:
     // the bytes may have reached disk, but we must not report a durable save.
     if (process.platform !== "win32") {

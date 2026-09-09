@@ -16,7 +16,8 @@ need Node, Bun, npm, or a running desktop window.
   available default distribution. It confirms the distro name and installs there only.
   Setup never modifies WSL. The wrapper uses the Windows app's bundled runtime through
   WSL interoperability, translating document and input-file paths. No Linux JS runtime
-  is needed. After changing the default distro, run the menu command again to install
+  is needed. Linux filesystem tools preserve private staging and file permissions
+  when saving WSL-native files. After changing the default distro, run the menu command again to install
   there. WSL interoperability must be enabled.
 
 The command follows desktop updates because it runs from the installed app.

@@ -172,7 +172,8 @@ and add features because daily use needs them.
   Bun or npm. macOS and Windows expose an installation command in the Sideleaf menu;
   the Windows installer also offers native CLI installation. A separate Windows menu
   command installs a WSL wrapper into the detected default distro, only when available.
-  The Windows installer never modifies WSL.
+  The Windows installer never modifies WSL. WSL wrappers reuse the Windows runtime;
+  saves to WSL-native files preserve Linux permissions using distro filesystem tools.
 - Share embedded metadata and document services, deterministic JSON reads, explicit
   actor attribution, UTF-16 coordinates, and mandatory revision preconditions.
 - Keep watch events, suggestions and richer review operations separately scoped.

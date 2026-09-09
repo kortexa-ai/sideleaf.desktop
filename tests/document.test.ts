@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { splitMetadata } from "../src/document/metadata.ts";
-import { DocumentFile, decodeMarkdown } from "../src/document/files.ts";
+import { wslLocation, DocumentFile, decodeMarkdown } from "../src/document/files.ts";
 import { makeAnchor, relocateComment } from "../src/document/anchors.ts";
 import { validateDraft } from "../src/shared/contracts.ts";
 
@@ -101,4 +101,12 @@ test("opening a symlink saves its resolved target without replacing the link", {
   const { path, folder } = fixture(); const link = join(folder, "link.md"); symlinkSync(path, link);
   DocumentFile.open(link).save({ text: "Updated", comments: [] });
   assert.equal(readFileSync(path, "utf8"), "Updated");
+});
+
+
+test("WSL file locations distinguish distro UNC paths from ordinary network shares", () => {
+  assert.deepEqual(wslLocation(String.raw`\\wsl.localhost\Ubuntu\home\francip\notes café.md`), { distro: "Ubuntu", path: "/home/francip/notes café.md" });
+  assert.deepEqual(wslLocation(String.raw`\\wsl$\Ubuntu Dev\tmp\notes.md`), { distro: "Ubuntu Dev", path: "/tmp/notes.md" });
+  assert.equal(wslLocation(String.raw`\\server\share\notes.md`), null);
+  assert.equal(wslLocation(String.raw`C:\notes.md`), null);
 });
