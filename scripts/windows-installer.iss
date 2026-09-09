@@ -33,7 +33,7 @@ Name: cli; Description: "Install the sideleaf command-line tool"; GroupDescripti
 Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Files]
-Source: "{#RepoRoot}\build\stable-win-x64\Sideleaf\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{userprograms}\Sideleaf"; Filename: "{app}\bin\launcher.exe"; WorkingDir: "{app}\bin"; AppUserModelID: "ai.kortexa.sideleaf"

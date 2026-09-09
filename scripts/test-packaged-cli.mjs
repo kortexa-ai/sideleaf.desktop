@@ -11,7 +11,7 @@ const run = (args, input, expected = 0) => {
   return JSON.parse(result.stdout || result.stderr);
 };
 const help = spawnSync(executable, ["--help"], { encoding: "utf8", env, timeout: 20_000 });
-assert.equal(help.status, 0, help.stderr); assert.match(help.stdout, /desktop app supplies the runtime/);
+assert.equal(help.status, 0, JSON.stringify({ stderr: help.stderr, error: help.error })); assert.match(help.stdout, /desktop app supplies the runtime/);
 const dir = mkdtempSync(join(tmpdir(), "sideleaf packaged café "));
 const file = join(dir, "notes 文 🌿.md"), input = join(dir, "input 文.json");
 writeFileSync(file, "\uFEFFHello 🌿 world\r\n");

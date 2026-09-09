@@ -1,3 +1,4 @@
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -32,3 +33,23 @@ void WINAPI sideleafCliStart(void) {
     if (WaitForSingleObject(child.hProcess, INFINITE) == WAIT_OBJECT_0) GetExitCodeProcess(child.hProcess, &result);
     CloseHandle(child.hProcess); ExitProcess(result);
 }
+#else
+#include <mach-o/dyld.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    char executable[PATH_MAX], resolved[PATH_MAX], runtime[PATH_MAX], script[PATH_MAX];
+    uint32_t size = sizeof(executable);
+    if (_NSGetExecutablePath(executable, &size) || !realpath(executable, resolved)) return 1;
+    char *separator = strrchr(resolved, '/'); if (!separator) return 1; *separator = 0;
+    if (snprintf(runtime, sizeof(runtime), "%s/cottontail", resolved) >= (int)sizeof(runtime) ||
+        snprintf(script, sizeof(script), "%s/../Resources/app/cli/sideleaf.mjs", resolved) >= (int)sizeof(script)) return 1;
+    char **arguments = calloc((size_t)argc + 2, sizeof(char *)); if (!arguments) return 1;
+    arguments[0] = runtime; arguments[1] = script;
+    for (int i = 1; i < argc; ++i) arguments[i + 1] = argv[i];
+    execv(runtime, arguments); perror("Could not start Sideleaf command"); free(arguments); return 1;
+}
+#endif

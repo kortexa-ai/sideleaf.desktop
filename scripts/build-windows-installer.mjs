@@ -1,8 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 if (process.platform !== "win32") throw new Error("Build the Windows installer on Windows.");
 const compiler = process.env.SIDELEAF_ISCC ?? resolve("tmp/toolchain/inno/ISCC.exe");
 if (!existsSync(compiler)) throw new Error("Install Inno Setup 6.7.3 and set SIDELEAF_ISCC to its ISCC.exe. See docs/releasing.md.");
+const staging = mkdtempSync(resolve("tmp/windows-installer-"));
+execFileSync("tar.exe", ["-xf", resolve("artifacts/stable-win-x64-Sideleaf.tar.zst"), "-C", staging], { stdio: "inherit" });
+const payload = resolve(staging, "Sideleaf");
+if (!existsSync(resolve(payload, "bin/sideleaf.exe"))) throw new Error("The inner app is missing its CLI.");
 const version = JSON.parse(readFileSync("package.json", "utf8")).version;
-execFileSync(compiler, ["/Qp", `/DAppVersion=${version}`, `/DRepoRoot=${resolve(".")}`, "scripts/windows-installer.iss"], { stdio: "inherit" });
+execFileSync(compiler, ["/Qp", `/DAppVersion=${version}`, `/DRepoRoot=${resolve(".")}`, `/DPayloadDir=${payload}`, "scripts/windows-installer.iss"], { stdio: "inherit" });

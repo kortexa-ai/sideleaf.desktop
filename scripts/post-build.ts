@@ -38,7 +38,7 @@ if (!wrapper) {
 if (process.platform === "darwin") {
   if (!wrapper) {
     const command = join(root, "Contents/MacOS/sideleaf");
-    copyFileSync("src/platform/cli-launcher.sh", command);
+    copyFileSync("dist/native/sideleaf", command);
     chmodSync(command, 0o755);
   }
   // This is the actual minimum encoded in the pinned Cottontail Mach-O binary.
