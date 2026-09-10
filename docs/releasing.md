@@ -13,12 +13,13 @@ bun run build:release
 ```
 
 On macOS, supply a Developer ID Application identity through
-`ELECTROBUN_DEVELOPER_ID` and the complete notarization credential group supported
-by Hutch. Keep credentials in your local secret store or ignored environment,
-and never commit them. Both signing and notarization are enabled for stable
-builds. Development builds do not use the signing credentials.
-The final macOS packaging step also uses the local `notarytool` Keychain profile.
-Create that profile with Apple's `notarytool store-credentials` on a release machine.
+`ELECTROBUN_DEVELOPER_ID`. Keep signing credentials in your local secret store or
+ignored environment, and never commit them. Hutch signing is enabled for stable
+builds; development builds do not use the signing identity. Hutch notarization is
+disabled because it cannot consume the release machine's `notarytool` Keychain
+profile. The final macOS packaging step submits and staples both the inner app and
+the DMG with that profile. Create it with Apple's `notarytool store-credentials`
+on a release machine.
 
 On Windows, use native Windows Node 24 or newer and Windows PowerShell.
 The build is unsigned. Hutch produces a ZIP containing the setup executable
