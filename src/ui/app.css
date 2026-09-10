@@ -97,7 +97,7 @@ button.primary:hover { filter: brightness(1.12); }
 #topbar { flex-shrink: 0; background: var(--panel); border-bottom: 1px solid var(--border); -webkit-app-region: drag; }
 .window-chrome { height: 0; position: relative; }
 body[data-platform="macos"] .window-chrome { height: 30px; }
-body[data-platform="windows"] .window-chrome { height: 46px; }
+body[data-platform="windows"] .window-chrome { height: 46px; -webkit-app-region: drag; }
 .toolbar { height: 57px; padding: 0 22px; display: flex; align-items: center; justify-content: space-between; }
 #topbar button, .app-menu-container, .file-actions, .window-controls { -webkit-app-region: no-drag; }
 .window-controls { position: absolute; right: 0; top: 0; display: flex; }
