@@ -9,6 +9,8 @@ Issue: <https://github.com/kortexa-ai/sideleaf.desktop/issues/41>
 - Keep the WSL command installer available only on supported Windows setups.
 - Rename the website entry to Help while it continues to open the Sideleaf
   home page until the website documentation exists.
+- Add a themed Keyboard shortcuts dialog from the hamburger menu, initially
+  covering view modes, distraction-free mode, and comments.
 
 ## Decisions
 
@@ -38,3 +40,6 @@ Issue: <https://github.com/kortexa-ai/sideleaf.desktop/issues/41>
   result state, and distraction-free enters from the menu and exits with Escape.
 - The Windows label is covered by the shared shortcut test; packaged Windows
   menu validation remains required after Git synchronization to Scrappy.
+- The macOS popup presents Write, Split, Read, distraction-free, and Add
+  comment with the correct Command-Shift chords. Its layout, theme, focus, and
+  dismissal were checked in the live development app.

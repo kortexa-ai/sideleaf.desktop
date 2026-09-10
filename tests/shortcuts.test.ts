@@ -41,8 +41,10 @@ describe("custom shortcuts", () => {
   });
 
   test("shows the platform chord used by custom shortcut bindings", () => {
-    expect(customShortcutLabel("macos", "d")).toBe("⌘⇧D");
-    expect(customShortcutLabel("windows", "d")).toBe("Ctrl+Alt+D");
+    for (const key of ["w", "s", "r", "d", "c"]) {
+      expect(customShortcutLabel("macos", key)).toBe(`⌘⇧${key.toUpperCase()}`);
+      expect(customShortcutLabel("windows", key)).toBe(`Ctrl+Alt+${key.toUpperCase()}`);
+    }
     expect(customShortcutLabel("linux", "d")).toBe("");
   });
 });

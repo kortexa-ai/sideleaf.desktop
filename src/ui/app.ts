@@ -118,6 +118,9 @@ new SideleafView({ rpc });
 const platform = window.__electrobunPlatform;
 document.body.dataset.platform = platform;
 element("menu-distraction-free-shortcut").textContent = customShortcutLabel(platform, "d");
+document.querySelectorAll<HTMLElement>("[data-custom-shortcut]").forEach((label) => {
+  label.textContent = customShortcutLabel(platform, label.dataset.customShortcut!);
+});
 element("window-controls").hidden = platform !== "windows";
 async function windowAction(action: WindowAction): Promise<boolean> {
   try { await rpc.request.windowAction({ action }); return true; }
@@ -259,6 +262,7 @@ if (window.__electrobunPlatform !== "linux") {
   element("menu-default-editor").onclick = () => { closeMenu(true); showDefaultEditor(); };
   element("menu-distraction-free").onclick = () => { closeMenu(true); void setDistractionFree(true); };
   element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
+  element("menu-shortcuts").onclick = () => { closeMenu(); const dialog = element<HTMLDialogElement>("shortcuts-dialog"); dialog.showModal(); dialog.focus({ preventScroll: true }); };
   element("menu-help").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
   element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
 }
