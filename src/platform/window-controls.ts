@@ -1,18 +1,19 @@
 import type { WindowsChrome } from "./windows-chrome.ts";
 
-export type WindowAction = "minimize" | "toggle-maximize" | "close" | "move" | "system-menu";
+export type WindowAction = "minimize" | "toggle-maximize" | "close" | "move" | "system-menu" | "enter-distraction-free" | "exit-distraction-free";
 
 type AppWindow = {
   minimize(): unknown;
   isMaximized(): boolean;
   maximize(): unknown;
   unmaximize(): unknown;
+  setFullScreen(fullScreen: boolean): unknown;
   requestClose(): unknown;
 };
 
 // Called only after the typed webview bridge validates the request shape.
 export function handleWindowAction(win: AppWindow | null, action: unknown, chrome?: WindowsChrome): boolean {
-  if (action !== "minimize" && action !== "toggle-maximize" && action !== "close" && action !== "move" && action !== "system-menu") {
+  if (action !== "minimize" && action !== "toggle-maximize" && action !== "close" && action !== "move" && action !== "system-menu" && action !== "enter-distraction-free" && action !== "exit-distraction-free") {
     throw new Error("Unknown window action.");
   }
   if (!win) throw new Error("Sideleaf window is unavailable.");
@@ -25,6 +26,7 @@ export function handleWindowAction(win: AppWindow | null, action: unknown, chrom
     if (win.isMaximized()) win.unmaximize();
     else win.maximize();
   }
+  if (action === "enter-distraction-free" || action === "exit-distraction-free") win.setFullScreen(action === "enter-distraction-free");
   // Use the same cancellable will-close path as native controls and Alt+F4.
   if (action === "close") win.requestClose();
   return true;

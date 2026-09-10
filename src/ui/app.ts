@@ -48,6 +48,9 @@ let generation = 0;
 let previewDirty = true;
 let lastScratchJSON: string | null = null;
 let pendingExternalOpen = false;
+let distractionFree = false;
+let distractionFreeTransition = false;
+let focusBeforeDistraction: HTMLElement | null = null;
 
 const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
@@ -70,9 +73,30 @@ new SideleafView({ rpc });
 const platform = window.__electrobunPlatform;
 document.body.dataset.platform = platform;
 element("window-controls").hidden = platform !== "windows";
-async function windowAction(action: WindowAction) {
-  try { await rpc.request.windowAction({ action }); }
-  catch (error) { notice((error as Error).message || String(error)); }
+async function windowAction(action: WindowAction): Promise<boolean> {
+  try { await rpc.request.windowAction({ action }); return true; }
+  catch (error) { notice((error as Error).message || String(error)); return false; }
+}
+async function setDistractionFree(enabled: boolean) {
+  if (distractionFree === enabled || distractionFreeTransition) return;
+  distractionFreeTransition = true;
+  try {
+    if (!(await windowAction(enabled ? "enter-distraction-free" : "exit-distraction-free"))) return;
+    if (enabled) focusBeforeDistraction = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    distractionFree = enabled;
+    document.body.dataset.distractionFree = String(enabled);
+    element("app-menu").hidden = true;
+    element("app-menu-toggle").setAttribute("aria-expanded", "false");
+    element("settings-panel").hidden = true;
+    element("settings-toggle").setAttribute("aria-expanded", "false");
+    if (enabled) {
+      if (element("workspace").dataset.mode === "read") element<HTMLElement>("preview").parentElement!.focus();
+      else view.focus();
+    } else if (focusBeforeDistraction?.isConnected) {
+      focusBeforeDistraction.focus({ preventScroll: true });
+      focusBeforeDistraction = null;
+    }
+  } finally { distractionFreeTransition = false; }
 }
 element("window-minimize").addEventListener("click", () => { void windowAction("minimize"); });
 element("window-maximize").addEventListener("click", () => { void windowAction("toggle-maximize"); });
@@ -129,21 +153,28 @@ if (window.__electrobunPlatform === "windows") {
   }, true);
 }
 
-if (platform === "macos") {
+if (platform !== "linux") {
   const shortcuts: Record<string, () => void> = {
     w: () => setMode("write"),
     s: () => setMode("split"),
     r: () => setMode("read"),
     c: beginComment,
+    d: () => { void setDistractionFree(!distractionFree); },
   };
   document.addEventListener("keydown", (event) => {
-    if (!event.metaKey || !event.altKey || event.ctrlKey || event.shiftKey || event.isComposing) return;
+    const primary = platform === "macos" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+    if (!primary || !event.altKey || event.shiftKey || event.isComposing) return;
     const action = shortcuts[event.key.toLowerCase()];
     if (!action) return;
     event.preventDefault(); event.stopPropagation();
     if (!event.repeat) action();
   }, true);
 }
+document.addEventListener("keydown", (event) => {
+  if (!distractionFree || event.key !== "Escape" || event.isComposing) return;
+  event.preventDefault(); event.stopImmediatePropagation();
+  if (!event.repeat) void setDistractionFree(false);
+}, true);
 
 if (window.__electrobunPlatform !== "linux") {
   const container = element("app-menu-container"), toggle = element<HTMLButtonElement>("app-menu-toggle"), menu = element("app-menu");
@@ -178,6 +209,7 @@ if (window.__electrobunPlatform !== "linux") {
   for (const [id, wsl] of [["menu-cli", false], ["menu-cli-wsl", true]] as const) element(id).onclick = () => { closeMenu(true); void rpc.request.installCLI({ wsl }).catch((error) => notice(error.message)); };
   void refreshWSL();
   element("menu-default-editor").onclick = () => { closeMenu(true); showDefaultEditor(); };
+  element("menu-distraction-free").onclick = () => { closeMenu(true); void setDistractionFree(true); };
   element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
   element("menu-website").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
   element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
@@ -326,6 +358,7 @@ function updatePreview() {
   const source = view.state.doc.sliceString(0, PREVIEW_LIMIT);
   const preview = element("preview"), empty = !source.trim();
   preview.parentElement!.classList.toggle("is-empty", empty);
+  preview.classList.toggle("is-empty", empty);
   preview.innerHTML = empty ? '<div class="empty-reader"><h1>Make yourself a little space.</h1><img src="./assets/empty-state.png" alt="A young leafy plant growing among quiet hills"><p class="growth-title">Good writing grows here.</p><p class="growth-copy">Ideas take root in quiet spaces.</p></div>' : renderMarkdown(source);
   element("preview-status").textContent = view.state.doc.length > PREVIEW_LIMIT ? "First 200,000 characters" : "Live";
   previewDirty = false;
@@ -414,6 +447,7 @@ async function perform(command: Command) {
   if (command === "modeWrite" || command === "modeSplit" || command === "modeRead") {
     setMode(command === "modeWrite" ? "write" : command === "modeSplit" ? "split" : "read"); return;
   }
+  if (command === "distractionFree") { await setDistractionFree(!distractionFree); return; }
   if (command === "about") { showAbout(); return; }
   if (command === "settings") { showSettings(); return; }
   if (command === "makeDefaultEditor") { showDefaultEditor(); return; }

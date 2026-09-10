@@ -59,6 +59,7 @@ body[data-platform="windows"] #topbar { -webkit-app-region: no-drag; }
 .reader-scroll { flex: 1; overflow: auto; min-height: 0; padding: 18px 35px 80px; }
 .reader-scroll.is-empty { overflow: hidden; padding-bottom: 18px; }
 #preview { min-height: 100%; max-width: 760px; margin: 0 auto; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 17px; line-height: 1.7; overflow-wrap: anywhere; }
+#preview.is-empty { height: 100%; }
 #preview > :first-child { margin-top: 0; }
 #preview > :last-child { margin-bottom: 0; }
 #preview h1, #preview h2, #preview h3 { font-weight: 500; line-height: 1.2; letter-spacing: -.4px; margin: 1.3em 0 .5em; }
@@ -97,6 +98,14 @@ body[data-platform="windows"] #topbar { -webkit-app-region: no-drag; }
 #comment-form > div { display: flex; justify-content: flex-end; margin-top: 9px; gap: 5px; }
 .statusbar { display: flex; gap: 20px; align-items: center; min-height: 30px; padding: 0 20px; border-top: 1px solid var(--border); background: var(--panel); color: var(--muted); font-size: 10px; flex-shrink: 0; }
 .status-spacer { flex: 1; }
+body[data-distraction-free="true"] > #topbar,
+body[data-distraction-free="true"] > .document-bar,
+body[data-distraction-free="true"] > .statusbar,
+body[data-distraction-free="true"] .editor-pane > .pane-label,
+body[data-distraction-free="true"] .reader-pane > .pane-label { display: none; }
+body[data-distraction-free="true"] .reader-scroll { padding-top: clamp(26px, 5vh, 64px); }
+body[data-distraction-free="true"] .reader-scroll.is-empty { padding-top: 18px; }
+.reader-scroll:focus { outline: none; }
 @media (max-width: 850px) { .document-bar { gap: 10px; } .reader-scroll { padding-inline: 22px; } .comments-panel { width: 230px; } #filepath { max-width: 230px; } }
 @media (max-width: 700px) { .file-actions { gap: 5px; } .file-actions .action-label { display: none; } .file-actions button { width: 32px; height: 32px; padding: 0; } .file-actions .separator { margin-inline: 5px; } }
 :root .update-notice { display: inline-flex; align-items: center; gap: 3px; }
