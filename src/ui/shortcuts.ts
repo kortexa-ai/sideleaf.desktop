@@ -28,6 +28,13 @@ export function customShortcutAction(platform: ShortcutPlatform, event: Shortcut
   return customCommands[key] ?? null;
 }
 
+export function customShortcutLabel(platform: ShortcutPlatform, key: string): string {
+  const letter = key.toUpperCase();
+  if (platform === "macos") return `⌘⇧${letter}`;
+  if (platform === "windows") return `Ctrl+Alt+${letter}`;
+  return "";
+}
+
 export function customShortcutAccelerator(platform: NodeJS.Platform, key: string): string {
   const modifier = platform === "darwin" ? "CmdOrCtrl+Shift" : "CmdOrCtrl+Alt";
   return `${modifier}+${key.toUpperCase()}`;

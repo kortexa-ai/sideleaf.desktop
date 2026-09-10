@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { customShortcutAccelerator, customShortcutAction, saveAsAccelerator, type ShortcutEvent } from "../src/ui/shortcuts.ts";
+import { customShortcutAccelerator, customShortcutAction, customShortcutLabel, saveAsAccelerator, type ShortcutEvent } from "../src/ui/shortcuts.ts";
 
 const event = (overrides: Partial<ShortcutEvent> = {}): ShortcutEvent => ({
   altKey: false,
@@ -38,5 +38,11 @@ describe("custom shortcuts", () => {
     expect(saveAsAccelerator("darwin")).toBeNull();
     expect(customShortcutAccelerator("win32", "s")).toBe("CmdOrCtrl+Alt+S");
     expect(saveAsAccelerator("win32")).toBe("CmdOrCtrl+Shift+S");
+  });
+
+  test("shows the platform chord used by custom shortcut bindings", () => {
+    expect(customShortcutLabel("macos", "d")).toBe("⌘⇧D");
+    expect(customShortcutLabel("windows", "d")).toBe("Ctrl+Alt+D");
+    expect(customShortcutLabel("linux", "d")).toBe("");
   });
 });

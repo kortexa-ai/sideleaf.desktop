@@ -10,7 +10,7 @@ import { redo, undo, isolateHistory } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
-import { customShortcutAction } from "./shortcuts.ts";
+import { customShortcutAction, customShortcutLabel } from "./shortcuts.ts";
 import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } from "./theme.ts";
 import { wordCountField } from "./word-count.ts";
 import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
@@ -117,6 +117,7 @@ class SideleafView extends Electroview<typeof rpc> {
 new SideleafView({ rpc });
 const platform = window.__electrobunPlatform;
 document.body.dataset.platform = platform;
+element("menu-distraction-free-shortcut").textContent = customShortcutLabel(platform, "d");
 element("window-controls").hidden = platform !== "windows";
 async function windowAction(action: WindowAction): Promise<boolean> {
   try { await rpc.request.windowAction({ action }); return true; }
@@ -258,7 +259,7 @@ if (window.__electrobunPlatform !== "linux") {
   element("menu-default-editor").onclick = () => { closeMenu(true); showDefaultEditor(); };
   element("menu-distraction-free").onclick = () => { closeMenu(true); void setDistractionFree(true); };
   element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
-  element("menu-website").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
+  element("menu-help").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
   element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
 }
 
