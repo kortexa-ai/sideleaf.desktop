@@ -33,12 +33,10 @@ for ((i=2; i<${#args[@]}; i++)); do
     ;;
   esac
 done
-if [[ ${args[0]:-} == skills ]]; then
-  export SIDELEAF_SKILLS_HOME="$HOME"
-  case ":${WSLENV:-}:" in
-    *:SIDELEAF_SKILLS_HOME/p:*) ;;
-    *) export WSLENV="${WSLENV:+$WSLENV:}SIDELEAF_SKILLS_HOME/p" ;;
-  esac
+if [[ ${args[0]:-} == skills && ${args[1]:-} == install ]]; then
+  # Windows processes do not reliably inherit variables added to WSLENV by a
+  # running shell. Pass the translated WSL home explicitly instead.
+  args+=(--skill-home "$(wslpath -aw "$HOME")")
 fi
 exec "$launcher" "${args[@]}"
 WRAPPER

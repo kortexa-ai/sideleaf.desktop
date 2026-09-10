@@ -48,7 +48,7 @@ async function main() {
   if (command === "skills") {
     if (args[0] === "--help" || args[0] === "help") { process.stdout.write(help); return; }
     const options = parseSkillInstallArgs(args);
-    const targets = installSideleafSkills({ home: process.env.SIDELEAF_SKILLS_HOME, ...options });
+    const targets = installSideleafSkills({ home: options.home ?? process.env.SIDELEAF_SKILLS_HOME, ...options });
     output({ ok: true, skill: "sideleaf", targets }); return;
   }
   if (!["read", "comments", "edit", "comment-add", "comment-update", "comment-remove", "open"].includes(command)) inputError("Unknown command. Run sideleaf --help.");

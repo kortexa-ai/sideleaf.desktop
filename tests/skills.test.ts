@@ -27,6 +27,9 @@ test("the default install creates a valid self-contained Sideleaf skill", () => 
 test("target selection covers one target or every supported user target", () => {
   assert.deepEqual(parseSkillInstallArgs(["install"]), { targets: ["agents"], force: false });
   assert.deepEqual(parseSkillInstallArgs(["install", "--target", "pi", "--force"]), { targets: ["pi"], force: true });
+  assert.deepEqual(parseSkillInstallArgs(["install", "--skill-home", "\\\\wsl.localhost\\Ubuntu\\home\\writer"]), {
+    targets: ["agents"], force: false, home: "\\\\wsl.localhost\\Ubuntu\\home\\writer",
+  });
   assert.deepEqual(parseSkillInstallArgs(["install", "--user"]).targets, Object.keys(SKILL_TARGETS));
   assert.throws(() => parseSkillInstallArgs(["install", "--user", "--target", "codex"]), /either --user or --target/);
   assert.throws(() => parseSkillInstallArgs(["install", "--target", "other"]), /agents, claude, codex, omp, hermes, or pi/);
@@ -66,6 +69,6 @@ test("the CLI returns target paths as JSON and the WSL wrapper selects its Linux
   assert.equal(data.ok, true); assert.equal(data.targets[0].target, "hermes");
   assert.equal(data.targets[0].path, skillPath(root, "hermes"));
   const wrapper = readFileSync(new URL("../src/platform/install-cli-wsl.sh", import.meta.url), "utf8");
-  assert.match(wrapper, /SIDELEAF_SKILLS_HOME="\$HOME"/);
-  assert.match(wrapper, /SIDELEAF_SKILLS_HOME\/p/);
+  assert.match(wrapper, /args\+=\(--skill-home "\$\(wslpath -aw "\$HOME"\)"\)/);
+  assert.doesNotMatch(wrapper, /export WSLENV=/);
 });

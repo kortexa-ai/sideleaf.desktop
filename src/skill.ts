@@ -71,9 +71,9 @@ export function skillPath(home: string, target: SkillTarget): string {
   return join(home, ...SKILL_TARGETS[target], "sideleaf", "SKILL.md");
 }
 
-export function parseSkillInstallArgs(args: string[]): { targets: SkillTarget[]; force: boolean } {
+export function parseSkillInstallArgs(args: string[]): { targets: SkillTarget[]; force: boolean; home?: string } {
   if (args.shift() !== "install") throw skillError("Usage: sideleaf skills install [--user | --target NAME] [--force]");
-  let user = false, target: SkillTarget | undefined, force = false;
+  let user = false, target: SkillTarget | undefined, force = false, home: string | undefined;
   while (args.length) {
     const option = args.shift()!;
     if (option === "--user" && !user) user = true;
@@ -82,10 +82,12 @@ export function parseSkillInstallArgs(args: string[]): { targets: SkillTarget[];
       const value = args.shift()!;
       if (!(value in SKILL_TARGETS)) throw skillError(`Unsupported skill target: ${value}. Use agents, claude, codex, omp, hermes, or pi.`);
       target = value as SkillTarget;
+    } else if (option === "--skill-home" && home === undefined && args.length) {
+      home = args.shift()!;
     } else throw skillError(`Invalid skill install option: ${option}`);
   }
   if (user && target) throw skillError("Use either --user or --target, not both.");
-  return { targets: user ? Object.keys(SKILL_TARGETS) as SkillTarget[] : [target ?? "agents"], force };
+  return { targets: user ? Object.keys(SKILL_TARGETS) as SkillTarget[] : [target ?? "agents"], force, ...(home === undefined ? {} : { home }) };
 }
 
 function currentFile(path: string): string | null {
