@@ -38,8 +38,10 @@ Issue: <https://github.com/kortexa-ai/sideleaf.desktop/issues/41>
 - Help opens the current Sideleaf home page. About and Make default editor
   still open their themed dialogs, Check for updates reaches its existing
   result state, and distraction-free enters from the menu and exits with Escape.
-- The Windows label is covered by the shared shortcut test; packaged Windows
-  menu validation remains required after Git synchronization to Scrappy.
+- The synchronized Windows development build shows Control-Alt-D, includes
+  the Windows-only WSL installer, and uses the same requested grouping.
 - The macOS popup presents Write, Split, Read, distraction-free, and Add
   comment with the correct Command-Shift chords. Its layout, theme, focus, and
   dismissal were checked in the live development app.
+- The Windows popup presents the same actions with the correct Control-Alt
+  chords and matches the dark theme.
