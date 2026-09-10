@@ -7,8 +7,7 @@ Issue: <https://github.com/kortexa-ai/sideleaf.desktop/issues/41>
 - Reorganize the Sideleaf hamburger menu into the requested compact groups.
 - Show the platform-specific distraction-free shortcut beside its menu item.
 - Keep the WSL command installer available only on supported Windows setups.
-- Rename the website entry to Help while it continues to open the Sideleaf
-  home page until the website documentation exists.
+- Rename the website entry to Help and point it at the stable Sideleaf docs URL.
 - Add a themed Keyboard shortcuts dialog from the hamburger menu, initially
   covering view modes, distraction-free mode, and comments.
 
@@ -35,7 +34,7 @@ Issue: <https://github.com/kortexa-ai/sideleaf.desktop/issues/41>
 - The macOS development build shows the requested two-divider grouping with
   the distraction-free action first, Help and About last, and the implemented
   Command-Shift-D chord aligned at the right edge.
-- Help opens the current Sideleaf home page. About and Make default editor
+- Help opens `https://sideleaf.xyz/docs`. About and Make default editor
   still open their themed dialogs, Check for updates reaches its existing
   result state, and distraction-free enters from the menu and exits with Escape.
 - The synchronized Windows development build shows Control-Alt-D, includes

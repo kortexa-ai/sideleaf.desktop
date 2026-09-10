@@ -282,7 +282,7 @@ if (window.__electrobunPlatform !== "linux") {
   element("menu-distraction-free").onclick = () => { closeMenu(true); void setDistractionFree(true); };
   element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
   element("menu-shortcuts").onclick = () => { closeMenu(); const dialog = element<HTMLDialogElement>("shortcuts-dialog"); dialog.showModal(); dialog.focus({ preventScroll: true }); };
-  element("menu-help").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
+  element("menu-help").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/docs" }).catch((error) => notice(error.message)); };
   element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
 }
 
