@@ -22,10 +22,10 @@ the DMG with that profile. Create it with Apple's `notarytool store-credentials`
 on a release machine.
 
 On Windows, use native Windows Node 24 or newer and Windows PowerShell.
-The build is unsigned. Hutch produces a ZIP containing the setup executable
-and its adjacent payload; users must extract the entire ZIP before running Setup.
-Keep those files together. The native runtime adapter is applied to the payload
-before packaging, so installed apps receive the same CPU fix as development apps.
+The build is unsigned. Hutch produces a ZIP containing the setup executable;
+users must extract the ZIP before running Setup. The native runtime adapter is
+applied before packaging, so installed apps receive the same CPU fix as development
+apps.
 
 The `postBuild` hook trims the unused V8 pack, configures the Windows launcher,
 and bundles checksum-verified ICU compatibility data before signing and
@@ -60,6 +60,8 @@ credentials, unreviewed screenshots, or development build directories.
   minimum OS metadata against their binaries.
 - On Windows, confirm the setup and launcher remain unsigned as intended, install
   and uninstall in an isolated test account or directory, and preserve user files.
+  Confirm the launcher reports `Sideleaf` as its file description so Windows uses
+  that name in the Open With picker.
 - Check the packaged app's network behavior: release checks send no document
   content, authorization header, or installation identifier. Offline checks must
   leave the editor usable.

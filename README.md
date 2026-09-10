@@ -20,7 +20,7 @@ distraction-free full-screen workspace, and scales editor and preview text toget
 Get [Sideleaf 0.1.4](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.4)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
-the whole ZIP and keep the setup executable beside its payload before running it.
+the ZIP, then run the setup executable.
 Windows also needs Microsoft's WebView2 Evergreen runtime.
 
 Your documents stay on your computer. There are no accounts or writing uploads.

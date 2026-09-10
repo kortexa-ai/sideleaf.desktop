@@ -6,6 +6,11 @@ import { join, resolve } from "node:path";
 if (process.platform !== "win32") process.exit(0);
 if (process.arch !== "x64") throw new Error("Sideleaf's Windows launcher is verified only on x64.");
 const dependencies = JSON.parse(await readFile(".hutch/dependencies.lock", "utf8"));
+const packageMetadata = JSON.parse(await readFile("package.json", "utf8"));
+const versionMatch = /^(\d+)\.(\d+)\.(\d+)$/.exec(packageMetadata.version);
+if (!versionMatch) throw new Error("Sideleaf's package version must be MAJOR.MINOR.PATCH.");
+const version = versionMatch.slice(1).join(".");
+const resourceVersion = `${versionMatch.slice(1).join(",")},0`;
 const runtime = dependencies.objects.find((entry) => entry.product === "cottontail");
 const desktop = dependencies.objects.find((entry) => entry.product === "electrobun");
 if (runtime?.revision !== "e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb" || desktop?.version !== "2.0.2-beta.15") {
@@ -51,9 +56,16 @@ try {
 const output = resolve("tmp/native");
 await mkdir(output, { recursive: true });
 const resource = join(output, "windows-launcher.res");
+const resourceSource = join(output, "windows-launcher.generated.rc");
 const candidate = join(output, "sideleaf-launcher.exe");
 const object = join(output, "windows-launcher.obj");
-execFileSync(zig, ["rc", "/fo", resource, "src/platform/windows-launcher.rc"], { stdio: "inherit" });
+const resourceTemplate = await readFile("src/platform/windows-launcher.rc", "utf8");
+const renderedResource = resourceTemplate
+  .replaceAll("@SIDELEAF_VERSION_COMMAS@", resourceVersion)
+  .replaceAll("@SIDELEAF_VERSION@", version);
+if (renderedResource.includes("@SIDELEAF_")) throw new Error("Unknown Windows launcher resource placeholder.");
+await writeFile(resourceSource, renderedResource);
+execFileSync(zig, ["rc", "/fo", resource, resourceSource], { stdio: "inherit" });
 // Use Zig's Windows headers for compilation, then link without a C runtime.
 execFileSync(zig, ["cc", "-target", "x86_64-windows-gnu", "-lc", "-c", "-Os", "-Wall", "-Wextra", "-fno-stack-protector", "src/platform/windows-launcher.c", "-o", object], { stdio: "inherit" });
 execFileSync(zig, ["cc", "-target", "x86_64-windows-gnu", "-nostdlib", "-s", "-Wl,--entry,sideleafStart", "-Wl,--subsystem,windows", object, resource, "-lkernel32", "-luser32", "-lshell32", "-o", candidate], { stdio: "inherit" });
