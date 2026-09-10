@@ -49,4 +49,7 @@ test("Windows installer registers Sideleaf as a per-user Markdown editor", () =>
   const configure = readFileSync(new URL("../scripts/configure-windows-runtime.mjs", import.meta.url), "utf8");
   assert.match(configure, /readFile\("package\.json", "utf8"\)/);
   assert.match(configure, /replaceAll\("@SIDELEAF_VERSION_COMMAS@", resourceVersion\)/);
+  const installerBuild = readFileSync(new URL("../scripts/build-windows-installer.mjs", import.meta.url), "utf8");
+  assert.match(installerBuild, /nativeLauncherHash !== launcherManifest\.wrapperHash/);
+  assert.match(installerBuild, /copyFileSync\(nativeLauncher, resolve\(payload, "bin\/launcher\.exe"\)\)/);
 });
