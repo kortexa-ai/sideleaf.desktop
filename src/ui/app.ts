@@ -10,7 +10,7 @@ import { redo, undo, isolateHistory } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
-import { customShortcutAction, customShortcutLabel } from "./shortcuts.ts";
+import { customShortcutAction, customShortcutLabel, layoutShortcutAction, layoutShortcutLabel } from "./shortcuts.ts";
 import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } from "./theme.ts";
 import { wordCountField } from "./word-count.ts";
 import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
@@ -21,20 +21,22 @@ import { APP_VERSION } from "../shared/version.ts";
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
 const wrapping = new Compartment();
-type Setting = "wrapLines" | "autoSave" | "keepScratch";
+type Setting = "wrapLines" | "autoSave" | "keepScratch" | "minimalLayout";
 const settingKeys: Record<Setting, string> = {
   wrapLines: "sideleaf.wrapLines",
   autoSave: "sideleaf.autoSave",
   keepScratch: "sideleaf.keepScratch",
+  minimalLayout: "sideleaf.minimalLayout",
 };
-function readSetting(setting: Setting): boolean {
-  try { const value = localStorage.getItem(settingKeys[setting]); return value === null ? true : value === "true"; }
-  catch { return true; }
+function readSetting(setting: Setting, fallback = true): boolean {
+  try { const value = localStorage.getItem(settingKeys[setting]); return value === null ? fallback : value === "true"; }
+  catch { return fallback; }
 }
 const settings: Record<Setting, boolean> = {
   wrapLines: readSetting("wrapLines"),
   autoSave: readSetting("autoSave"),
   keepScratch: readSetting("keepScratch"),
+  minimalLayout: readSetting("minimalLayout", false),
 };
 function writeSetting(setting: Setting, value: boolean) {
   settings[setting] = value;
@@ -56,6 +58,7 @@ let pendingExternalOpen = false;
 let distractionFree = false;
 let distractionFreeTransition = false;
 let focusBeforeDistraction: HTMLElement | null = null;
+let focusBeforeComments: HTMLElement | null = null;
 const zoomStorageKey = "sideleaf.documentZoom";
 let documentZoom = storedZoom((() => { try { return localStorage.getItem(zoomStorageKey); } catch { return null; } })());
 const systemAppearance = matchMedia("(prefers-color-scheme: dark)");
@@ -121,6 +124,9 @@ element("menu-distraction-free-shortcut").textContent = customShortcutLabel(plat
 document.querySelectorAll<HTMLElement>("[data-custom-shortcut]").forEach((label) => {
   label.textContent = customShortcutLabel(platform, label.dataset.customShortcut!);
 });
+document.querySelectorAll<HTMLElement>("[data-layout-shortcut]").forEach((label) => {
+  label.textContent = layoutShortcutLabel(platform, label.dataset.layoutShortcut!);
+});
 element("window-controls").hidden = platform !== "windows";
 async function windowAction(action: WindowAction): Promise<boolean> {
   try { await rpc.request.windowAction({ action }); return true; }
@@ -136,6 +142,7 @@ async function setDistractionFree(enabled: boolean) {
     document.body.dataset.distractionFree = String(enabled);
     element("app-menu").hidden = true;
     element("app-menu-toggle").setAttribute("aria-expanded", "false");
+    closeDocumentActions();
     element("settings-panel").hidden = true;
     element("settings-toggle").setAttribute("aria-expanded", "false");
     if (enabled) {
@@ -221,6 +228,17 @@ if (platform !== "linux") {
     if (!event.repeat) void perform(action);
   }, true);
 }
+if (platform !== "linux") {
+  document.addEventListener("keydown", (event) => {
+    const action = layoutShortcutAction(platform, event);
+    if (!action) return;
+    if (action === "toggleComments" && (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.repeat) return;
+    if (action === "toggleMinimalLayout") applyMinimalLayout(!settings.minimalLayout);
+    else showComments(element("comments-panel").hidden);
+  }, true);
+}
 document.addEventListener("keydown", (event) => {
   if (!distractionFree || (event.key !== "Escape" && event.code !== "Escape") || event.isComposing) return;
   event.preventDefault(); event.stopImmediatePropagation();
@@ -238,6 +256,7 @@ if (window.__electrobunPlatform !== "linux") {
   function closeMenu(restoreFocus = false) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); if (restoreFocus) toggle.focus(); }
   function openMenu(focus: "first" | "last" | null = null) {
     closeSettings();
+    closeDocumentActions();
     const items = menuItems(); void refreshWSL(); menu.hidden = false; toggle.setAttribute("aria-expanded", "true");
     if (focus) items[focus === "last" ? items.length - 1 : 0]!.focus();
   }
@@ -267,6 +286,78 @@ if (window.__electrobunPlatform !== "linux") {
   element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
 }
 
+const toolbar = element("topbar").querySelector<HTMLElement>(".toolbar")!;
+const documentBar = document.querySelector<HTMLElement>(".document-bar")!;
+const fileActions = toolbar.querySelector<HTMLElement>(".file-actions")!;
+const documentName = documentBar.querySelector<HTMLElement>(".document-name")!;
+const commentsToggle = element<HTMLButtonElement>("comments-toggle");
+const minimalActionsContainer = element("minimal-actions-container");
+const minimalActionsToggle = element<HTMLButtonElement>("minimal-actions-toggle");
+const minimalActionsMenu = element("minimal-actions-menu");
+const minimalCommentsContainer = element("minimal-comments-container");
+const minimalCommentsSlot = element("minimal-comments-slot");
+const minimalDocumentSlot = element("minimal-document-slot");
+const documentActionButtons = () => ["new", "open", "find", "save"].map((id) => element<HTMLButtonElement>(id));
+
+function closeDocumentActions(restoreFocus = false) {
+  minimalActionsMenu.hidden = true;
+  minimalActionsToggle.setAttribute("aria-expanded", "false");
+  if (settings.minimalLayout) fileActions.hidden = true;
+  if (restoreFocus) minimalActionsToggle.focus();
+}
+function openDocumentActions(focus: "first" | "last" | null = null) {
+  element("app-menu").hidden = true;
+  element("app-menu-toggle").setAttribute("aria-expanded", "false");
+  closeSettings();
+  fileActions.hidden = false;
+  minimalActionsMenu.hidden = false;
+  minimalActionsToggle.setAttribute("aria-expanded", "true");
+  if (focus) {
+    const buttons = documentActionButtons();
+    buttons[focus === "last" ? buttons.length - 1 : 0]!.focus();
+  }
+}
+function applyMinimalLayout(enabled: boolean, persist = true) {
+  const active = enabled && platform !== "linux";
+  if (persist) writeSetting("minimalLayout", active);
+  else settings.minimalLayout = active;
+  document.body.dataset.minimalLayout = String(active);
+  minimalActionsContainer.hidden = !active;
+  minimalCommentsContainer.hidden = !active;
+  minimalDocumentSlot.hidden = !active;
+  closeDocumentActions();
+  if (active) {
+    minimalActionsMenu.append(fileActions);
+    minimalDocumentSlot.append(documentName);
+    minimalCommentsSlot.append(commentsToggle);
+    documentActionButtons().forEach((button) => button.setAttribute("role", "menuitem"));
+  } else {
+    toolbar.append(fileActions);
+    documentBar.prepend(documentName);
+    documentBar.append(commentsToggle);
+    fileActions.hidden = false;
+    documentActionButtons().forEach((button) => button.removeAttribute("role"));
+  }
+  const input = document.getElementById("setting-minimal-layout") as HTMLInputElement | null;
+  if (input) input.checked = active;
+}
+
+minimalActionsToggle.onclick = () => { if (minimalActionsMenu.hidden) openDocumentActions(); else closeDocumentActions(true); };
+minimalActionsToggle.onkeydown = (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault(); openDocumentActions(event.key === "ArrowUp" ? "last" : "first");
+};
+minimalActionsMenu.onkeydown = (event) => {
+  if (event.key === "Escape") { event.preventDefault(); closeDocumentActions(true); return; }
+  if (event.key === "Tab") { closeDocumentActions(); return; }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const buttons = documentActionButtons();
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  buttons[event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]!.focus();
+};
+document.addEventListener("pointerdown", (event) => { if (!minimalActionsContainer.contains(event.target as Node)) closeDocumentActions(); });
+
 const settingsContainer = element("settings-container");
 const settingsToggle = element<HTMLButtonElement>("settings-toggle");
 const settingsPanel = element("settings-panel");
@@ -278,6 +369,7 @@ function closeSettings(restoreFocus = false) {
 function showSettings() {
   element("app-menu").hidden = true;
   element("app-menu-toggle").setAttribute("aria-expanded", "false");
+  closeDocumentActions();
   settingsPanel.hidden = false; settingsToggle.setAttribute("aria-expanded", "true");
 }
 settingsToggle.onclick = () => { if (settingsPanel.hidden) showSettings(); else closeSettings(true); };
@@ -287,9 +379,11 @@ element("settings-close").onclick = () => closeSettings(true);
 document.querySelectorAll<HTMLButtonElement>("[data-theme-choice]").forEach((button) => {
   button.onclick = () => applyTheme(storedTheme(button.dataset.themeChoice ?? null));
 });
-for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave", "autoSave"], ["setting-keep-scratch", "keepScratch"]] as const) {
+applyMinimalLayout(settings.minimalLayout, false);
+for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave", "autoSave"], ["setting-keep-scratch", "keepScratch"], ["setting-minimal-layout", "minimalLayout"]] as const) {
   const input = element<HTMLInputElement>(id); input.checked = settings[setting];
   input.onchange = () => {
+    if (setting === "minimalLayout") { applyMinimalLayout(input.checked); return; }
     writeSetting(setting, input.checked);
     if (setting === "wrapLines") view.dispatch({ effects: wrapping.reconfigure(input.checked ? EditorView.lineWrapping : []) });
     if (setting === "keepScratch" && !input.checked) {
@@ -536,8 +630,14 @@ async function perform(command: Command) {
   });
 }
 function showComments(show: boolean) {
-  element("comments-panel").hidden = !show;
-  element("comments-toggle").setAttribute("aria-expanded", String(show));
+  const panel = element("comments-panel");
+  if (show && panel.hidden) focusBeforeComments = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  panel.hidden = !show;
+  commentsToggle.setAttribute("aria-expanded", String(show));
+  if (!show && focusBeforeComments?.isConnected) {
+    focusBeforeComments.focus({ preventScroll: true });
+    focusBeforeComments = null;
+  }
 }
 function beginComment() {
   if (busy) return;
@@ -588,10 +688,10 @@ function setMode(mode: string) {
   if (mode !== "read") view.focus();
   else if (distractionFree) element<HTMLElement>("preview").parentElement!.focus();
 }
-for (const action of ["new", "open", "find", "save"] as const) element(action).onclick = () => { void perform(action); };
+for (const action of ["new", "open", "find", "save"] as const) element(action).onclick = () => { closeDocumentActions(); void perform(action); };
 document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((button) => { button.onclick = () => setMode(button.dataset.mode!); });
 element("add-comment").onclick = beginComment;
-element("comments-toggle").onclick = () => showComments(element("comments-panel").hidden);
+commentsToggle.onclick = () => showComments(element("comments-panel").hidden);
 element("comments-close").onclick = () => showComments(false);
 element("dismiss-notice").onclick = () => { element("notice").hidden = true; };
 element("dismiss-update").onclick = () => { void rpc.request.dismissUpdate(); };

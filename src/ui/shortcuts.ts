@@ -1,6 +1,7 @@
 import type { Command } from "../shared/contracts.ts";
 
 export type ShortcutPlatform = "macos" | "windows" | "linux";
+export type LayoutShortcutAction = "toggleMinimalLayout" | "toggleComments";
 export type ShortcutEvent = {
   altKey: boolean;
   code: string;
@@ -32,6 +33,24 @@ export function customShortcutLabel(platform: ShortcutPlatform, key: string): st
   const letter = key.toUpperCase();
   if (platform === "macos") return `⌘⇧${letter}`;
   if (platform === "windows") return `Ctrl+Alt+${letter}`;
+  return "";
+}
+
+export function layoutShortcutAction(platform: ShortcutPlatform, event: ShortcutEvent): LayoutShortcutAction | null {
+  if (event.isComposing || event.altKey || platform === "linux") return null;
+  const macChord = platform === "macos" && event.metaKey && !event.ctrlKey && event.shiftKey;
+  const windowsChord = platform === "windows" && event.ctrlKey && !event.metaKey && event.shiftKey;
+  if (!macChord && !windowsChord) return null;
+  const key = event.code.startsWith("Key") ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
+  if (key === "m") return "toggleMinimalLayout";
+  if (key === "v") return "toggleComments";
+  return null;
+}
+
+export function layoutShortcutLabel(platform: ShortcutPlatform, key: string): string {
+  const letter = key.toUpperCase();
+  if (platform === "macos") return `⌘⇧${letter}`;
+  if (platform === "windows") return `Ctrl+Shift+${letter}`;
   return "";
 }
 

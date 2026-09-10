@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { customShortcutAccelerator, customShortcutAction, customShortcutLabel, saveAsAccelerator, type ShortcutEvent } from "../src/ui/shortcuts.ts";
+import { customShortcutAccelerator, customShortcutAction, customShortcutLabel, layoutShortcutAction, layoutShortcutLabel, saveAsAccelerator, type ShortcutEvent } from "../src/ui/shortcuts.ts";
 
 const event = (overrides: Partial<ShortcutEvent> = {}): ShortcutEvent => ({
   altKey: false,
@@ -46,5 +46,20 @@ describe("custom shortcuts", () => {
       expect(customShortcutLabel("windows", key)).toBe(`Ctrl+Alt+${key.toUpperCase()}`);
     }
     expect(customShortcutLabel("linux", "d")).toBe("");
+  });
+
+  test("uses Command-Shift or Control-Shift for layout shortcuts", () => {
+    expect(layoutShortcutAction("macos", event({ code: "KeyM", key: "m", metaKey: true, shiftKey: true }))).toBe("toggleMinimalLayout");
+    expect(layoutShortcutAction("macos", event({ code: "KeyV", key: "v", metaKey: true, shiftKey: true }))).toBe("toggleComments");
+    expect(layoutShortcutAction("windows", event({ code: "KeyM", key: "m", ctrlKey: true, shiftKey: true }))).toBe("toggleMinimalLayout");
+    expect(layoutShortcutAction("windows", event({ code: "KeyV", key: "v", ctrlKey: true, shiftKey: true }))).toBe("toggleComments");
+    expect(layoutShortcutAction("windows", event({ code: "KeyV", key: "v", ctrlKey: true, shiftKey: true, altKey: true }))).toBeNull();
+    expect(layoutShortcutAction("linux", event({ code: "KeyM", key: "m", ctrlKey: true, shiftKey: true }))).toBeNull();
+  });
+
+  test("shows the platform chord used by layout shortcuts", () => {
+    expect(layoutShortcutLabel("macos", "m")).toBe("⌘⇧M");
+    expect(layoutShortcutLabel("windows", "v")).toBe("Ctrl+Shift+V");
+    expect(layoutShortcutLabel("linux", "m")).toBe("");
   });
 });

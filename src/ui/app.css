@@ -217,14 +217,16 @@ body[data-distraction-free="true"] .reader-scroll.is-empty { padding-top: 18px; 
 .update-notice button { padding: 2px 5px; border: 0; background: transparent; color: var(--green); font-size: inherit; }
 .update-notice button:disabled { color: var(--muted); opacity: 1; cursor: default; }
 
-.app-menu-container, .settings-container { position: absolute; top: 0; z-index: 30; }
+.app-menu-container, .settings-container, .minimal-actions-container, .minimal-comments-container, .minimal-document-slot { position: absolute; top: 0; z-index: 30; }
 body[data-platform="windows"] .app-menu-container { left: 0; }
 body[data-platform="macos"] .app-menu-container { right: 0; }
 body[data-platform="windows"] .settings-container { left: 46px; }
 body[data-platform="macos"] .settings-container { right: 38px; }
-.hamburger, .settings-toggle { display: grid; place-items: center; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 0; color: var(--muted); }
-body[data-platform="macos"] .hamburger, body[data-platform="macos"] .settings-toggle { width: 38px; height: 30px; }
+.hamburger, .settings-toggle, .minimal-actions-toggle { display: grid; place-items: center; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 0; color: var(--muted); }
+body[data-platform="macos"] .hamburger, body[data-platform="macos"] .settings-toggle, body[data-platform="macos"] .minimal-actions-toggle { width: 38px; height: 30px; }
 .hamburger svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+.minimal-actions-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+.minimal-actions-toggle circle { fill: currentColor; stroke: none; }
 .settings-toggle .gear { font: 18px/1 -apple-system, BlinkMacSystemFont, "Segoe UI Symbol", sans-serif; }
 #app-menu { position: absolute; top: calc(100% + 5px); z-index: 20; min-width: 230px; padding: 6px; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px var(--popover-shadow); }
 body[data-platform="windows"] #app-menu { left: 6px; }
@@ -234,6 +236,37 @@ body[data-platform="macos"] #app-menu { right: 6px; }
 #app-menu kbd { color: var(--muted); font: 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 #app-menu button:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .menu-separator { height: 1px; margin: 5px 7px; background: var(--border); }
+.minimal-actions-menu { position: absolute; top: calc(100% + 5px); z-index: 20; width: 210px; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px var(--popover-shadow); }
+body[data-platform="windows"] .minimal-actions-menu { left: 6px; }
+body[data-platform="macos"] .minimal-actions-menu { right: 6px; }
+.minimal-actions-menu .file-actions { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 6px; }
+.minimal-actions-menu .file-actions button { width: 100%; height: auto; justify-content: flex-start; padding: 6px 11px; }
+.minimal-actions-menu .file-actions .action-label { display: inline; }
+.minimal-actions-menu .file-actions .separator { width: auto; height: 1px; margin: 5px 7px; }
+.minimal-comments-container { display: flex; align-items: center; }
+.titlebar-separator { width: 1px; height: 18px; background: var(--border); }
+.minimal-document-slot { z-index: 10; display: flex; align-items: center; min-width: 0; pointer-events: none; }
+body[data-platform="windows"] .minimal-actions-container { left: 46px; }
+body[data-platform="macos"] .minimal-actions-container { right: 38px; }
+body[data-minimal-layout="true"][data-platform="windows"] .settings-container { left: 92px; }
+body[data-minimal-layout="true"][data-platform="macos"] .settings-container { right: 76px; }
+body[data-platform="windows"] .minimal-comments-container { left: 138px; height: 46px; }
+body[data-platform="macos"] .minimal-comments-container { right: 114px; height: 30px; }
+body[data-platform="windows"] .minimal-document-slot { left: 194px; right: 148px; height: 46px; }
+body[data-platform="macos"] .minimal-document-slot { left: 82px; right: 166px; height: 30px; }
+body[data-minimal-layout="true"] .toolbar { display: none; }
+body[data-minimal-layout="true"] .document-bar { min-height: 50px; justify-content: center; padding-block: 7px; }
+body[data-minimal-layout="true"] .minimal-document-slot .document-name { width: 100%; gap: 7px; }
+body[data-minimal-layout="true"] .minimal-document-slot .document-name > div { display: block; min-width: 0; }
+body[data-minimal-layout="true"] .minimal-document-slot .file-symbol,
+body[data-minimal-layout="true"] .minimal-document-slot #filepath { display: none; }
+body[data-minimal-layout="true"] .minimal-document-slot #filename { display: block; overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.comments-icon { display: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linejoin: round; }
+body[data-minimal-layout="true"] .minimal-comments-container #comments-toggle { position: relative; display: grid; place-items: center; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 0; color: var(--muted); }
+body[data-minimal-layout="true"][data-platform="macos"] .minimal-comments-container #comments-toggle { width: 38px; height: 30px; }
+body[data-minimal-layout="true"] .minimal-comments-container .comments-icon { display: block; }
+body[data-minimal-layout="true"] .minimal-comments-container .comments-label { display: none; }
+body[data-minimal-layout="true"] .minimal-comments-container #comment-count { position: absolute; top: 4px; right: 3px; min-width: 13px; padding: 1px 3px; margin: 0; font-size: 8px; line-height: 1.2; }
 .settings-panel { position: absolute; top: calc(100% + 5px); z-index: 20; width: 270px; padding: 15px; background: var(--paper); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px var(--popover-shadow); color: var(--ink); }
 body[data-platform="windows"] .settings-panel { left: 6px; }
 body[data-platform="macos"] .settings-panel { right: 6px; }
