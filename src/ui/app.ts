@@ -164,7 +164,8 @@ if (platform !== "linux") {
   document.addEventListener("keydown", (event) => {
     const primary = platform === "macos" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
     if (!primary || !event.altKey || event.shiftKey || event.isComposing) return;
-    const action = shortcuts[event.key.toLowerCase()];
+    const key = event.code.startsWith("Key") ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
+    const action = shortcuts[key];
     if (!action) return;
     event.preventDefault(); event.stopPropagation();
     if (!event.repeat) action();
