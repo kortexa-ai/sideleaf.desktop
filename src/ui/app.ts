@@ -524,6 +524,7 @@ function setMode(mode: string) {
   if (mode !== "write") updatePreview();
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => { if (button.tagName === "BUTTON") button.setAttribute("aria-pressed", String(button.dataset.mode === mode)); });
   if (mode !== "read") view.focus();
+  else if (distractionFree) element<HTMLElement>("preview").parentElement!.focus();
 }
 for (const action of ["new", "open", "find", "save"] as const) element(action).onclick = () => { void perform(action); };
 document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((button) => { button.onclick = () => setMode(button.dataset.mode!); });
