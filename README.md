@@ -12,10 +12,12 @@ Comments and retained revision metadata are embedded in the Markdown file; copy 
 The [agent CLI](docs/cli.md) reads and edits documents/comments without a running GUI.
 Install it from the Sideleaf menu (or Windows Setup); it uses the bundled Cottontail
 runtime and needs no separate Node, Bun, or npm installation.
+Sideleaf registers as a Markdown editor with both operating systems, offers a
+distraction-free full-screen workspace, and scales editor and preview text together.
 
 ## Download
 
-Get [Sideleaf 0.1.2](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.2)
+Get [Sideleaf 0.1.3](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.3)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
 the whole ZIP and keep the setup executable beside its payload before running it.
