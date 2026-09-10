@@ -17,7 +17,7 @@ distraction-free full-screen workspace, and scales editor and preview text toget
 
 ## Download
 
-Get [Sideleaf 0.1.3](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.3)
+Get [Sideleaf 0.1.4](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.4)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
 the whole ZIP and keep the setup executable beside its payload before running it.
