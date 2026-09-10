@@ -25,6 +25,7 @@ WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
 ChangesEnvironment=yes
+ChangesAssociations=yes
 CloseApplications=yes
 RestartApplications=no
 
@@ -41,6 +42,7 @@ Name: "{userdesktop}\Sideleaf"; Filename: "{app}\bin\launcher.exe"; WorkingDir: 
 
 [Registry]
 Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "Sideleaf"; ValueData: "Software\Kortexa AI\Sideleaf\Capabilities"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\Applications\launcher.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "Sideleaf"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Kortexa AI\Sideleaf\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "Sideleaf"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Kortexa AI\Sideleaf\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "A Markdown editor for your words and your files."
 Root: HKCU; Subkey: "Software\Kortexa AI\Sideleaf\Capabilities\FileAssociations"; ValueType: string; ValueName: ".md"; ValueData: "Sideleaf.Markdown"
