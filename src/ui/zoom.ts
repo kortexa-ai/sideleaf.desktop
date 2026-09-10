@@ -14,5 +14,12 @@ export function changeZoom(current: number, direction: -1 | 1): number {
 }
 
 export function storedZoom(value: string | null): number {
-  return normalizeZoom(value === null ? DEFAULT_ZOOM : Number(value));
+  return normalizeZoom(value === null || value.trim() === "" ? DEFAULT_ZOOM : Number(value));
+}
+
+export function zoomActionForCode(code: string): "in" | "out" | "reset" | null {
+  if (code === "Digit0" || code === "Numpad0") return "reset";
+  if (code === "Minus" || code === "NumpadSubtract") return "out";
+  if (code === "Equal" || code === "NumpadAdd") return "in";
+  return null;
 }

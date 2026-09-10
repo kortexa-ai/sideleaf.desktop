@@ -9,7 +9,7 @@ import { openSearchPanel } from "@codemirror/search";
 import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
 import { wordCountField } from "./word-count.ts";
-import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, ZOOM_STEP } from "./zoom.ts";
+import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
 import { commentRange, makeAnchor } from "../document/anchors.ts";
 import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState, type WindowAction } from "../shared/contracts.ts";
 import { APP_VERSION } from "../shared/version.ts";
@@ -173,9 +173,7 @@ if (platform !== "linux") {
   document.addEventListener("keydown", (event) => {
     const primary = platform === "macos" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
     if (!primary || event.altKey || event.isComposing) return;
-    const action = event.code === "Digit0" || event.code === "Numpad0" ? "reset"
-      : event.code === "Minus" || event.code === "NumpadSubtract" ? "out"
-      : event.code === "Equal" || event.code === "NumpadAdd" ? "in" : null;
+    const action = zoomActionForCode(event.code);
     if (!action) return;
     event.preventDefault(); event.stopImmediatePropagation();
     if (!event.repeat) applyZoom(action === "reset" ? DEFAULT_ZOOM : changeZoom(documentZoom, action === "in" ? 1 : -1));
