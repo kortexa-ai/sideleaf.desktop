@@ -1,13 +1,17 @@
 import "./bootstrap.ts";
 import { Electroview } from "electrobun/view";
 import { basicSetup } from "codemirror";
-import { Compartment, EditorState, Prec, type Text } from "@codemirror/state";
+import { Compartment, EditorState, type Text } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import { redo, undo, isolateHistory } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
+import { customShortcutAction } from "./shortcuts.ts";
+import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } from "./theme.ts";
 import { wordCountField } from "./word-count.ts";
 import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
 import { commentRange, makeAnchor } from "../document/anchors.ts";
@@ -54,6 +58,31 @@ let distractionFreeTransition = false;
 let focusBeforeDistraction: HTMLElement | null = null;
 const zoomStorageKey = "sideleaf.documentZoom";
 let documentZoom = storedZoom((() => { try { return localStorage.getItem(zoomStorageKey); } catch { return null; } })());
+const systemAppearance = matchMedia("(prefers-color-scheme: dark)");
+let themePreference = storedTheme((() => { try { return localStorage.getItem(THEME_STORAGE_KEY); } catch { return null; } })());
+
+function applyTheme(preference: ThemePreference, persist = true) {
+  themePreference = preference;
+  const resolved = resolveTheme(preference, systemAppearance.matches);
+  document.documentElement.dataset.theme = resolved;
+  document.documentElement.style.colorScheme = resolved;
+  document.querySelectorAll<HTMLButtonElement>("[data-theme-choice]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.themeChoice === preference));
+  });
+  if (persist) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, preference); } catch { /* Keep the in-memory preference usable. */ }
+  }
+}
+applyTheme(themePreference, false);
+systemAppearance.addEventListener("change", () => { if (themePreference === "system") applyTheme("system", false); });
+const sideleafHighlight = HighlightStyle.define([
+  { tag: tags.heading, color: "var(--syntax-heading)", fontWeight: "600" },
+  { tag: [tags.link, tags.url], color: "var(--syntax-link)" },
+  { tag: [tags.emphasis, tags.strong], color: "var(--syntax-emphasis)" },
+  { tag: [tags.monospace, tags.string], color: "var(--syntax-code)" },
+  { tag: [tags.quote, tags.comment], color: "var(--syntax-muted)" },
+  { tag: tags.meta, color: "var(--syntax-meta)" },
+]);
 
 function applyZoom(value: number, persist = true) {
   documentZoom = normalizeZoom(value);
@@ -181,21 +210,11 @@ if (platform !== "linux") {
 }
 
 if (platform !== "linux") {
-  const shortcuts: Record<string, () => void> = {
-    w: () => setMode("write"),
-    s: () => setMode("split"),
-    r: () => setMode("read"),
-    c: beginComment,
-    d: () => { void setDistractionFree(!distractionFree); },
-  };
   document.addEventListener("keydown", (event) => {
-    const primary = platform === "macos" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-    if (!primary || !event.altKey || event.shiftKey || event.isComposing) return;
-    const key = event.code.startsWith("Key") ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
-    const action = shortcuts[key];
+    const action = customShortcutAction(platform, event);
     if (!action) return;
     event.preventDefault(); event.stopPropagation();
-    if (!event.repeat) action();
+    if (!event.repeat) void perform(action);
   }, true);
 }
 document.addEventListener("keydown", (event) => {
@@ -260,6 +279,9 @@ settingsToggle.onclick = () => { if (settingsPanel.hidden) showSettings(); else 
 settingsPanel.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeSettings(true); } });
 document.addEventListener("pointerdown", (event) => { if (!settingsContainer.contains(event.target as Node)) closeSettings(); });
 element("settings-close").onclick = () => closeSettings(true);
+document.querySelectorAll<HTMLButtonElement>("[data-theme-choice]").forEach((button) => {
+  button.onclick = () => applyTheme(storedTheme(button.dataset.themeChoice ?? null));
+});
 for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave", "autoSave"], ["setting-keep-scratch", "keepScratch"]] as const) {
   const input = element<HTMLInputElement>(id); input.checked = settings[setting];
   input.onchange = () => {
@@ -299,8 +321,7 @@ function createEditorState(text: string, comments: Draft["comments"] = []) {
   return EditorState.create({
     doc: text,
     extensions: [
-      Prec.highest(keymap.of([{ key: "Mod-Shift-m", run: () => { beginComment(); return true; } }])),
-      basicSetup, markdown(), commentField.init(() => comments), commentHistory, wordCountField,
+      basicSetup, markdown(), syntaxHighlighting(sideleafHighlight), commentField.init(() => comments), commentHistory, wordCountField,
       readonly.of(EditorState.readOnly.of(false)), wrapping.of(settings.wrapLines ? EditorView.lineWrapping : []),
       placeholder("# A fresh page\n\nStart writing, or open a Markdown file."),
       EditorView.contentAttributes.of({ "aria-label": "Markdown editor", spellcheck: "true", autocapitalize: "off", autocorrect: "off" }),

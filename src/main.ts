@@ -16,6 +16,7 @@ import { handleWindowAction } from "./platform/window-controls.ts";
 import { loadWindowsChrome, type WindowsChrome } from "./platform/windows-chrome.ts";
 import { documentMetadata, type Command, type DocumentSnapshot, type SideleafRPC } from "./shared/contracts.ts";
 import { APP_VERSION } from "./shared/version.ts";
+import { customShortcutAccelerator, saveAsAccelerator } from "./ui/shortcuts.ts";
 import { UpdateChecker } from "./updates.ts";
 
 import { migrateIdentityData, windowsIdentity } from "./platform/identity.ts";
@@ -228,11 +229,12 @@ events.on("before-quit", (value: unknown) => {
   if (!approvedClose) { event.response = { allow: false }; command("quit"); }
 });
 
+const saveAsMenuAccelerator = saveAsAccelerator(process.platform);
 if (process.platform !== "win32") ApplicationMenu.setApplicationMenu([
   { label: "Sideleaf", submenu: [{ label: "About Sideleaf", action: "about" }, { label: "Settings…", action: "settings", accelerator: "CmdOrCtrl+," }, { type: "divider" }, { label: "Make Default Editor…", action: "makeDefaultEditor" }, { type: "divider" }, { label: "Install Command Line Tool…", action: "installCLI" }, { type: "divider" }, { role: "hide" }, { role: "hideOthers" }, { role: "showAll" }, { type: "divider" }, { label: "Quit Sideleaf", action: "quit", accelerator: "CmdOrCtrl+Q" }] },
-  { label: "File", submenu: [{ label: "New", action: "new", accelerator: "CmdOrCtrl+N" }, { label: "Open…", action: "open", accelerator: "CmdOrCtrl+O" }, { type: "divider" }, { label: "Save", action: "save", accelerator: "CmdOrCtrl+S" }, { label: "Save As…", action: "saveAs", accelerator: "CmdOrCtrl+Shift+S" }, { type: "divider" }, { label: "Close", action: "close", accelerator: "CmdOrCtrl+W" }] },
-  { label: "Edit", submenu: [{ label: "Undo", action: "undo", accelerator: "CmdOrCtrl+Z" }, { label: "Redo", action: "redo", accelerator: "CmdOrCtrl+Shift+Z" }, { type: "divider" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }, { type: "divider" }, { label: "Find…", action: "find", accelerator: "CmdOrCtrl+F" }, { label: "Add Comment", action: "comment", accelerator: "CmdOrCtrl+Alt+C" }] },
-  { label: "View", submenu: [{ label: "Write", action: "modeWrite", accelerator: "CmdOrCtrl+Alt+W" }, { label: "Split", action: "modeSplit", accelerator: "CmdOrCtrl+Alt+S" }, { label: "Read", action: "modeRead", accelerator: "CmdOrCtrl+Alt+R" }, { type: "divider" }, { label: "Distraction-Free Mode", action: "distractionFree", accelerator: "CmdOrCtrl+Alt+D" }, { type: "divider" }, { label: "Zoom In", action: "zoomIn", accelerator: "CmdOrCtrl+Shift+=" }, { label: "Zoom Out", action: "zoomOut", accelerator: "CmdOrCtrl+-" }, { label: "Actual Size", action: "zoomReset", accelerator: "CmdOrCtrl+0" }] },
+  { label: "File", submenu: [{ label: "New", action: "new", accelerator: "CmdOrCtrl+N" }, { label: "Open…", action: "open", accelerator: "CmdOrCtrl+O" }, { type: "divider" }, { label: "Save", action: "save", accelerator: "CmdOrCtrl+S" }, { label: "Save As…", action: "saveAs", ...(saveAsMenuAccelerator ? { accelerator: saveAsMenuAccelerator } : {}) }, { type: "divider" }, { label: "Close", action: "close", accelerator: "CmdOrCtrl+W" }] },
+  { label: "Edit", submenu: [{ label: "Undo", action: "undo", accelerator: "CmdOrCtrl+Z" }, { label: "Redo", action: "redo", accelerator: "CmdOrCtrl+Shift+Z" }, { type: "divider" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }, { type: "divider" }, { label: "Find…", action: "find", accelerator: "CmdOrCtrl+F" }, { label: "Add Comment", action: "comment", accelerator: customShortcutAccelerator(process.platform, "C") }] },
+  { label: "View", submenu: [{ label: "Write", action: "modeWrite", accelerator: customShortcutAccelerator(process.platform, "W") }, { label: "Split", action: "modeSplit", accelerator: customShortcutAccelerator(process.platform, "S") }, { label: "Read", action: "modeRead", accelerator: customShortcutAccelerator(process.platform, "R") }, { type: "divider" }, { label: "Distraction-Free Mode", action: "distractionFree", accelerator: customShortcutAccelerator(process.platform, "D") }, { type: "divider" }, { label: "Zoom In", action: "zoomIn", accelerator: "CmdOrCtrl+Shift+=" }, { label: "Zoom Out", action: "zoomOut", accelerator: "CmdOrCtrl+-" }, { label: "Actual Size", action: "zoomReset", accelerator: "CmdOrCtrl+0" }] },
   { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "toggleFullScreen" }] },
   { label: "Help", submenu: [{ label: "Check for Updates…", action: "checkUpdates" }, { label: "Sideleaf Website", action: "website" }] },
 ]);
