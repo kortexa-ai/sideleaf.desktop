@@ -1,4 +1,4 @@
-:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; --paper: #fcfbf7; --panel: #f4f3ed; --ink: #29372f; --muted: #788078; --faint: #a8afa5; --green: #38614a; --border: #e1e4da; --active-line: #eef1e780; --selection: #bfd4bb70; background: var(--paper); color: var(--ink); }
+:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; --document-zoom: 1; --paper: #fcfbf7; --panel: #f4f3ed; --ink: #29372f; --muted: #788078; --faint: #a8afa5; --green: #38614a; --border: #e1e4da; --active-line: #eef1e780; --selection: #bfd4bb70; background: var(--paper); color: var(--ink); }
 * { box-sizing: border-box; }
 body { margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 button, textarea { font: inherit; }
@@ -58,7 +58,7 @@ body[data-platform="windows"] #topbar { -webkit-app-region: no-drag; }
 #editor { flex: 1; min-height: 0; }
 .reader-scroll { flex: 1; overflow: auto; min-height: 0; padding: 18px 35px 80px; }
 .reader-scroll.is-empty { overflow: hidden; padding-bottom: 18px; }
-#preview { min-height: 100%; max-width: 760px; margin: 0 auto; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 17px; line-height: 1.7; overflow-wrap: anywhere; }
+#preview { min-height: 100%; max-width: 760px; margin: 0 auto; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: calc(17px * var(--document-zoom)); line-height: 1.7; overflow-wrap: anywhere; }
 #preview.is-empty { height: 100%; }
 #preview > :first-child { margin-top: 0; }
 #preview > :last-child { margin-bottom: 0; }
@@ -96,7 +96,13 @@ body[data-platform="windows"] #topbar { -webkit-app-region: no-drag; }
 #comment-form label { display: block; font-size: 11px; margin-bottom: 8px; }
 #comment-form textarea { background: var(--paper); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 10px; width: 100%; resize: vertical; line-height: 1.6; }
 #comment-form > div { display: flex; justify-content: flex-end; margin-top: 9px; gap: 5px; }
-.statusbar { display: flex; gap: 20px; align-items: center; min-height: 30px; padding: 0 20px; border-top: 1px solid var(--border); background: var(--panel); color: var(--muted); font-size: 10px; flex-shrink: 0; }
+.statusbar { display: flex; gap: 16px; align-items: center; min-height: 30px; padding: 0 20px; border-top: 1px solid var(--border); background: var(--panel); color: var(--muted); font-size: 10px; flex-shrink: 0; }
+.document-zoom { display: flex; align-items: center; gap: 5px; flex: none; }
+#zoom-slider { appearance: none; width: 64px; height: 12px; margin: 0; background: transparent; cursor: pointer; }
+#zoom-slider::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: var(--border); }
+#zoom-slider::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; margin-top: -4px; border: 1px solid var(--green); border-radius: 50%; background: var(--paper); }
+#zoom-slider:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 4px; }
+#zoom-reset { min-width: 34px; padding: 2px 3px; border: 0; color: var(--muted); font-size: inherit; font-variant-numeric: tabular-nums; }
 .status-spacer { flex: 1; }
 body[data-distraction-free="true"] > #topbar,
 body[data-distraction-free="true"] > .document-bar,
@@ -108,6 +114,7 @@ body[data-distraction-free="true"] .reader-scroll.is-empty { padding-top: 18px; 
 .reader-scroll:focus { outline: none; }
 @media (max-width: 850px) { .document-bar { gap: 10px; } .reader-scroll { padding-inline: 22px; } .comments-panel { width: 230px; } #filepath { max-width: 230px; } }
 @media (max-width: 700px) { .file-actions { gap: 5px; } .file-actions .action-label { display: none; } .file-actions button { width: 32px; height: 32px; padding: 0; } .file-actions .separator { margin-inline: 5px; } }
+@media (max-width: 620px) { .statusbar { gap: 10px; padding-inline: 12px; } #selection-status, #encoding { display: none; } }
 :root .update-notice { display: inline-flex; align-items: center; gap: 3px; }
 :root .update-notice[hidden] { display: none; }
 .update-notice button { padding: 2px 5px; border: 0; background: transparent; color: var(--green); font-size: inherit; }

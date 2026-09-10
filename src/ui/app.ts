@@ -9,6 +9,7 @@ import { openSearchPanel } from "@codemirror/search";
 import { commentField, commentHistory, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
 import { wordCountField } from "./word-count.ts";
+import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, ZOOM_STEP } from "./zoom.ts";
 import { commentRange, makeAnchor } from "../document/anchors.ts";
 import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState, type WindowAction } from "../shared/contracts.ts";
 import { APP_VERSION } from "../shared/version.ts";
@@ -51,6 +52,21 @@ let pendingExternalOpen = false;
 let distractionFree = false;
 let distractionFreeTransition = false;
 let focusBeforeDistraction: HTMLElement | null = null;
+const zoomStorageKey = "sideleaf.documentZoom";
+let documentZoom = storedZoom((() => { try { return localStorage.getItem(zoomStorageKey); } catch { return null; } })());
+
+function applyZoom(value: number, persist = true) {
+  documentZoom = normalizeZoom(value);
+  document.documentElement.style.setProperty("--document-zoom", String(documentZoom / 100));
+  const slider = element<HTMLInputElement>("zoom-slider");
+  slider.value = String(documentZoom);
+  const reset = element<HTMLButtonElement>("zoom-reset");
+  reset.textContent = `${documentZoom}%`;
+  if (persist) {
+    try { localStorage.setItem(zoomStorageKey, String(documentZoom)); } catch { /* Keep the in-memory zoom usable. */ }
+  }
+  view?.requestMeasure();
+}
 
 const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
@@ -150,6 +166,19 @@ if (window.__electrobunPlatform === "windows") {
     event.preventDefault();
     event.stopPropagation();
     if (!event.repeat) void perform(action);
+  }, true);
+}
+
+if (platform !== "linux") {
+  document.addEventListener("keydown", (event) => {
+    const primary = platform === "macos" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+    if (!primary || event.altKey || event.isComposing) return;
+    const action = event.code === "Digit0" || event.code === "Numpad0" ? "reset"
+      : event.code === "Minus" || event.code === "NumpadSubtract" ? "out"
+      : event.code === "Equal" || event.code === "NumpadAdd" ? "in" : null;
+    if (!action) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    if (!event.repeat) applyZoom(action === "reset" ? DEFAULT_ZOOM : changeZoom(documentZoom, action === "in" ? 1 : -1));
   }, true);
 }
 
@@ -261,6 +290,11 @@ document.querySelectorAll<HTMLButtonElement>("[data-close-dialog]").forEach((but
 element("about-website").onclick = () => { void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
 
 const view = new EditorView({ parent: element("editor"), state: createEditorState("") });
+const zoomSlider = element<HTMLInputElement>("zoom-slider");
+zoomSlider.min = String(MIN_ZOOM); zoomSlider.max = String(MAX_ZOOM); zoomSlider.step = String(ZOOM_STEP);
+zoomSlider.oninput = () => applyZoom(Number(zoomSlider.value));
+element("zoom-reset").onclick = () => applyZoom(DEFAULT_ZOOM);
+applyZoom(documentZoom, false);
 rpc.send.diagnostic({ event: "editor-created", message: "CodeMirror initialized" });
 
 function createEditorState(text: string, comments: Draft["comments"] = []) {
@@ -286,7 +320,7 @@ function createEditorState(text: string, comments: Draft["comments"] = []) {
         if (update.selectionSet || update.docChanged) updateSelection();
       }),
       EditorView.theme({
-        "&": { height: "100%", fontSize: "14px", backgroundColor: "var(--paper)", color: "var(--ink)" },
+        "&": { height: "100%", fontSize: "calc(14px * var(--document-zoom))", backgroundColor: "var(--paper)", color: "var(--ink)" },
         ".cm-scroller": { overflow: "auto", fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace", lineHeight: "1.75" },
         ".cm-content": { padding: "24px 22px 100px", caretColor: "var(--green)" },
         // CodeMirror includes the content padding in its gutter line positions.
@@ -443,6 +477,9 @@ async function performPendingExternalOpen() {
   });
 }
 async function perform(command: Command) {
+  if (command === "zoomIn" || command === "zoomOut" || command === "zoomReset") {
+    applyZoom(command === "zoomReset" ? DEFAULT_ZOOM : changeZoom(documentZoom, command === "zoomIn" ? 1 : -1)); return;
+  }
   if (busy || !current) return;
   if (command === "openExternal") { pendingExternalOpen = true; await performPendingExternalOpen(); return; }
   if (command === "modeWrite" || command === "modeSplit" || command === "modeRead") {

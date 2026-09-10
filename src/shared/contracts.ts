@@ -27,7 +27,7 @@ export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
   const { id, path, name, lineEnding, notice } = snapshot;
   return { id, path, name, lineEnding, notice };
 }
-export type Command = "new" | "open" | "openExternal" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo" | "modeWrite" | "modeSplit" | "modeRead" | "distractionFree" | "about" | "settings" | "makeDefaultEditor";
+export type Command = "new" | "open" | "openExternal" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo" | "modeWrite" | "modeSplit" | "modeRead" | "distractionFree" | "zoomIn" | "zoomOut" | "zoomReset" | "about" | "settings" | "makeDefaultEditor";
 export type WindowAction = "minimize" | "toggle-maximize" | "close" | "move" | "system-menu" | "titlebar-double-click" | "enter-distraction-free" | "exit-distraction-free";
 export type UpdateState = { status: "idle" | "checking" | "current" | "error" } | { status: "available"; version: string; url: string };
 
