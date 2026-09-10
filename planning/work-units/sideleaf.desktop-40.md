@@ -39,3 +39,10 @@ Issue: <https://github.com/kortexa-ai/sideleaf.desktop/issues/40>
   the title bar, and opens and closes Comments with Command-Shift-V.
 - The focused real-app shortcut check caught and fixed an inverted Comments
   toggle before the Windows validation pass.
+- `bun run validate` passes on Windows: 56 tests, 0 failures. The Windows-native
+  development build also completes with the Windows Bun runtime.
+- The Windows development app preserves Minimal layout across restart, switches
+  layouts with Control-Shift-M, opens and closes Comments with Control-Shift-V,
+  and shows the complete platform shortcut list.
+- Pointer checks in the remote Windows session pass for title-bar dragging and
+  top-edge resizing. Both continue to use the native Windows caption frame.
