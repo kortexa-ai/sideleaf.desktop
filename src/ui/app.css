@@ -141,11 +141,11 @@ body[data-platform="windows"] #topbar { -webkit-app-region: no-drag; }
 .pane-label button, #preview-status { font-size: 10px; }
 .pane-label button { padding: 4px 7px; }
 #editor { flex: 1; min-height: 0; }
-.cm-scroller { scrollbar-color: var(--border) var(--paper); }
-.cm-scroller::-webkit-scrollbar { width: 12px; height: 12px; }
-.cm-scroller::-webkit-scrollbar-track,
-.cm-scroller::-webkit-scrollbar-corner { background: var(--paper); }
-.cm-scroller::-webkit-scrollbar-thumb { background: var(--border); border: 3px solid var(--paper); border-radius: 999px; }
+body[data-platform="windows"] .cm-scroller { scrollbar-color: var(--border) var(--paper); }
+body[data-platform="windows"] .cm-scroller::-webkit-scrollbar { width: 12px; height: 12px; }
+body[data-platform="windows"] .cm-scroller::-webkit-scrollbar-track,
+body[data-platform="windows"] .cm-scroller::-webkit-scrollbar-corner { background: var(--paper); }
+body[data-platform="windows"] .cm-scroller::-webkit-scrollbar-thumb { background: var(--border); border: 3px solid var(--paper); border-radius: 999px; }
 .reader-scroll { flex: 1; overflow: auto; min-height: 0; padding: 18px 35px 80px; }
 .reader-scroll.is-empty { overflow: hidden; padding-bottom: 18px; }
 #preview { min-height: 100%; max-width: 760px; margin: 0 auto; font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: calc(17px * var(--document-zoom)); line-height: 1.7; overflow-wrap: anywhere; }
