@@ -33,6 +33,13 @@ for ((i=2; i<${#args[@]}; i++)); do
     ;;
   esac
 done
+if [[ ${args[0]:-} == skills ]]; then
+  export SIDELEAF_SKILLS_HOME="$HOME"
+  case ":${WSLENV:-}:" in
+    *:SIDELEAF_SKILLS_HOME/p:*) ;;
+    *) export WSLENV="${WSLENV:+$WSLENV:}SIDELEAF_SKILLS_HOME/p" ;;
+  esac
+fi
 exec "$launcher" "${args[@]}"
 WRAPPER
 } > "$temp"

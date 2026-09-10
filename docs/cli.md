@@ -24,6 +24,38 @@ The command follows desktop updates because it runs from the installed app.
 `sideleaf --help` describes commands. JSON output escapes non-ASCII characters so
 legacy Windows code pages cannot corrupt text.
 
+## Install the agent skill
+
+The bundled Sideleaf skill tells supported agents how to use the local CLI for
+revision-safe Markdown edits and comments. It is self-contained and does not use
+the network.
+
+```sh
+# Shared agent location only:
+sideleaf skills install
+
+# Every supported user location:
+sideleaf skills install --user
+
+# One location: agents, claude, codex, omp, hermes, or pi
+sideleaf skills install --target codex
+```
+
+The default path is `~/.agents/skills/sideleaf/SKILL.md`. `--user` also installs
+under `~/.claude/skills`, `~/.codex/skills`, `~/.omp/skills`,
+`~/.hermes/skills`, and `~/.pi/agent/skills`. In WSL, these paths use the WSL
+home, not the Windows profile. Native Windows installs use the Windows profile.
+
+Reinstalling an unchanged skill is a no-op. If the installed file has local
+changes, Sideleaf leaves it alone and reports the path. Review your copy, then run
+the same command with `--force` only when you want the bundled version to replace
+it. Each changed `SKILL.md` is staged beside its destination and replaced
+atomically.
+
+The current skill describes flat comments because comment threads and resolution
+are not shipped yet. Agents can reread comments saved by a human and can add a new
+anchored comment without inventing unsupported thread commands.
+
 On macOS, remove the command link before removing the app: `sudo rm /usr/local/bin/sideleaf`.
 In each WSL distro where you installed it, `sudo rm /usr/local/bin/sideleaf` removes the
 wrapper. Windows uninstall does not start or modify any WSL distro. A retained WSL
@@ -54,7 +86,7 @@ that operation. CLI writes retain actor attribution in embedded revision metadat
 including text-only edits. Plain GUI documents remain plain until annotated. Offsets are zero-based, end-exclusive UTF-16 code units in source
 with logical LF separators. Metadata is excluded. Edits cannot split surrogate
 pairs. Actor names explicitly attribute writes and comments, without authentication.
-Thread replies and resolve/reopen are not yet desktop features and remain deferred.
+Thread replies and resolve/reopen are not yet desktop features.
 
 Exit codes: 0 success; 2 invalid usage/input; 3 stale revision or another Sideleaf
 writer's lock; 1 filesystem/runtime failure. Errors are JSON on stderr. Every write

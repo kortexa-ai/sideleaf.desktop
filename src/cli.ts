@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { DocumentFile } from "./document/files.ts";
 import { makeAnchor } from "./document/anchors.ts";
 import { MAX_DOCUMENT_BYTES } from "./shared/contracts.ts";
+import { installSideleafSkills, parseSkillInstallArgs } from "./skill.ts";
 
 const help = `sideleaf — local Markdown and comments (JSON output)
 
@@ -16,6 +17,7 @@ sideleaf comment-add FILE --if-revision HASH --actor NAME < comment.json
 sideleaf comment-update FILE --if-revision HASH --actor NAME < update.json
 sideleaf comment-remove FILE --if-revision HASH --actor NAME < remove.json
 sideleaf open FILE [--app PATH]
+sideleaf skills install [--user | --target NAME] [--force]
 
 edit.json: {"from":0,"to":0,"text":"New text\\n"}
 comment.json: {"from":0,"to":8,"body":"A thought"}
@@ -27,6 +29,10 @@ Use read.revision as --if-revision for every write. Actor names are explicit
 attribution, not authenticated identities. Exit: 0 success, 2 input/usage,
 3 revision conflict or writer lock, 1 filesystem/runtime failure.
 Use --input PATH instead of stdin. The desktop app supplies the runtime.
+Skill targets: agents, claude, codex, omp, hermes, pi. The default installs
+~/.agents/skills/sideleaf/SKILL.md. --user installs all supported user targets.
+In WSL, skills install into the WSL home. --force explicitly replaces a locally
+modified Sideleaf skill; without it, the existing file is left unchanged.
 `;
 // ASCII JSON survives legacy PowerShell code pages without corrupting Unicode.
 function json(value: unknown) { return JSON.stringify(value).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`); }
@@ -39,6 +45,12 @@ async function main() {
   const args = process.argv.slice(2);
   if (!args.length || args[0] === "--help" || args[0] === "help") { process.stdout.write(help); return; }
   const command = args.shift()!;
+  if (command === "skills") {
+    if (args[0] === "--help" || args[0] === "help") { process.stdout.write(help); return; }
+    const options = parseSkillInstallArgs(args);
+    const targets = installSideleafSkills({ home: process.env.SIDELEAF_SKILLS_HOME, ...options });
+    output({ ok: true, skill: "sideleaf", targets }); return;
+  }
   if (!["read", "comments", "edit", "comment-add", "comment-update", "comment-remove", "open"].includes(command)) inputError("Unknown command. Run sideleaf --help.");
   const filename = args.shift();
   if (!filename || filename.startsWith("--")) inputError("A document path is required.");

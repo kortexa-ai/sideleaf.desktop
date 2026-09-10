@@ -115,7 +115,9 @@ package to distribute. Run `bun run test:packaged-cli /path/to/bundled/sideleaf`
 (`sideleaf.exe` on Windows) after packaging. This exercises pipes, input files,
 comments, Unicode and conflict exits with Node/Bun absent from PATH. Test menu
 installation on macOS and Windows, plus default-distro detection and installation
-on Windows with and without WSL. See [command setup](cli.md).
+on Windows with and without WSL. Test `sideleaf skills install`, one `--target`,
+`--user`, an unchanged reinstall, and modified-file refusal in native and WSL
+homes. See [command setup](cli.md).
 
 The Windows release uses Inno Setup **6.7.3** for its CLI checkbox, per-user PATH,
 shortcuts and uninstall lifecycle. This is a build-only tool. Install the official
