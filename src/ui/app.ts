@@ -172,7 +172,7 @@ if (platform !== "linux") {
   }, true);
 }
 document.addEventListener("keydown", (event) => {
-  if (!distractionFree || event.key !== "Escape" || event.isComposing) return;
+  if (!distractionFree || (event.key !== "Escape" && event.code !== "Escape") || event.isComposing) return;
   event.preventDefault(); event.stopImmediatePropagation();
   if (!event.repeat) void setDistractionFree(false);
 }, true);
