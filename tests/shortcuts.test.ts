@@ -48,18 +48,20 @@ describe("custom shortcuts", () => {
     expect(customShortcutLabel("linux", "d")).toBe("");
   });
 
-  test("uses Command-Shift or Control-Shift for layout shortcuts", () => {
+  test("uses Command-Shift or Control-Alt for layout shortcuts", () => {
     expect(layoutShortcutAction("macos", event({ code: "KeyM", key: "m", metaKey: true, shiftKey: true }))).toBe("toggleMinimalLayout");
     expect(layoutShortcutAction("macos", event({ code: "KeyV", key: "v", metaKey: true, shiftKey: true }))).toBe("toggleComments");
-    expect(layoutShortcutAction("windows", event({ code: "KeyM", key: "m", ctrlKey: true, shiftKey: true }))).toBe("toggleMinimalLayout");
-    expect(layoutShortcutAction("windows", event({ code: "KeyV", key: "v", ctrlKey: true, shiftKey: true }))).toBe("toggleComments");
+    expect(layoutShortcutAction("windows", event({ code: "KeyM", key: "m", ctrlKey: true, altKey: true }))).toBe("toggleMinimalLayout");
+    expect(layoutShortcutAction("windows", event({ code: "KeyV", key: "v", ctrlKey: true, altKey: true }))).toBe("toggleComments");
+    expect(layoutShortcutAction("windows", event({ code: "KeyV", key: "v", ctrlKey: true, shiftKey: true }))).toBeNull();
     expect(layoutShortcutAction("windows", event({ code: "KeyV", key: "v", ctrlKey: true, shiftKey: true, altKey: true }))).toBeNull();
     expect(layoutShortcutAction("linux", event({ code: "KeyM", key: "m", ctrlKey: true, shiftKey: true }))).toBeNull();
   });
 
   test("shows the platform chord used by layout shortcuts", () => {
     expect(layoutShortcutLabel("macos", "m")).toBe("⌘⇧M");
-    expect(layoutShortcutLabel("windows", "v")).toBe("Ctrl+Shift+V");
+    expect(layoutShortcutLabel("windows", "m")).toBe("Ctrl+Alt+M");
+    expect(layoutShortcutLabel("windows", "v")).toBe("Ctrl+Alt+V");
     expect(layoutShortcutLabel("linux", "m")).toBe("");
   });
 });

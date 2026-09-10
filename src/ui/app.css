@@ -236,15 +236,18 @@ body[data-platform="macos"] #app-menu { right: 6px; }
 #app-menu kbd { color: var(--muted); font: 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 #app-menu button:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .menu-separator { height: 1px; margin: 5px 7px; background: var(--border); }
-.minimal-actions-menu { position: absolute; top: calc(100% + 5px); z-index: 20; width: 210px; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px var(--popover-shadow); }
+.minimal-actions-menu { position: absolute; top: calc(100% + 5px); z-index: 20; width: 210px; padding: 6px; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px var(--popover-shadow); }
 body[data-platform="windows"] .minimal-actions-menu { left: 6px; }
 body[data-platform="macos"] .minimal-actions-menu { right: 6px; }
-.minimal-actions-menu .file-actions { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 6px; }
-.minimal-actions-menu .file-actions button { width: 100%; height: auto; justify-content: flex-start; padding: 6px 11px; }
-.minimal-actions-menu .file-actions .action-label { display: inline; }
-.minimal-actions-menu .file-actions .separator { width: auto; height: 1px; margin: 5px 7px; }
+.minimal-actions-menu > button { display: block; width: 100%; border: 0; text-align: left; }
+.minimal-actions-menu > button:focus-visible { outline-offset: -2px; }
+.minimal-view-switch { display: flex; gap: 2px; margin: 5px 3px 2px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); }
+.minimal-view-switch button { flex: 1; min-width: 0; padding: 5px 6px; border: 0; color: var(--muted); font-size: 11px; text-align: center; }
+.minimal-view-switch button[aria-checked="true"] { color: var(--green); background: var(--paper); box-shadow: 0 1px 3px var(--soft-shadow); }
+.minimal-view-switch button:focus-visible { outline-offset: -2px; }
 .minimal-comments-container { display: flex; align-items: center; }
 .titlebar-separator { width: 1px; height: 18px; background: var(--border); }
+body[data-platform="macos"] .minimal-comments-container .titlebar-separator { order: 2; }
 .minimal-document-slot { z-index: 10; display: flex; align-items: center; min-width: 0; pointer-events: none; }
 body[data-platform="windows"] .minimal-actions-container { left: 46px; }
 body[data-platform="macos"] .minimal-actions-container { right: 38px; }
@@ -255,7 +258,9 @@ body[data-platform="macos"] .minimal-comments-container { right: 114px; height: 
 body[data-platform="windows"] .minimal-document-slot { left: 194px; right: 148px; height: 46px; }
 body[data-platform="macos"] .minimal-document-slot { left: 82px; right: 166px; height: 30px; }
 body[data-minimal-layout="true"] .toolbar { display: none; }
-body[data-minimal-layout="true"] .document-bar { min-height: 50px; justify-content: center; padding-block: 7px; }
+body[data-minimal-layout="true"] .document-bar,
+body[data-minimal-layout="true"] .editor-pane > .pane-label,
+body[data-minimal-layout="true"] .reader-pane > .pane-label { display: none; }
 body[data-minimal-layout="true"] .minimal-document-slot .document-name { width: 100%; gap: 7px; }
 body[data-minimal-layout="true"] .minimal-document-slot .document-name > div { display: block; min-width: 0; }
 body[data-minimal-layout="true"] .minimal-document-slot .file-symbol,

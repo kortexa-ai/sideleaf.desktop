@@ -286,9 +286,7 @@ if (window.__electrobunPlatform !== "linux") {
   element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
 }
 
-const toolbar = element("topbar").querySelector<HTMLElement>(".toolbar")!;
 const documentBar = document.querySelector<HTMLElement>(".document-bar")!;
-const fileActions = toolbar.querySelector<HTMLElement>(".file-actions")!;
 const documentName = documentBar.querySelector<HTMLElement>(".document-name")!;
 const commentsToggle = element<HTMLButtonElement>("comments-toggle");
 const minimalActionsContainer = element("minimal-actions-container");
@@ -297,23 +295,21 @@ const minimalActionsMenu = element("minimal-actions-menu");
 const minimalCommentsContainer = element("minimal-comments-container");
 const minimalCommentsSlot = element("minimal-comments-slot");
 const minimalDocumentSlot = element("minimal-document-slot");
-const documentActionButtons = () => ["new", "open", "find", "save"].map((id) => element<HTMLButtonElement>(id));
+const minimalMenuItems = () => [...minimalActionsMenu.querySelectorAll<HTMLButtonElement>("button[role=menuitem], button[role=menuitemradio]")];
 
 function closeDocumentActions(restoreFocus = false) {
   minimalActionsMenu.hidden = true;
   minimalActionsToggle.setAttribute("aria-expanded", "false");
-  if (settings.minimalLayout) fileActions.hidden = true;
   if (restoreFocus) minimalActionsToggle.focus();
 }
 function openDocumentActions(focus: "first" | "last" | null = null) {
   element("app-menu").hidden = true;
   element("app-menu-toggle").setAttribute("aria-expanded", "false");
   closeSettings();
-  fileActions.hidden = false;
   minimalActionsMenu.hidden = false;
   minimalActionsToggle.setAttribute("aria-expanded", "true");
   if (focus) {
-    const buttons = documentActionButtons();
+    const buttons = minimalMenuItems();
     buttons[focus === "last" ? buttons.length - 1 : 0]!.focus();
   }
 }
@@ -327,16 +323,11 @@ function applyMinimalLayout(enabled: boolean, persist = true) {
   minimalDocumentSlot.hidden = !active;
   closeDocumentActions();
   if (active) {
-    minimalActionsMenu.append(fileActions);
     minimalDocumentSlot.append(documentName);
     minimalCommentsSlot.append(commentsToggle);
-    documentActionButtons().forEach((button) => button.setAttribute("role", "menuitem"));
   } else {
-    toolbar.append(fileActions);
     documentBar.prepend(documentName);
     documentBar.append(commentsToggle);
-    fileActions.hidden = false;
-    documentActionButtons().forEach((button) => button.removeAttribute("role"));
   }
   const input = document.getElementById("setting-minimal-layout") as HTMLInputElement | null;
   if (input) input.checked = active;
@@ -350,9 +341,16 @@ minimalActionsToggle.onkeydown = (event) => {
 minimalActionsMenu.onkeydown = (event) => {
   if (event.key === "Escape") { event.preventDefault(); closeDocumentActions(true); return; }
   if (event.key === "Tab") { closeDocumentActions(); return; }
+  if (["ArrowLeft", "ArrowRight"].includes(event.key) && event.target instanceof HTMLButtonElement && event.target.dataset.mode) {
+    event.preventDefault();
+    const modes = [...minimalActionsMenu.querySelectorAll<HTMLButtonElement>("button[data-mode]")];
+    const index = modes.indexOf(event.target);
+    const button = modes[(index + (event.key === "ArrowRight" ? 1 : -1) + modes.length) % modes.length]!;
+    button.focus(); setMode(button.dataset.mode!, false); return;
+  }
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
-  const buttons = documentActionButtons();
+  const buttons = minimalMenuItems();
   const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
   buttons[event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]!.focus();
 };
@@ -681,15 +679,27 @@ function renderComments() {
     card.append(label, quote, body, remove); list.append(card);
   }
 }
-function setMode(mode: string) {
+function setMode(mode: string, focusDocument = true) {
   element("workspace").dataset.mode = mode;
   if (mode !== "write") updatePreview();
-  document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => { if (button.tagName === "BUTTON") button.setAttribute("aria-pressed", String(button.dataset.mode === mode)); });
-  if (mode !== "read") view.focus();
-  else if (distractionFree) element<HTMLElement>("preview").parentElement!.focus();
+  document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((button) => {
+    button.setAttribute(button.getAttribute("role") === "menuitemradio" ? "aria-checked" : "aria-pressed", String(button.dataset.mode === mode));
+  });
+  if (focusDocument && mode !== "read") view.focus();
+  else if (focusDocument && distractionFree) element<HTMLElement>("preview").parentElement!.focus();
 }
 for (const action of ["new", "open", "find", "save"] as const) element(action).onclick = () => { closeDocumentActions(); void perform(action); };
-document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((button) => { button.onclick = () => setMode(button.dataset.mode!); });
+for (const [id, action] of [["minimal-new", "new"], ["minimal-open", "open"], ["minimal-save", "save"], ["minimal-save-as", "saveAs"], ["minimal-find", "find"]] as const) {
+  element(id).onclick = () => { closeDocumentActions(); void perform(action); };
+}
+document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((button) => {
+  button.onclick = () => {
+    const fromMinimalMenu = minimalActionsMenu.contains(button);
+    if (fromMinimalMenu) closeDocumentActions();
+    setMode(button.dataset.mode!);
+    if (fromMinimalMenu && button.dataset.mode === "read") element<HTMLElement>("preview").parentElement!.focus();
+  };
+});
 element("add-comment").onclick = beginComment;
 commentsToggle.onclick = () => showComments(element("comments-panel").hidden);
 element("comments-close").onclick = () => showComments(false);
