@@ -455,10 +455,10 @@ function createEditorState(text: string, comments: Draft["comments"] = []) {
 
 function draft(): Draft { return { text: view.state.doc.toString(), comments: view.state.field(commentField) }; }
 function commentsJSON() { return JSON.stringify(view.state.field(commentField)); }
-function updateDirty() {
+function updateDirty(force = false) {
   if (!current || !savedDoc) return;
   const next = !view.state.doc.eq(savedDoc) || commentsJSON() !== savedComments;
-  if (next !== dirty) { dirty = next; rpc.send.dirty({ id: current.id, dirty }); }
+  if (next !== dirty || force) { dirty = next; rpc.send.dirty({ id: current.id, dirty }); }
   if (!next && !current.path && lastScratchJSON !== null) {
     lastScratchJSON = null;
     void rpc.request.clearScratch().catch((error) => notice((error as Error).message));
@@ -544,7 +544,11 @@ async function save(saveAs = false): Promise<boolean> {
   current = result; savedDoc = savedText; savedComments = savedCommentsSnapshot;
   lastScratchJSON = null;
   element("conflict").hidden = true; element("notice").hidden = true;
-  refreshDocumentName(); updateDirty(); return true;
+  refreshDocumentName();
+  // The host optimistically clears its dirty mirror during the save RPC; a
+  // non-blocking save can leave the renderer dirty (typing during the
+  // transfer), so force the true state back to the native title.
+  updateDirty(true); return true;
 }
 async function persistScratch(): Promise<void> {
   if (current.path || !settings.keepScratch) return;

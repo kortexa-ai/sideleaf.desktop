@@ -54,8 +54,19 @@ test("the disk poll uses a stat fingerprint and only re-reads when it changes", 
   assert.equal(file.statUnchanged(), false);
   assert.equal(file.changed(), false);
   assert.equal(file.statUnchanged(), true);
-  // A real edit is detected by the fingerprint and confirmed by the full read.
+  // A detected conflict persists across polls until the document is reloaded.
   writeFileSync(path, "Another writer\n");
+  assert.equal(file.statUnchanged(), false);
+  assert.equal(file.changed(), true);
+  assert.equal(file.statUnchanged(), false);
+  file.reload();
+  assert.equal(file.statUnchanged(), true);
+  // A same-size edit that restores mtime is still caught via ctime and inode.
+  const before = statSync(path);
+  const bytes = readFileSync(path);
+  bytes[0] = bytes[0] === 65 ? 66 : 65;
+  writeFileSync(path, bytes);
+  utimesSync(path, before.atime, before.mtime);
   assert.equal(file.statUnchanged(), false);
   assert.equal(file.changed(), true);
   file.reload();

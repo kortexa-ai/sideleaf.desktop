@@ -32,13 +32,20 @@ function readOptional(path: string): Buffer | null {
 }
 // Cheap on-disk fingerprint for the 2-second poll: lstat only, no reads.
 // Captured before the bytes are read, so a change that lands after the stat
-// is always visible on the next poll.
+// is always visible on the next poll. ctime plus device/inode catch
+// same-size edits that restore mtime and files replaced with copied times.
+// Limit: a writer that resets every timestamp in place (possible on
+// Windows) is invisible to stat-only detection; the save path still
+// re-reads full content before committing.
 function diskStatKey(path: string): string | null {
   let stat;
   try { stat = lstatSync(path); } catch { return null; }
   let sidecar = "-";
-  try { const side = lstatSync(metadataPath(path)); sidecar = `${side.mtimeMs}:${side.size}`; } catch { /* no sidecar */ }
-  return `${stat.mtimeMs}:${stat.size}:${stat.mode & 0o777}|${sidecar}`;
+  try {
+    const side = lstatSync(metadataPath(path));
+    sidecar = `${side.mtimeMs}:${side.ctimeMs}:${side.dev}:${side.ino}:${side.size}`;
+  } catch { /* no sidecar */ }
+  return `${stat.mtimeMs}:${stat.ctimeMs}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mode & 0o777}|${sidecar}`;
 }
 
 function regularFile(path: string) {
@@ -108,6 +115,7 @@ export class DocumentFile {
   path: string | null = null;
   private disk: DiskState | null = null;
   private statKey: string | null = null;
+  private statChanged = false;
   private bom = false;
   private lineEnding: "\n" | "\r\n" = "\n";
   private draft: Draft = { text: "", comments: [] };
@@ -154,7 +162,7 @@ export class DocumentFile {
     const selected = matched ?? sidecar.revisions[0];
     const comments = (selected?.comments ?? []).map((c) => relocateComment(c, decoded.text, !!matched));
     validateDraft({ text: decoded.text, comments });
-    this.disk = disk; this.statKey = disk.statKey; this.bom = decoded.bom; this.lineEnding = decoded.lineEnding;
+    this.disk = disk; this.statKey = disk.statKey; this.statChanged = false; this.bom = decoded.bom; this.lineEnding = decoded.lineEnding;
     this.draft = { text: decoded.text, comments };
     this.notice = selected && !matched ? "The file changed outside Sideleaf. Check the comment anchors; uncertain ones remain unanchored." :
       matched && matched !== sidecar.revisions[0] ? "Recovered the comment revision matching this file after an interrupted save." : null;
@@ -162,16 +170,21 @@ export class DocumentFile {
 
   // Cheap poll pre-check: lstat only, no reads. A missing file or a null
   // baseline (untitled document) always falls through to the full read.
+  // While a conflict is known, the last full check's result is returned, so
+  // a detected change cannot disappear on the next poll.
   statUnchanged(): boolean {
     if (!this.path || this.statKey === null) return false;
-    return diskStatKey(this.path) === this.statKey;
+    if (diskStatKey(this.path) !== this.statKey) return false;
+    return !this.statChanged;
   }
 
   changed(): boolean {
     if (!this.path) return false;
     const disk = readDisk(this.path);
+    const changed = disk.signature !== this.disk?.signature;
     this.statKey = disk.statKey;
-    return disk.signature !== this.disk?.signature;
+    this.statChanged = changed;
+    return changed;
   }
 
   reload(): DocumentSnapshot {
@@ -234,7 +247,7 @@ export class DocumentFile {
         renameSync(metadataPath(path), `${metadataPath(path)}.migrated-${randomUUID()}`);
       }
       this.revisions = annotated ? revisions : [];
-      this.disk = disk; this.statKey = disk.statKey;
+      this.disk = disk; this.statKey = disk.statKey; this.statChanged = false;
     } finally { closeSync(fd); unlinkSync(lock); }
 
     this.path = path;
