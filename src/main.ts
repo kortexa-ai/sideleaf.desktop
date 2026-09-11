@@ -143,10 +143,9 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       clearScratch: () => { scratch.clear(); recoveredScratch = false; return true; },
       check: ({ id }) => {
         checkId(id);
-        // The stat fingerprint is lstat-only; the full read + hash runs only
-        // when mtime, size, mode, or the sidecar actually changed.
-        if (document.statUnchanged()) return { changed: false, error: null };
-        try { return { changed: document.changed(), error: null }; }
+        // Reuse the last comparison while the document/sidecar stats match,
+        // including a known conflict; changed fingerprints trigger a full read.
+        try { return { changed: document.pollChanged(), error: null }; }
         catch (error) { return { changed: true, error: (error as Error).message }; }
       },
       reload: ({ id }) => { checkId(id); const result = document.reload(); saveTransfer.clear(); dirty = false; updateTitle(); return result; },

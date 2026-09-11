@@ -41,50 +41,86 @@ test("plain save preserves mode and leaves no sidecar until comments exist", () 
   assert.equal(readFileSync(path, "utf8"), "# Edited\n");
   if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o640);
   assert.equal(file.changed(), false);
-  assert.equal(file.statUnchanged(), true);
+  assert.equal(file.pollChanged(), false);
 });
 
-test("the disk poll uses a stat fingerprint and only re-reads when it changes", () => {
-  const { path } = fixture();
+test("disk polling caches both clean and conflicting comparisons", () => {
+  const { path } = fixture(); const original = readFileSync(path);
   const file = DocumentFile.open(path);
-  assert.equal(file.statUnchanged(), true);
-  // A same-content touch changes the stat but not the signature: not a conflict,
-  // and the full check refreshes the fingerprint so polling stays cheap.
+  const compare = file.changed.bind(file);
+  let fullChecks = 0;
+  file.changed = () => { fullChecks++; return compare(); };
+  for (let i = 0; i < 30; i++) assert.equal(file.pollChanged(), false);
+  assert.equal(fullChecks, 0);
+  // A same-content touch needs one full comparison, then stays cheap.
   utimesSync(path, new Date(0), new Date(0));
-  assert.equal(file.statUnchanged(), false);
-  assert.equal(file.changed(), false);
-  assert.equal(file.statUnchanged(), true);
-  // A detected conflict persists across polls until the document is reloaded.
+  assert.equal(file.pollChanged(), false);
+  assert.equal(file.pollChanged(), false);
+  assert.equal(fullChecks, 1);
   writeFileSync(path, "Another writer\n");
-  assert.equal(file.statUnchanged(), false);
-  assert.equal(file.changed(), true);
-  assert.equal(file.statUnchanged(), false);
-  file.reload();
-  assert.equal(file.statUnchanged(), true);
-  // A same-size edit that restores mtime is still caught via ctime and inode.
+  assert.equal(file.pollChanged(), true);
+  assert.equal(fullChecks, 2);
+  // A known conflict must remain visible without comparing its bytes again.
+  for (let i = 0; i < 30; i++) assert.equal(file.pollChanged(), true);
+  assert.equal(fullChecks, 2);
+  assert.throws(() => file.save({ text: "My draft", comments: [] }), /changed on disk/);
+  assert.equal(file.pollChanged(), true);
+  assert.equal(fullChecks, 2);
+  // Restoring the open content invalidates the conflict and caches clean again.
+  writeFileSync(path, original);
+  assert.equal(file.pollChanged(), false);
+  for (let i = 0; i < 30; i++) assert.equal(file.pollChanged(), false);
+  assert.equal(fullChecks, 3);
+  // Explicit content checks remain exact, even with a cached poll result.
+  assert.equal(file.changed(), false);
+  assert.equal(fullChecks, 4);
+});
+
+test("disk polling notices preserved mtime, sidecar changes, deletion and recovery", () => {
+  const { path } = fixture();
+  // Use an exactly representable mtime so restoring it does not itself change
+  // the fingerprint through rounding to Date's millisecond precision.
+  utimesSync(path, new Date(1000), new Date(1000));
+  const file = DocumentFile.open(path);
   const before = statSync(path);
   const bytes = readFileSync(path);
   bytes[0] = bytes[0] === 65 ? 66 : 65;
   writeFileSync(path, bytes);
   utimesSync(path, before.atime, before.mtime);
-  assert.equal(file.statUnchanged(), false);
-  assert.equal(file.changed(), true);
+  assert.equal(statSync(path).mtimeMs, before.mtimeMs);
+  assert.equal(file.pollChanged(), true);
   file.reload();
-  assert.equal(file.statUnchanged(), true);
-  // A sidecar appearing is visible without reading the document.
+  assert.equal(file.pollChanged(), false);
+  // A sidecar appearing changes the comparison even when Markdown is unchanged.
   writeFileSync(`${path}.sideleaf.json`, "{}");
-  assert.equal(file.statUnchanged(), false);
-  assert.equal(file.changed(), true);
-  // Once it is gone the change is still visible against the last full read,
-  // and the full check confirms the signature matches the open state again.
+  assert.equal(file.pollChanged(), true);
+  assert.equal(file.pollChanged(), true);
+  // Removing it restores the open state and clears the cached conflict.
   unlinkSync(`${path}.sideleaf.json`);
-  assert.equal(file.statUnchanged(), false);
-  assert.equal(file.changed(), false);
-  assert.equal(file.statUnchanged(), true);
-  // A deleted file always falls through to the full read.
+  assert.equal(file.pollChanged(), false);
+  // Failed reads must keep failing on later polls, never reuse a clean result.
   unlinkSync(path);
-  assert.equal(file.statUnchanged(), false);
-  assert.throws(() => file.changed());
+  assert.throws(() => file.pollChanged());
+  assert.throws(() => file.pollChanged());
+  writeFileSync(path, bytes);
+  assert.equal(file.pollChanged(), false);
+});
+
+test("reload, Save As and save establish a clean poll baseline", () => {
+  const { path, folder } = fixture(); const file = DocumentFile.open(path);
+  assert.equal(new DocumentFile().pollChanged(), false);
+  writeFileSync(path, "External revision\n");
+  assert.equal(file.pollChanged(), true);
+  const draft = file.reload();
+  assert.equal(file.pollChanged(), false);
+  writeFileSync(path, "Another external revision\n");
+  assert.equal(file.pollChanged(), true);
+  const copy = join(folder, "copy.md");
+  file.save(draft, copy);
+  assert.equal(file.pollChanged(), false);
+  file.save({ text: "Saved edit\n", comments: [] });
+  assert.equal(file.pollChanged(), false);
+  assert.equal(readFileSync(copy, "utf8"), "Saved edit\n");
 });
 
 test("Save As keeps the original document and rejects another document's annotations", () => {

@@ -168,16 +168,17 @@ export class DocumentFile {
       matched && matched !== sidecar.revisions[0] ? "Recovered the comment revision matching this file after an interrupted save." : null;
   }
 
-  // Cheap poll pre-check: lstat only, no reads. A missing file or a null
-  // baseline (untitled document) always falls through to the full read.
-  // While a conflict is known, the last full check's result is returned, so
-  // a detected change cannot disappear on the next poll.
-  statUnchanged(): boolean {
-    if (!this.path || this.statKey === null) return false;
-    if (diskStatKey(this.path) !== this.statKey) return false;
-    return !this.statChanged;
+  // Poll with lstat only while the fingerprint matches the last successful
+  // comparison. Reuse both clean and conflicting results so a known conflict
+  // stays visible without reading and hashing its bytes again. Missing files
+  // and uncached fingerprints fall through to the full read, including errors.
+  pollChanged(): boolean {
+    if (!this.path) return false;
+    if (this.statKey !== null && diskStatKey(this.path) === this.statKey) return this.statChanged;
+    return this.changed();
   }
 
+  // Explicit checks and the save path always compare current content.
   changed(): boolean {
     if (!this.path) return false;
     const disk = readDisk(this.path);
