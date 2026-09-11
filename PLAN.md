@@ -223,6 +223,37 @@ These additions define planned product behavior, not a claim of implementation.
   and semantic merge require their own design and adversarial fixtures. They are not MVP
   dependencies.
 
+### Proposed live document collaboration
+
+The next collaboration contract is proposed in
+[the #59 design](planning/work-units/sideleaf.desktop-59.md). This is a planning
+proposal, not implemented behavior or release authorization. The current CLI
+contract above remains in force until its versioned replacement is accepted.
+
+- Route cooperating agents into the actual open buffer, including unsaved and
+  inactive documents, using an explicit path or document ID. With established
+  absence of an app owner, reuse the guarded file service. Do not silently fall
+  back to disk when ownership is uncertain or the app is unresponsive.
+- Apply one validated batch as one undo step. Distinguish live application from
+  disk persistence and honor autosave. Keep existing external-conflict checks,
+  recovery and portable annotations; no automatic disk merge is proposed.
+- Propose operation-scoped guards: exact unique quoted targets for passage edits,
+  semantic thread revisions for replies/state changes, and whole-document
+  revisions for whole-body or legacy offset writes. Allow an additional global
+  guard for any batch. This explicitly amends the current mandatory whole-file
+  revision policy for the new API; it is not an interpretation of that policy.
+- Return compact receipts and focused reads. A silent one-shot wait returns a
+  relevant semantic event and exits, using a verified harness notification path
+  without model polling. Cursor gaps and uncertain writes require reconciliation.
+- Prove ownership, startup/open handoff and the local connection first, then add
+  the batch/thread/wait loop, then suggestions. The leading transport remains
+  provisional: a macOS Unix socket and Windows named pipe, with WSL invoking the
+  Windows CLI. Require native macOS, native Windows/CMD and Windows/WSL acceptance,
+  plus separate proof of each supported harness's wakeup behavior.
+
+No additional daemon, database or custom cryptographic protocol is proposed.
+Reader markers, richer change display and recovery-format changes remain deferred.
+
 No built-in accounts, cloud sync service, telemetry pipeline, model runtime, collaboration
 daemon, or embedded database is required for the first product. Release checks may contact
 GitHub at most daily and display a quiet, dismissible update link. Installing an update is
