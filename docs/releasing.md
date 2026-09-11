@@ -21,7 +21,9 @@ profile. The final macOS packaging step submits and staples both the inner app a
 the DMG with that profile. Create it with Apple's `notarytool store-credentials`
 on a release machine.
 
-On Windows, use native Windows Node 24 or newer and Windows PowerShell.
+On Windows, use native Windows Bun 1.4.0 or newer and Windows PowerShell. Follow
+the checkout synchronization and interactive launch instructions in [AGENTS.md](../AGENTS.md);
+an SSH connection to Scrappy starts in WSL and does not establish native Windows validation.
 The build is unsigned. Hutch produces a ZIP containing the setup executable;
 users must extract the ZIP before running Setup. The native runtime adapter is
 applied before packaging, so installed apps receive the same CPU fix as development
@@ -50,6 +52,10 @@ credentials, unreviewed screenshots, or development build directories.
 ## Validate before publishing
 
 - Run `bun run validate` on both native platforms.
+- Bundle `scripts/runtime-smoke.ts` and `scripts/benchmark-workspace.ts` with
+  `bun build --target=node --outfile=...`, then run each with the packaged
+  Cottontail executable. Check file/session operations, lazy folder enumeration
+  and watcher setup/teardown in the shipping runtime, as well as the native UI.
 - Install from the actual DMG and Windows setup ZIP. Verify launch, Open, Save As,
   undo/redo, comments, external-write conflicts, and update-menu behavior.
 - On both platforms, confirm Sideleaf is offered for `.md` files, make it the

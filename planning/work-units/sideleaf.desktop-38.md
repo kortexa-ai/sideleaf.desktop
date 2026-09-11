@@ -90,8 +90,9 @@ buffers without writing recovered content over an original automatically.
    registry of stable document sessions and an active ID. Preserve each editor
    state, undo/redo, comments, unfinished comment draft, cursor, scroll, saved
    baseline, dirty generation and conflict state. Share one mounted editor and
-   one preview. Never evict dirty buffers; bound clean-buffer retention and
-   verify memory use without reading all files in a vault.
+   one preview. Retain at most 64 open buffers; refuse another open with a clear
+   message until one is closed, preserving every buffer's history and edits.
+   Verify memory use without reading all files in a vault.
 2. **Make lifecycle and persistence work for every session.** Bind transfers,
    save results, dialogs, cancellation and disk checks to the originating
    document and workspace generation, not whichever document is now active.
