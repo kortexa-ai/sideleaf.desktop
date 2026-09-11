@@ -9,7 +9,7 @@ import { tags } from "@lezer/highlight";
 import { redo, undo, isolateHistory } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { commentField, commentHistory, setComments } from "./comments.ts";
-import { PREVIEW_LIMIT, renderMarkdown } from "./markdown.ts";
+import { PREVIEW_LIMIT, renderMarkdown, setHardBreaks } from "./markdown.ts";
 import { customShortcutAction, customShortcutLabel, layoutShortcutAction, layoutShortcutLabel } from "./shortcuts.ts";
 import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } from "./theme.ts";
 import { wordCountField } from "./word-count.ts";
@@ -21,12 +21,13 @@ import { APP_VERSION } from "../shared/version.ts";
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
 const wrapping = new Compartment();
-type Setting = "wrapLines" | "autoSave" | "keepScratch" | "minimalLayout";
+type Setting = "wrapLines" | "autoSave" | "keepScratch" | "minimalLayout" | "hardBreaks";
 const settingKeys: Record<Setting, string> = {
   wrapLines: "sideleaf.wrapLines",
   autoSave: "sideleaf.autoSave",
   keepScratch: "sideleaf.keepScratch",
   minimalLayout: "sideleaf.minimalLayout",
+  hardBreaks: "sideleaf.hardBreaks",
 };
 function readSetting(setting: Setting, fallback = true): boolean {
   try { const value = localStorage.getItem(settingKeys[setting]); return value === null ? fallback : value === "true"; }
@@ -37,6 +38,7 @@ const settings: Record<Setting, boolean> = {
   autoSave: readSetting("autoSave"),
   keepScratch: readSetting("keepScratch"),
   minimalLayout: readSetting("minimalLayout", false),
+  hardBreaks: readSetting("hardBreaks", false),
 };
 function writeSetting(setting: Setting, value: boolean) {
   settings[setting] = value;
@@ -376,17 +378,18 @@ function showSettings() {
 settingsToggle.onclick = () => { if (settingsPanel.hidden) showSettings(); else closeSettings(true); };
 settingsPanel.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeSettings(true); } });
 document.addEventListener("pointerdown", (event) => { if (!settingsContainer.contains(event.target as Node)) closeSettings(); });
-element("settings-close").onclick = () => closeSettings(true);
 document.querySelectorAll<HTMLButtonElement>("[data-theme-choice]").forEach((button) => {
   button.onclick = () => applyTheme(storedTheme(button.dataset.themeChoice ?? null));
 });
 applyMinimalLayout(settings.minimalLayout, false);
-for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave", "autoSave"], ["setting-keep-scratch", "keepScratch"], ["setting-minimal-layout", "minimalLayout"]] as const) {
+setHardBreaks(settings.hardBreaks);
+for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave", "autoSave"], ["setting-keep-scratch", "keepScratch"], ["setting-minimal-layout", "minimalLayout"], ["setting-breaks", "hardBreaks"]] as const) {
   const input = element<HTMLInputElement>(id); input.checked = settings[setting];
   input.onchange = () => {
     if (setting === "minimalLayout") { applyMinimalLayout(input.checked); return; }
     writeSetting(setting, input.checked);
     if (setting === "wrapLines") view.dispatch({ effects: wrapping.reconfigure(input.checked ? EditorView.lineWrapping : []) });
+    if (setting === "hardBreaks") { setHardBreaks(input.checked); previewDirty = true; updatePreview(); }
     if (setting === "keepScratch" && !input.checked) {
       lastScratchJSON = null;
       void rpc.request.clearScratch().catch((error) => notice((error as Error).message));

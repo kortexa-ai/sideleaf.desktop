@@ -22,7 +22,7 @@ test("scratch recovery round-trips Unicode text and comments privately", () => {
   };
   store.save(draft);
   assert.deepEqual(store.load(), draft);
-  assert.equal(DocumentFile.fromDraft(store.load()!).snapshot().notice, "Restored your untitled draft.");
+  assert.equal(DocumentFile.fromDraft(store.load()!).snapshot().notice, null);
   if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o600);
 });
 

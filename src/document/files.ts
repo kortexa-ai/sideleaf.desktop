@@ -146,7 +146,6 @@ export class DocumentFile {
     validateDraft(draft);
     const file = new DocumentFile();
     file.draft = structuredClone(draft);
-    file.notice = "Restored your untitled draft.";
     return file;
   }
 
