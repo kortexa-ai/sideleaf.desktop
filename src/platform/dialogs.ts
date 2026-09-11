@@ -1,9 +1,8 @@
 import { dirname, join } from "node:path";
 import * as Utils from "electrobun/main/utils";
 import { RESOURCES_FOLDER } from "electrobun/main/paths";
-import type { DocumentSnapshot } from "../shared/contracts.ts";
 
-export async function chooseSavePath(document: DocumentSnapshot): Promise<string | null> {
+export async function chooseSavePath(document: { name: string; path: string | null }): Promise<string | null> {
   const folder = document.path ? dirname(document.path) : Utils.paths.documents;
   if (process.platform === "darwin") {
     const { dlopen, FFIType, CString } = await import("bun:ffi");

@@ -126,7 +126,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         if (payload.saveAs || !document.path) {
           if (dialogOpen) throw new Error("A file dialog is already open.");
           dialogOpen = true;
-          try { target = (await chooseSavePath(document.snapshot())) ?? undefined; }
+          try { target = (await chooseSavePath(document)) ?? undefined; }
           finally { dialogOpen = false; }
           if (!target) return null;
         }
@@ -150,7 +150,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       },
       reload: ({ id }) => { checkId(id); const result = document.reload(); saveTransfer.clear(); dirty = false; updateTitle(); return result; },
       confirmDiscard: async () => {
-        const { response } = await Utils.showMessageBox({ type: "question", title: "Unsaved changes", message: `Save changes to ${document.snapshot().name}?`, detail: "Your text and comments have not been saved.", buttons: ["Save", "Cancel", "Discard Changes"], defaultId: 0, cancelId: 1 });
+        const { response } = await Utils.showMessageBox({ type: "question", title: "Unsaved changes", message: `Save changes to ${document.name}?`, detail: "Your text and comments have not been saved.", buttons: ["Save", "Cancel", "Discard Changes"], defaultId: 0, cancelId: 1 });
         return response === 0 ? "save" : response === 2 ? "discard" : "cancel";
       },
       openLink: ({ url }) => {
@@ -202,7 +202,7 @@ appWindow = new BrowserWindow({
 });
 windowsChrome = configureWindowsChrome?.(appWindow);
 
-function updateTitle() { appWindow.setTitle(`${dirty ? "● " : ""}${document.snapshot().name} — Sideleaf`); }
+function updateTitle() { appWindow.setTitle(`${dirty ? "● " : ""}${document.name} — Sideleaf`); }
 updateTitle();
 let cliInstallationOpen = false;
 async function installCLI(wsl = false): Promise<boolean> {

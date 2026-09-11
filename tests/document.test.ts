@@ -162,6 +162,25 @@ test("invalid UTF-8, NUL and mixed line endings are explicit unsupported formats
   assert.throws(() => decodeMarkdown(Uint8Array.of(0xff, 0xfe)), /not valid UTF-8/);
   assert.throws(() => decodeMarkdown(Buffer.from("a\u0000b")), /NUL/);
   assert.throws(() => decodeMarkdown(Buffer.from("a\r\nb\n")), /Mixed/);
+  assert.throws(() => decodeMarkdown(Buffer.from("a\rb")), /Mixed/);
+  assert.throws(() => decodeMarkdown(Buffer.from("a\r\r\nb")), /Mixed/);
+  assert.throws(() => decodeMarkdown(Buffer.from("a\r")), /Mixed/);
+});
+
+test("decodeMarkdown classifies pure CRLF and LF content in one pass", () => {
+  assert.deepEqual(decodeMarkdown(Buffer.from("a\r\nb\r\nc")), { text: "a\nb\nc", bom: false, lineEnding: "\r\n" });
+  assert.deepEqual(decodeMarkdown(Buffer.from("a\nb\nc")), { text: "a\nb\nc", bom: false, lineEnding: "\n" });
+  assert.deepEqual(decodeMarkdown(Buffer.from("abc")), { text: "abc", bom: false, lineEnding: "\n" });
+});
+
+test("the name accessor matches snapshot metadata for untitled and saved documents", () => {
+  const untitled = DocumentFile.fromDraft({ text: "Hello\n", comments: [] });
+  assert.equal(untitled.name, "Untitled.md");
+  assert.equal(untitled.snapshot().name, "Untitled.md");
+  const { path } = fixture(); writeFileSync(path, "Hello\n");
+  const file = DocumentFile.open(path);
+  assert.equal(file.name, "notes.md");
+  assert.equal(file.snapshot().name, "notes.md");
 });
 
 test("external relocation requires unambiguous quotation and context", () => {

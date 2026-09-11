@@ -73,11 +73,15 @@ export function decodeMarkdown(bytes: Uint8Array): { text: string; bom: boolean;
   try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bom ? bytes.subarray(3) : bytes); }
   catch { throw new Error("This file is not valid UTF-8. Convert a copy to UTF-8 before opening it in Sideleaf."); }
   if (text.includes("\u0000")) throw new Error("This file contains NUL characters and is not supported as Markdown.");
-  const withoutCRLF = text.replaceAll("\r\n", "");
-  if (withoutCRLF.includes("\r") || (text.includes("\r\n") && withoutCRLF.includes("\n"))) {
-    throw new Error("Mixed or classic Mac line endings are not supported yet. Sideleaf has left the file unchanged.");
+  // One scan classifies every line ending; only CRLF content allocates a
+  // second copy, and that copy is the normalized text returned to the caller.
+  let hasCRLF = false, loneCR = false, loneLF = false;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 13) { if (text.charCodeAt(i + 1) === 10) { hasCRLF = true; i++; } else loneCR = true; }
+    else if (text.charCodeAt(i) === 10) loneLF = true;
   }
-  return { text: text.replaceAll("\r\n", "\n"), bom, lineEnding: text.includes("\r\n") ? "\r\n" : "\n" };
+  if (loneCR || (hasCRLF && loneLF)) throw new Error("Mixed or classic Mac line endings are not supported yet. Sideleaf has left the file unchanged.");
+  return { text: hasCRLF ? text.replaceAll("\r\n", "\n") : text, bom, lineEnding: hasCRLF ? "\r\n" : "\n" };
 }
 
 // The temporary file stays beside its target, so rename is atomic on a local
@@ -124,9 +128,11 @@ export class DocumentFile {
 
   revision(): string { return this.disk ? hash(this.disk.signature) : hash(""); }
   history(): CommentRevision[] { return structuredClone(this.revisions); }
+  // Cheap metadata for titles and dialogs; snapshot() still clones the draft.
+  get name(): string { return this.path ? basename(this.path) : "Untitled.md"; }
 
   snapshot(): DocumentSnapshot {
-    return { ...structuredClone(this.draft), id: this.id, path: this.path, name: this.path ? basename(this.path) : "Untitled.md", lineEnding: this.lineEnding, notice: this.notice };
+    return { ...structuredClone(this.draft), id: this.id, path: this.path, name: this.name, lineEnding: this.lineEnding, notice: this.notice };
   }
 
   static open(path: string): DocumentFile {

@@ -54,6 +54,9 @@ let pendingGeneration = 0;
 let generation = 0;
 let previewDirty = true;
 let lastScratchJSON: string | null = null;
+// The generation at which lastScratchJSON was written, so idle autosave ticks
+// skip serializing an unchanged draft instead of stringifying it to compare.
+let lastScratchGeneration = -1;
 let pendingExternalOpen = false;
 let distractionFree = false;
 let distractionFreeTransition = false;
@@ -472,7 +475,7 @@ function applyDocument(snapshot: DocumentSnapshot, recovered = false) {
   savedDoc = recovered ? EditorState.create({ doc: "" }).doc : view.state.doc;
   savedComments = recovered ? "[]" : commentsJSON();
   lastScratchJSON = recovered ? JSON.stringify(draft()) : null;
-  dirty = false; generation++;
+  dirty = false; generation++; lastScratchGeneration = generation;
   pendingAnchor = null; element("comment-form").hidden = true; element("conflict").hidden = true;
   previewDirty = true;
   refreshDocumentName(); updateDirty(); updateWordCount(); updatePreview(); renderComments(); updateSelection();
@@ -552,13 +555,16 @@ async function save(saveAs = false): Promise<boolean> {
 }
 async function persistScratch(): Promise<void> {
   if (current.path || !settings.keepScratch) return;
+  if (generation === lastScratchGeneration) return;
   const serialized = JSON.stringify(draft());
-  if (serialized === lastScratchJSON) return;
+  if (serialized === lastScratchJSON) { lastScratchGeneration = generation; return; }
   await stageDraft((transferId) => rpc.request.saveScratch({ id: current.id, transferId }));
   lastScratchJSON = serialized;
+  lastScratchGeneration = generation;
 }
 async function clearScratch(): Promise<void> {
   lastScratchJSON = null;
+  lastScratchGeneration = generation;
   await rpc.request.clearScratch();
 }
 function hasCommentDraft(): boolean {
@@ -657,9 +663,10 @@ function beginComment() {
   }
   const selection = view.state.selection.main;
   try {
-    const { from, to } = commentRange(view.state.doc.toString(), selection.from, selection.to);
+    const text = view.state.doc.toString();
+    const { from, to } = commentRange(text, selection.from, selection.to);
     if (selection.empty) view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
-    pendingAnchor = makeAnchor(view.state.doc.toString(), from, to);
+    pendingAnchor = makeAnchor(text, from, to);
   }
   catch (error) { notice((error as Error).message); return; }
   pendingGeneration = generation;
