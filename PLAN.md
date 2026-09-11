@@ -139,6 +139,32 @@ and add features because daily use needs them.
 - Add tabs, multiple windows, a file tree, recent workspaces, and session restoration
   after the single-document path is reliable. Index folders lazily; do not preload every file.
 
+### Folder navigation
+
+- Open a folder as a lightweight Markdown workspace with a collapsible left file
+  tree rooted at that folder. Nested folders are available through expansion;
+  list them lazily and load document contents only when a file is opened.
+- An explicit Open Folder starts with the sidebar visible. Opening a single file
+  starts with it hidden; showing it uses that file's containing folder as the
+  root. Navigating inside a folder does not move the root or reset visibility.
+- Toggle the sidebar with Command-Shift-F on macOS or Control-Alt-F on Windows.
+  Use a folder icon without text: immediately before Comments in Minimal layout,
+  and between Write/Split/Read and Comments in full layout. Disable the button
+  for a new untitled file; the case of New inside an existing workspace needs
+  the clarification recorded in the work-unit plan.
+- Hiding the sidebar does not close the folder or discard document buffers.
+  Switching files preserves unsaved text, comments, undo history and position.
+  Closing a document, replacing/closing a workspace, and quitting must account
+  for every affected dirty document and pending comment.
+- Browse existing folders in the first pass. Folder creation is deferred to
+  [desktop #54](https://github.com/kortexa-ai/sideleaf.desktop/issues/54).
+  Obsidian-specific configuration, plugins, wikilinks and graph behavior remain
+  outside this folder-navigation feature.
+
+The implementation sequence, proposed edge-case defaults and validation matrix
+are in [the #38 work-unit plan](planning/work-units/sideleaf.desktop-38.md).
+These additions define planned product behavior, not a claim of implementation.
+
 ### Comments and review
 
 - Anchor a comment to an explicit selection; show the relevant text and comment clearly.
