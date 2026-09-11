@@ -4,6 +4,7 @@ import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, re
 import { basename, dirname, join, resolve } from "node:path";
 import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
 import { relocateComment } from "./anchors.ts";
+import { isPlainText } from "../shared/document-type.ts";
 
 import { hash, parseMetadata, splitMetadata, embedMetadata, type Metadata, type CommentRevision } from "./metadata.ts";
 type DiskState = { bytes: Buffer; metadata: Buffer | null; mode: number; signature: string; statKey: string };
@@ -125,11 +126,12 @@ export class DocumentFile {
   private draft: Draft = { text: "", comments: [] };
   private notice: string | null = null;
   private revisions: CommentRevision[] = [];
+  private untitledName = "Untitled.md";
 
   revision(): string { return this.disk ? hash(this.disk.signature) : hash(""); }
   history(): CommentRevision[] { return structuredClone(this.revisions); }
   // Cheap metadata for titles and dialogs; snapshot() still clones the draft.
-  get name(): string { return this.path ? basename(this.path) : "Untitled.md"; }
+  get name(): string { return this.path ? basename(this.path) : this.untitledName; }
 
   snapshot(): DocumentSnapshot {
     return { ...structuredClone(this.draft), id: this.id, path: this.path, name: this.name, lineEnding: this.lineEnding, notice: this.notice };
@@ -142,10 +144,11 @@ export class DocumentFile {
     return file;
   }
 
-  static fromDraft(draft: Draft): DocumentFile {
+  static fromDraft(draft: Draft, originalPath: string | null = null): DocumentFile {
     validateDraft(draft);
     const file = new DocumentFile();
     file.draft = structuredClone(draft);
+    file.untitledName = isPlainText(originalPath) ? "Untitled.txt" : "Untitled.md";
     return file;
   }
 
@@ -155,7 +158,7 @@ export class DocumentFile {
     const embedded = splitMetadata(decoded.text);
     decoded.text = embedded.text;
     const sourceBytes = Buffer.from(`${decoded.bom ? "\uFEFF" : ""}${decoded.text.replaceAll("\n", decoded.lineEnding)}`);
-    if (sourceBytes.length > MAX_DOCUMENT_BYTES) throw new Error("Markdown source exceeds 10 MiB.");
+    if (sourceBytes.length > MAX_DOCUMENT_BYTES) throw new Error("Document source exceeds 10 MiB.");
     const legacy = parseMetadata(disk.metadata, true);
     if (embedded.metadata && disk.metadata && legacy.revisions.some((r) => !embedded.metadata!.revisions.some((e) => JSON.stringify(e) === JSON.stringify(r)))) {
       throw new Error("Embedded metadata and the legacy sidecar disagree. Preserve both and reconcile them before saving.");
@@ -267,7 +270,7 @@ export class DocumentFile {
       if (!samePath && previousDisk && (previousDisk.metadata || splitMetadata(decodeMarkdown(previousDisk.bytes).text).metadata)) throw new Error("That destination already has Sideleaf comments. Choose a new filename.");
       const encode = (text: string) => Buffer.from(`${this.bom ? "\uFEFF" : ""}${text.replaceAll("\n", this.lineEnding)}`, "utf8");
       const source = encode(draft.text);
-      if (source.length > MAX_DOCUMENT_BYTES) throw new Error("Markdown source exceeds 10 MiB.");
+      if (source.length > MAX_DOCUMENT_BYTES) throw new Error("Document source exceeds 10 MiB.");
       // Reserve the block even on plain saves; never silently hide user content.
       if (splitMetadata(draft.text).metadata) throw new Error("Source contains reserved Sideleaf metadata.");
       const sourceHash = hash(source);

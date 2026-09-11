@@ -5,25 +5,27 @@ import { pathToFileURL } from "node:url";
 import config from "../electrobun.config.ts";
 import { MARKDOWN_EXTENSIONS, isMarkdownPath, pathFromFileActivation, pathFromLaunch } from "../src/platform/file-open.ts";
 
-test("macOS advertises the Markdown formats Sideleaf can edit", () => {
+test("macOS advertises Markdown and plain-text documents", () => {
   assert.deepEqual(config.app.fileAssociations, [{
     ext: [...MARKDOWN_EXTENSIONS],
     name: "Markdown document",
     role: "Editor",
-  }]);
+  }, { ext: ["txt"], name: "Text document", role: "Editor" }]);
   const postBuild = readFileSync(new URL("../scripts/post-build.ts", import.meta.url), "utf8");
   assert.match(postBuild, /"UTExportedTypeDeclarations", "UTImportedTypeDeclarations"/);
   assert.match(postBuild, /LSItemContentTypes:0 string net\.daringfireball\.markdown/);
+  assert.match(postBuild, /CFBundleDocumentTypes:1:LSItemContentTypes:0 string public\.plain-text/);
   assert.match(postBuild, /UTImportedTypeDeclarations:0:UTTypeConformsTo:0 string public\.plain-text/);
   const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
   assert.match(main, /^import \{ pathFromLaunch, setFileActivationReceiver, takeInitialFileActivation \} from "\.\/platform\/file-open\.ts";/);
 });
 
-test("file activation accepts local Markdown URLs and preserves their path", () => {
+test("file activation accepts local Markdown and text URLs and preserves their path", () => {
   const path = process.platform === "win32" ? "C:\\Notes\\leaf café.md" : "/Users/writer/leaf café.md";
   assert.equal(pathFromFileActivation(pathToFileURL(path).href), path);
   assert.equal(pathFromFileActivation("https://sideleaf.xyz/notes.md"), null);
-  assert.equal(pathFromFileActivation(pathToFileURL(`${path}.txt`).href), null);
+  assert.equal(pathFromFileActivation(pathToFileURL(`${path}.TXT`).href), `${path}.TXT`);
+  assert.equal(pathFromFileActivation(pathToFileURL(`${path}.pdf`).href), null);
   assert.equal(isMarkdownPath("DRAFT.MARKDOWN"), true);
 });
 
@@ -39,6 +41,8 @@ test("Windows installer registers Sideleaf as a per-user Markdown editor", () =>
   assert.match(installer, /ChangesAssociations=yes/);
   assert.match(installer, /Software\\Classes\\Applications\\launcher\.exe.*ValueName: "FriendlyAppName".*ValueData: "Sideleaf"/);
   assert.match(installer, /Capabilities\\FileAssociations.*ValueName: "\.md".*Sideleaf\.Markdown/);
+  assert.match(installer, /Capabilities\\FileAssociations.*ValueName: "\.txt".*Sideleaf\.Text/);
+  assert.match(installer, /Software\\Classes\\\.txt\\OpenWithProgids.*ValueName: "Sideleaf\.Text"/);
   assert.match(installer, /Software\\Classes\\\.md\\OpenWithProgids.*ValueType: string.*ValueName: "Sideleaf\.Markdown".*ValueData: ""/);
   assert.match(installer, /launcher\.exe"" --sideleaf-open ""%1/);
   const launcher = readFileSync(new URL("../src/platform/windows-launcher.c", import.meta.url), "utf8");

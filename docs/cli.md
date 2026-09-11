@@ -27,7 +27,7 @@ legacy Windows code pages cannot corrupt text.
 ## Install the agent skill
 
 The bundled Sideleaf skill tells supported agents how to use the local CLI for
-revision-safe Markdown edits and comments. It is self-contained and does not use
+revision-safe Markdown and plain-text edits and comments. It is self-contained and does not use
 the network.
 
 ```sh
@@ -113,7 +113,7 @@ the folder load only when selected in the desktop tree. CLI single-instance
 delivery remains separate work; these commands currently launch a new instance.
 
 The installed desktop app also registers `md`, `markdown`, and `mdown` as
-editable Markdown document types. Finder's Open With menu and Windows Default
+editable Markdown document types, and `txt` as plain text. Finder's Open With menu and Windows Default
 Apps can therefore select Sideleaf, while the final default remains the user's
 choice. OS-opened documents use the same unsaved-change confirmation as the
 app's Open command.

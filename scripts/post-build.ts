@@ -56,9 +56,12 @@ if (process.platform === "darwin") {
       try { execFileSync(buddy, ["-c", `Delete :${key}`, plist], { stdio: "ignore" }); } catch { /* Optional generated key. */ }
     }
     execFileSync(buddy, ["-c", "Delete :CFBundleDocumentTypes:0:LSItemContentTypes", plist]);
+    execFileSync(buddy, ["-c", "Delete :CFBundleDocumentTypes:1:LSItemContentTypes", plist]);
     for (const command of [
       "Add :CFBundleDocumentTypes:0:LSItemContentTypes array",
       "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string net.daringfireball.markdown",
+      "Add :CFBundleDocumentTypes:1:LSItemContentTypes array",
+      "Add :CFBundleDocumentTypes:1:LSItemContentTypes:0 string public.plain-text",
       "Add :UTImportedTypeDeclarations array",
       "Add :UTImportedTypeDeclarations:0 dict",
       "Add :UTImportedTypeDeclarations:0:UTTypeIdentifier string net.daringfireball.markdown",

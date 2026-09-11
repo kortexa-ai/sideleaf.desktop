@@ -2,7 +2,7 @@
 
 ## Direction
 
-Build a small, fast, portable Markdown editor that owns its future. The name is
+Build a small, fast, portable Markdown and plain-text editor that owns its future. The name is
 **Sideleaf**, the domain is **sideleaf.xyz**, and the intended command is `sideleaf`.
 The domain has been purchased. Keep the public desktop project and private website in separate
 repositories under `kortexa-ai`:
@@ -42,7 +42,7 @@ deliberately. Do not pursue feature parity merely because a prototype exists.
 | Markdown viewer | A mature JS parser and HTML renderer | Prefer a small dependency such as markdown-it or a suitable unified/remark pipeline after a short spike |
 | Native drawing | No Warren requirement | Its rendering layer is not needed for the first editor/viewer |
 | Browser distribution | No bundled Chromium/CEF initially | Test system engines first; revisit only for a demonstrated platform blocker |
-| Persistence | Ordinary local Markdown files | No account, hosted database, or daemon required to open and edit documents |
+| Persistence | Ordinary local Markdown and text files | No account, hosted database, or daemon required to open and edit documents |
 | Source | Independent implementation | Keep product and document boundaries owned by Sideleaf |
 
 Pin an exact tested Electrobun/Cottontail toolchain during the first implementation
@@ -138,6 +138,27 @@ and add features because daily use needs them.
 - Offer source and reader views, with predictable focus, scroll, and selection mapping.
 - Add tabs, multiple windows, a file tree, recent workspaces, and session restoration
   after the single-document path is reliable. Index folders lazily; do not preload every file.
+
+### Plain-text documents
+
+- Treat `.txt` filenames case-insensitively as plain text. New documents start
+  as Markdown; Save As and Rename change type only after success. No content
+  guessing, separate format setting, or new editor is needed.
+- Plain text uses Write mode. Hide the Write/Split/Read controls in the full
+  header and Minimal File menu, and keep every view shortcut and comment action
+  in Write. Preserve the Markdown view choice when switching between types.
+- Omit Markdown syntax highlighting, formatting shortcuts, list continuation
+  and preview settings for text documents. Keep normal editing, find, wrapping,
+  zoom, spellchecking, folder buffers, autosave and conflict handling.
+- Keep comments and their existing embedded metadata, anchors and history in
+  text files. Unannotated files remain plain. Recovery copies retain their
+  effective document type without overwriting an original file automatically.
+- Offer Sideleaf as a `.txt` editor in macOS and Windows alongside the Markdown
+  associations. Native Save As supports either extension. Preserve the existing
+  UTF-8/BOM and LF/CRLF rules; defer other encodings and an encoding selector.
+
+The implementation and acceptance boundaries are in
+[the #57 work-unit plan](planning/work-units/sideleaf.desktop-57.md).
 
 ### Folder navigation
 

@@ -48,6 +48,7 @@ Root: HKCU; Subkey: "Software\Kortexa AI\Sideleaf\Capabilities"; ValueType: stri
 Root: HKCU; Subkey: "Software\Kortexa AI\Sideleaf\Capabilities\FileAssociations"; ValueType: string; ValueName: ".md"; ValueData: "Sideleaf.Markdown"
 Root: HKCU; Subkey: "Software\Kortexa AI\Sideleaf\Capabilities\FileAssociations"; ValueType: string; ValueName: ".markdown"; ValueData: "Sideleaf.Markdown"
 Root: HKCU; Subkey: "Software\Kortexa AI\Sideleaf\Capabilities\FileAssociations"; ValueType: string; ValueName: ".mdown"; ValueData: "Sideleaf.Markdown"
+Root: HKCU; Subkey: "Software\Kortexa AI\Sideleaf\Capabilities\FileAssociations"; ValueType: string; ValueName: ".txt"; ValueData: "Sideleaf.Text"
 Root: HKCU; Subkey: "Software\Classes\Sideleaf.Markdown"; ValueType: string; ValueData: "Markdown document"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\Sideleaf.Markdown"; ValueType: string; ValueName: "FriendlyTypeName"; ValueData: "Markdown document"
 Root: HKCU; Subkey: "Software\Classes\Sideleaf.Markdown\DefaultIcon"; ValueType: string; ValueData: "{app}\bin\launcher.exe,0"
@@ -55,6 +56,11 @@ Root: HKCU; Subkey: "Software\Classes\Sideleaf.Markdown\shell\open\command"; Val
 Root: HKCU; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "Sideleaf.Markdown"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "Sideleaf.Markdown"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\.mdown\OpenWithProgids"; ValueType: string; ValueName: "Sideleaf.Markdown"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\Sideleaf.Text"; ValueType: string; ValueData: "Text document"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Sideleaf.Text"; ValueType: string; ValueName: "FriendlyTypeName"; ValueData: "Text document"
+Root: HKCU; Subkey: "Software\Classes\Sideleaf.Text\DefaultIcon"; ValueType: string; ValueData: "{app}\bin\launcher.exe,0"
+Root: HKCU; Subkey: "Software\Classes\Sideleaf.Text\shell\open\command"; ValueType: string; ValueData: """{app}\bin\launcher.exe"" --sideleaf-open ""%1"""
+Root: HKCU; Subkey: "Software\Classes\.txt\OpenWithProgids"; ValueType: string; ValueName: "Sideleaf.Text"; ValueData: ""; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\Resources\app\cli\install-cli.ps1"" -AppBin ""{app}\bin"""; Flags: runhidden waituntilterminated; Tasks: cli; StatusMsg: "Installing the sideleaf command…"

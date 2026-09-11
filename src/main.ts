@@ -69,7 +69,7 @@ function mutateWorkspace<T>(operation: () => T): T {
 setFileActivationReceiver((path) => {
   if (!initialDelivered) {
     try { workspace.open(path); hasInitialPath = true; }
-    catch (error) { recoveryError = `Sideleaf could not open the selected Markdown file: ${(error as Error).message}`; diagnostic("file-activation-failed", (error as Error).message); }
+    catch (error) { recoveryError = `Sideleaf could not open the selected file: ${(error as Error).message}`; diagnostic("file-activation-failed", (error as Error).message); }
     return;
   }
   pendingOpenPath = path;
@@ -93,7 +93,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
             for (const record of loaded.records) {
               // Restored text is an untitled copy: it can never autosave over
               // a newer original. Retain the source path/revision for context.
-              const file = DocumentFile.fromDraft(record.draft);
+              const file = DocumentFile.fromDraft(record.draft, record.originalPath);
               workspace.add(file).recoveredFrom = { path: record.originalPath, revision: record.revision };
               recovered.push({ document: file.snapshot(), originalPath: record.originalPath, revision: record.revision, pending: record.pending });
               recovery.save({ ...record, id: file.id });
@@ -235,6 +235,12 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         rendererReady = true;
         diagnostic("sideleaf-ready", userAgent);
         diagnostic("windows-identity", String(configureWindowsIdentity()));
+        // Reapply after the document is ready: the constructor flag alone can
+        // leave native WKWebView spelling disabled during initial navigation.
+        if (process.platform === "darwin") {
+          try { diagnostic("mac-spellcheck", String(appWindow.setSpellCheck(true))); }
+          catch (error) { diagnostic("mac-spellcheck", (error as Error).message); }
+        }
         if (pendingOpenPath) rpc.send.command("openExternal");
         if (!updateChecksStarted) {
           updateChecksStarted = true;

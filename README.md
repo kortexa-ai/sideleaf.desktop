@@ -1,21 +1,30 @@
 # Sideleaf
 
-A small desktop Markdown editor for your words and your files.
+A small desktop Markdown and plain-text editor for your words and your files.
 
 Sideleaf uses Electrobun, Cottontail, CodeMirror 6, and the operating system's webview.
 It is an independent implementation with its own product and document boundaries.
 
-Sideleaf 0.1 supports Markdown files and folders, native Open and Save As,
+Sideleaf 0.1 supports Markdown and text files and folders, native Open and Save As,
 literal source editing, live preview, find/replace, and anchored comments with undo.
-Comments and retained revision metadata are embedded in the Markdown file; copy the
-`.md` file to carry them with your writing. Existing comment sidecars migrate on save.
+Comments and retained revision metadata are embedded in the document; copy the
+`.md` or `.txt` file to carry them with your writing. Existing comment sidecars migrate on save.
 The [agent CLI](docs/cli.md) reads and edits documents/comments without a running GUI.
 Install it from the Sideleaf menu (or Windows Setup); it uses the bundled Cottontail
 runtime and needs no separate Node, Bun, or npm installation.
 `sideleaf skills install` adds a small self-contained skill that teaches supported
 agents the safe read, edit, and comment workflow.
-Sideleaf registers as a Markdown editor with both operating systems, offers a
+Sideleaf registers as a Markdown and text editor with both operating systems, offers a
 distraction-free full-screen workspace, and scales editor and preview text together.
+
+## Plain text
+
+Open a `.txt` file to write plain text, with comments, find, autosave and undo.
+Markdown highlighting, formatting shortcuts and preview controls are hidden or
+disabled for that file. New documents start as Markdown; saving or renaming to
+`.txt` switches to text, and `.md` switches back. Switching files preserves your
+Markdown view choice. Text files use the same UTF-8 and line-ending support and
+embedded comment metadata as Markdown files.
 
 ## Files and folders
 
@@ -39,7 +48,7 @@ not follow links or junctions. Open a linked target directly when needed.
 
 ## Download
 
-Get [Sideleaf 0.1.5](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.5)
+Get [Sideleaf 0.1.7](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.7)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
 the ZIP, then run the setup executable.

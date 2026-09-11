@@ -122,3 +122,17 @@ Preview rendering is debounced and limited to 200,000 characters; the complete f
 up to 10 MiB remains editable and savable. No product speed or memory claim follows
 from package size. Performance evidence must name the OS, runtime, fixture, app and
 webview processes, and whether it is a cold or warm launch.
+
+## Plain-text editing
+
+Files ending in `.txt` (case-insensitive) use plain CodeMirror editing in Write
+mode, with the Markdown view controls and Single line breaks setting hidden.
+New starts as Markdown. Save As and Rename apply the destination type only on
+success and preserve editor history; cancelled or failed operations keep the
+existing type. Comments and their embedded metadata remain available in text
+files. Recovery copies of text files remain untitled text documents. The Mac
+app and Windows installer advertise `.txt` in Open With and Default Apps.
+
+macOS enables native spelling again when the renderer reports ready, because
+the constructor flag alone can leave spelling disabled during startup. Spelling
+marks use the operating system dictionary and do not enable autocorrection.

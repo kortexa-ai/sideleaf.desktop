@@ -7,7 +7,10 @@ export default {
     identifier: "ai.kortexa.sideleaf",
     version: APP_VERSION,
     description: "A Markdown editor for your words and your files.",
-    fileAssociations: [{ ext: ["md", "markdown", "mdown"], name: "Markdown document", role: "Editor" }],
+    fileAssociations: [
+      { ext: ["md", "markdown", "mdown"], name: "Markdown document", role: "Editor" },
+      { ext: ["txt"], name: "Text document", role: "Editor" },
+    ],
   },
   scripts: { postBuild: "scripts/post-build.ts", postWrap: "scripts/post-build.ts" },
   build: {

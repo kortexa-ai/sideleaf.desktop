@@ -15,7 +15,7 @@ export async function chooseSavePath(document: { name: string; path: string | nu
     try { return new CString(pointer).toString(); }
     finally { library.symbols.sideleaf_free_string(pointer); }
   }
-  const windowsPicker = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.SaveFileDialog; $dialog.Title = 'Save Markdown'; $dialog.FileName = $env:SIDELEAF_DIALOG_NAME; $dialog.InitialDirectory = $env:SIDELEAF_DIALOG_FOLDER; $dialog.Filter = 'Markdown (*.md)|*.md|All files (*.*)|*.*'; $dialog.DefaultExt = 'md'; $dialog.AddExtension = $true; if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.FileName) }; $dialog.Dispose()`;
+  const windowsPicker = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.SaveFileDialog; $dialog.Title = 'Save Document'; $dialog.FileName = $env:SIDELEAF_DIALOG_NAME; $dialog.InitialDirectory = $env:SIDELEAF_DIALOG_FOLDER; $dialog.Filter = 'Markdown (*.md;*.markdown;*.mdown)|*.md;*.markdown;*.mdown|Text (*.txt)|*.txt|All files (*.*)|*.*'; $dialog.FilterIndex = if ([System.IO.Path]::GetExtension($dialog.FileName) -ieq '.txt') { 2 } else { 1 }; $dialog.DefaultExt = ''; $dialog.AddExtension = $true; if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.FileName) }; $dialog.Dispose()`;
   if (process.platform !== "win32") throw new Error("Native Save dialogs are currently supported on macOS and Windows.");
   const { spawn } = await import("node:child_process");
   const helper = "powershell.exe";

@@ -8,7 +8,7 @@ public func sideleafSaveDialog(_ name: UnsafePointer<CChar>, _ folder: UnsafePoi
     let directory = String(cString: folder)
     let show = { () -> String? in
         let panel = NSSavePanel()
-        panel.title = "Save Markdown"
+        panel.title = "Save Document"
         panel.nameFieldStringValue = filename
         panel.directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
         panel.canCreateDirectories = true

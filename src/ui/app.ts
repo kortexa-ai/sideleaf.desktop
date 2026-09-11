@@ -2,8 +2,7 @@ import "./bootstrap.ts";
 import { Electroview } from "electrobun/view";
 import { basicSetup } from "codemirror";
 import { Compartment, EditorState, type Text } from "@codemirror/state";
-import { EditorView, keymap, placeholder } from "@codemirror/view";
-import { markdown } from "@codemirror/lang-markdown";
+import { EditorView, keymap } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { redo, undo, isolateHistory } from "@codemirror/commands";
@@ -19,6 +18,8 @@ import { SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata
 import { EditorBuffer } from "./workspace.ts";
 import { FolderTree } from "./folder-tree.ts";
 import { APP_VERSION } from "../shared/version.ts";
+import { documentViewMode, isPlainText, type ViewMode } from "../shared/document-type.ts";
+import { documentExtensions, documentMode } from "./document-mode.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
@@ -52,6 +53,7 @@ let folderVisible = false;
 let pendingQuit = false;
 let recoveryRunning = false;
 let current: DocumentMetadata;
+let markdownMode: ViewMode = "split";
 let savedDoc: Text;
 let savedComments = "[]";
 let dirty = false;
@@ -310,7 +312,7 @@ const minimalActionsMenu = element("minimal-actions-menu");
 const minimalCommentsContainer = element("minimal-comments-container");
 const minimalCommentsSlot = element("minimal-comments-slot");
 const minimalDocumentSlot = element("minimal-document-slot");
-const minimalMenuItems = () => [...minimalActionsMenu.querySelectorAll<HTMLButtonElement>("button[role=menuitem], button[role=menuitemradio]")];
+const minimalMenuItems = () => [...minimalActionsMenu.querySelectorAll<HTMLButtonElement>("button[role=menuitem], button[role=menuitemradio]")].filter((button) => !button.closest("[hidden]"));
 
 function closeDocumentActions(restoreFocus = false) {
   minimalActionsMenu.hidden = true;
@@ -494,7 +496,7 @@ async function fileAction(target: { key: string } | { id: string }, action: "ren
     if (name === null) return;
     const metadata = await rpc.request.renameDocument({ id: buffer.metadata.id, name });
     buffer.metadata = metadata; current = metadata; lastScratchGeneration = -1; lastScratchJSON = null; buffer.recoveryGeneration = -1; buffer.recoveryJSON = null;
-    refreshDocumentName(); updateDirty(); void folderTree.refresh();
+    applyDocumentType(); refreshDocumentName(); updateDirty(); void folderTree.refresh();
   });
 }
 const zoomSlider = element<HTMLInputElement>("zoom-slider");
@@ -504,14 +506,12 @@ element("zoom-reset").onclick = () => applyZoom(DEFAULT_ZOOM);
 applyZoom(documentZoom, false);
 rpc.send.diagnostic({ event: "editor-created", message: "CodeMirror initialized" });
 
-function createEditorState(text: string, comments: Draft["comments"] = []) {
+function createEditorState(text: string, comments: Draft["comments"] = [], name = "Untitled.md") {
   return EditorState.create({
     doc: text,
     extensions: [
-      basicSetup, markdown(), syntaxHighlighting(sideleafHighlight), commentField.init(() => comments), commentHistory, wordCountField,
+      basicSetup, documentMode.of(documentExtensions(name)), syntaxHighlighting(sideleafHighlight), commentField.init(() => comments), commentHistory, wordCountField,
       readonly.of(EditorState.readOnly.of(false)), wrapping.of(settings.wrapLines ? EditorView.lineWrapping : []),
-      placeholder("# A fresh page\n\nStart writing, or open a Markdown file."),
-      EditorView.contentAttributes.of({ "aria-label": "Markdown editor", spellcheck: "true", autocapitalize: "off", autocorrect: "off" }),
       keymap.of([{ key: "Mod-b", run: () => formatSelection("**") }, { key: "Mod-i", run: () => formatSelection("*") }]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged || update.transactions.some((t) => t.effects.some((e) => e.is(setComments)))) {
@@ -588,6 +588,7 @@ function activateBuffer(buffer: EditorBuffer, capture = true) {
   if (buffer.error || current.notice) notice(buffer.error ?? current.notice!);
   element("workspace").dataset.empty = "false";
   dirty = buffer.dirty; previewDirty = true;
+  applyDocumentType();
   refreshDocumentName(); updateDirty(true); updateWordCount(); updatePreview(); renderComments(); updateSelection();
   if (buffer.hasCommentDraft || buffer.state.field(commentField).length) showComments(true);
   // Restore after the new state's DOM is measured, without scrolling another
@@ -600,7 +601,7 @@ function activateBuffer(buffer: EditorBuffer, capture = true) {
   view.focus(); void folderTree.reveal(current.path);
 }
 function applyDocument(snapshot: DocumentSnapshot, recovered = false) {
-  const buffer = new EditorBuffer(snapshot, createEditorState(snapshot.text, snapshot.comments), recovered);
+  const buffer = new EditorBuffer(snapshot, createEditorState(snapshot.text, snapshot.comments, snapshot.name), recovered);
   buffers.set(snapshot.id, buffer); activateBuffer(buffer, false);
 }
 function showEmptyWorkspace() {
@@ -608,6 +609,7 @@ function showEmptyWorkspace() {
   savedDoc = EditorState.create({ doc: "" }).doc; savedComments = "[]"; dirty = false;
   pendingAnchor = null; element("comment-form").hidden = true; element("conflict").hidden = true; element("notice").hidden = true;
   view.setState(createEditorState("")); view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) });
+  applyDocumentType();
   element("workspace").dataset.empty = "true"; element("folder-empty-name").textContent = workspaceInfo.name;
   refreshDocumentName(); updateDirty(); updateWordCount(); updateSelection(); refreshOpenDocuments();
 }
@@ -663,6 +665,7 @@ function updateWordCount() {
   element("word-count").textContent = `${count.toLocaleString()} ${count === 1 ? "word" : "words"}`;
 }
 function formatSelection(marker: string): boolean {
+  if (isPlainText(current?.name)) return true;
   if (busy) return false;
   const { from, to } = view.state.selection.main;
   view.dispatch({ changes: [{ from, insert: marker }, { from: to, insert: marker }], selection: { anchor: from + marker.length, head: to + marker.length }, userEvent: "input" });
@@ -690,9 +693,13 @@ async function saveBuffer(buffer: EditorBuffer, saveAs = false): Promise<boolean
     buffer.saved(result, state);
     if (current.id === id) {
       current = result; savedDoc = buffer.savedDoc; savedComments = buffer.savedComments;
+      applyDocumentType();
       lastScratchJSON = null; lastScratchGeneration = -1;
       element("conflict").hidden = true; element("notice").hidden = true; refreshDocumentName(); updateDirty(true);
-    } else rpc.send.dirty({ id, dirty: buffer.dirty || buffer.hasCommentDraft });
+    } else {
+      buffer.state = buffer.state.update({ effects: documentMode.reconfigure(documentExtensions(result.name)) }).state;
+      rpc.send.dirty({ id, dirty: buffer.dirty || buffer.hasCommentDraft });
+    }
     workspaceInfo = await rpc.request.workspace(); folderTree.setWorkspace(workspaceInfo);
     updateFolderVisibility(); refreshOpenDocuments();
     return true;
@@ -858,7 +865,18 @@ function renderComments() {
     card.append(label, quote, body, remove); list.append(card);
   }
 }
-function setMode(mode: string, focusDocument = true) {
+function applyDocumentType() {
+  const plain = isPlainText(current.name);
+  document.querySelectorAll<HTMLElement>(".view-switch, .minimal-view-switch").forEach((control) => { control.hidden = plain; });
+  element("setting-breaks-row").hidden = plain;
+  element("source-label").textContent = plain ? "TEXT" : "MARKDOWN";
+  document.querySelector(".editor-pane")!.setAttribute("aria-label", plain ? "Text source" : "Markdown source");
+  view.dispatch({ effects: documentMode.reconfigure(documentExtensions(current.name)) });
+  setMode(markdownMode, false);
+}
+function setMode(requested: string, focusDocument = true) {
+  const mode = documentViewMode(current?.name ?? "Untitled.md", requested === "write" || requested === "read" ? requested : "split");
+  if (!isPlainText(current?.name)) markdownMode = mode;
   element("workspace").dataset.mode = mode;
   if (mode !== "write") updatePreview();
   document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((button) => {
