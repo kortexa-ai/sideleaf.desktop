@@ -536,9 +536,12 @@ async function stageDraft<T>(complete: (transferId: string) => Promise<T>): Prom
   } finally { rpc.send.cancelSave({ transferId }); }
 }
 async function save(saveAs = false): Promise<boolean> {
+  // Record the exact snapshot stageDraft serializes, so text typed while a
+  // non-blocking autosave runs still reports as unsaved.
+  const savedText = view.state.doc; const savedCommentsSnapshot = commentsJSON();
   const result = await stageDraft((transferId) => rpc.request.save({ id: current.id, transferId, saveAs }, userDialog));
   if (!result) return false;
-  current = result; savedDoc = view.state.doc; savedComments = commentsJSON();
+  current = result; savedDoc = savedText; savedComments = savedCommentsSnapshot;
   lastScratchJSON = null;
   element("conflict").hidden = true; element("notice").hidden = true;
   refreshDocumentName(); updateDirty(); return true;
@@ -571,15 +574,18 @@ async function canLeave(): Promise<boolean> {
   if (!current.path) await clearScratch();
   return true;
 }
-async function run(operation: () => Promise<void>) {
+async function run(operation: () => Promise<void>, blockInput = true) {
   if (busy || !current) return;
   if (view.composing) { notice("Finish entering your current character before opening or saving a file."); return; }
-  busy = true; view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) });
+  busy = true;
+  if (blockInput) view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) });
   updateDirty(); updateSelection();
   try { await operation(); }
   catch (error) { notice((error as Error).message || String(error)); }
   finally {
-    busy = false; view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(false)) }); updateDirty(); updateSelection();
+    busy = false;
+    if (blockInput) view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(false)) });
+    updateDirty(); updateSelection();
     if (pendingExternalOpen) queueMicrotask(() => { void performPendingExternalOpen(); });
   }
 }
@@ -728,11 +734,13 @@ element("preview").onclick = (event) => {
 setInterval(() => { void checkDisk(); }, 2000);
 setInterval(() => {
   if (!settings.autoSave || !dirty || busy || !current || view.composing || hasCommentDraft()) return;
+  // Autosave must not block typing: the host re-checks the disk before
+  // committing, and the staged snapshot is a consistent point in time.
   void run(async () => {
     if (!dirty) return;
     if (current.path) await save();
     else if (settings.keepScratch) await persistScratch();
-  });
+  }, false);
 }, 30_000);
 async function checkDisk() {
   if (!current?.path || busy || checking || view.composing) return;

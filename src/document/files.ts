@@ -6,7 +6,7 @@ import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } 
 import { relocateComment } from "./anchors.ts";
 
 import { hash, parseMetadata, splitMetadata, embedMetadata, type Metadata, type CommentRevision } from "./metadata.ts";
-type DiskState = { bytes: Buffer; metadata: Buffer | null; mode: number; signature: string };
+type DiskState = { bytes: Buffer; metadata: Buffer | null; mode: number; signature: string; statKey: string };
 
 // Windows UNC access to WSL does not expose Linux permission bits through stat.
 // Keep Linux responsible for private staging and modes; Cottontail still performs
@@ -30,6 +30,16 @@ function readOptional(path: string): Buffer | null {
   try { return readFileSync(path); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
+// Cheap on-disk fingerprint for the 2-second poll: lstat only, no reads.
+// Captured before the bytes are read, so a change that lands after the stat
+// is always visible on the next poll.
+function diskStatKey(path: string): string | null {
+  let stat;
+  try { stat = lstatSync(path); } catch { return null; }
+  let sidecar = "-";
+  try { const side = lstatSync(metadataPath(path)); sidecar = `${side.mtimeMs}:${side.size}`; } catch { /* no sidecar */ }
+  return `${stat.mtimeMs}:${stat.size}:${stat.mode & 0o777}|${sidecar}`;
+}
 
 function regularFile(path: string) {
   const stat = lstatSync(path);
@@ -40,12 +50,13 @@ function regularFile(path: string) {
 
 function readDisk(path: string): DiskState {
   const stat = regularFile(path);
+  const statKey = diskStatKey(path) ?? "";
   const bytes = readFileSync(path);
   const sidecarPath = metadataPath(path);
   if (existsSync(sidecarPath)) regularFile(sidecarPath);
   const metadata = readOptional(sidecarPath);
   const mode = isWSL(path) ? Number.parseInt(linuxFileCommand(path, "stat", ["-c", "%a", "--"]), 8) & 0o777 : stat.mode & 0o777;
-  return { bytes, metadata, mode, signature: `${hash(bytes)}:${metadata === null ? "none" : hash(metadata)}` };
+  return { bytes, metadata, mode, signature: `${hash(bytes)}:${metadata === null ? "none" : hash(metadata)}`, statKey };
 }
 
 export function decodeMarkdown(bytes: Uint8Array): { text: string; bom: boolean; lineEnding: "\n" | "\r\n" } {
@@ -96,6 +107,7 @@ export class DocumentFile {
   id = randomUUID();
   path: string | null = null;
   private disk: DiskState | null = null;
+  private statKey: string | null = null;
   private bom = false;
   private lineEnding: "\n" | "\r\n" = "\n";
   private draft: Draft = { text: "", comments: [] };
@@ -142,13 +154,25 @@ export class DocumentFile {
     const selected = matched ?? sidecar.revisions[0];
     const comments = (selected?.comments ?? []).map((c) => relocateComment(c, decoded.text, !!matched));
     validateDraft({ text: decoded.text, comments });
-    this.disk = disk; this.bom = decoded.bom; this.lineEnding = decoded.lineEnding;
+    this.disk = disk; this.statKey = disk.statKey; this.bom = decoded.bom; this.lineEnding = decoded.lineEnding;
     this.draft = { text: decoded.text, comments };
     this.notice = selected && !matched ? "The file changed outside Sideleaf. Check the comment anchors; uncertain ones remain unanchored." :
       matched && matched !== sidecar.revisions[0] ? "Recovered the comment revision matching this file after an interrupted save." : null;
   }
 
-  changed(): boolean { return !!this.path && readDisk(this.path).signature !== this.disk?.signature; }
+  // Cheap poll pre-check: lstat only, no reads. A missing file or a null
+  // baseline (untitled document) always falls through to the full read.
+  statUnchanged(): boolean {
+    if (!this.path || this.statKey === null) return false;
+    return diskStatKey(this.path) === this.statKey;
+  }
+
+  changed(): boolean {
+    if (!this.path) return false;
+    const disk = readDisk(this.path);
+    this.statKey = disk.statKey;
+    return disk.signature !== this.disk?.signature;
+  }
 
   reload(): DocumentSnapshot {
     if (!this.path) throw new Error("This document has no file to reload.");
@@ -184,9 +208,10 @@ export class DocumentFile {
       if (source.length > MAX_DOCUMENT_BYTES) throw new Error("Markdown source exceeds 10 MiB.");
       // Reserve the block even on plain saves; never silently hide user content.
       if (splitMetadata(draft.text).metadata) throw new Error("Source contains reserved Sideleaf metadata.");
+      const sourceHash = hash(source);
       const previousRevision = this.revisions[0];
-      const unchanged = this.disk?.metadata === null && previousRevision?.sourceHash === hash(source) && JSON.stringify(previousRevision.comments) === JSON.stringify(draft.comments);
-      const revision: CommentRevision = unchanged ? previousRevision : { sourceHash: hash(source), comments: structuredClone(draft.comments), actor, savedAt: new Date().toISOString() };
+      const unchanged = this.disk?.metadata === null && previousRevision?.sourceHash === sourceHash && JSON.stringify(previousRevision.comments) === JSON.stringify(draft.comments);
+      const revision: CommentRevision = unchanged ? previousRevision : { sourceHash, comments: structuredClone(draft.comments), actor, savedAt: new Date().toISOString() };
       const revisions = [revision, ...this.revisions.filter((r) => JSON.stringify(r) !== JSON.stringify(revision))].slice(0, 3);
       const metadata: Metadata = { format: "sideleaf-comments", version: 1, revisions };
       const annotated = draft.comments.length > 0 || this.revisions.length > 0 || actor !== "local-user";
@@ -195,7 +220,13 @@ export class DocumentFile {
       // Source and all comments now commit with one fsynced atomic replacement.
       // Avoid replacing an unchanged plain file (including its inode/mtime).
       if (!previousDisk || !previousDisk.bytes.equals(bytes)) atomicWrite(path, bytes, previousDisk?.mode ?? 0o644);
-      if (!readFileSync(path).equals(bytes)) throw new Error("The file changed immediately after save. Reload or save a copy.");
+      // The verify read doubles as the post-save disk state: the bytes are
+      // known-equal, the mode is exactly what atomicWrite was given, and the
+      // sidecar is always absent or retired at this point.
+      const statKey = diskStatKey(path) ?? "";
+      const verified = readFileSync(path);
+      if (!verified.equals(bytes)) throw new Error("The file changed immediately after save. Reload or save a copy.");
+      const disk: DiskState = { bytes: verified, metadata: null, mode: previousDisk?.mode ?? 0o644, signature: `${bytes === source ? sourceHash : hash(bytes)}:none`, statKey };
       if (samePath && previousDisk?.metadata) {
         if (!readOptional(metadataPath(path))?.equals(previousDisk.metadata)) throw new Error("The sidecar changed during migration. Both copies were retained.");
         // Retire only after verifying the complete embedded file. Keep the old
@@ -203,10 +234,10 @@ export class DocumentFile {
         renameSync(metadataPath(path), `${metadataPath(path)}.migrated-${randomUUID()}`);
       }
       this.revisions = annotated ? revisions : [];
+      this.disk = disk; this.statKey = disk.statKey;
     } finally { closeSync(fd); unlinkSync(lock); }
 
     this.path = path;
-    this.disk = readDisk(path);
     this.draft = structuredClone(draft);
     this.notice = null;
     return this.snapshot();

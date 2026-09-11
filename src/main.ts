@@ -143,6 +143,9 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       clearScratch: () => { scratch.clear(); recoveredScratch = false; return true; },
       check: ({ id }) => {
         checkId(id);
+        // The stat fingerprint is lstat-only; the full read + hash runs only
+        // when mtime, size, mode, or the sidecar actually changed.
+        if (document.statUnchanged()) return { changed: false, error: null };
         try { return { changed: document.changed(), error: null }; }
         catch (error) { return { changed: true, error: (error as Error).message }; }
       },

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, readFileSync, writeFileSync, statSync, chmodSync, mkdirSync, symlinkSync, realpathSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync, chmodSync, mkdirSync, symlinkSync, realpathSync, existsSync, readdirSync, utimesSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -41,6 +41,39 @@ test("plain save preserves mode and leaves no sidecar until comments exist", () 
   assert.equal(readFileSync(path, "utf8"), "# Edited\n");
   if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o640);
   assert.equal(file.changed(), false);
+  assert.equal(file.statUnchanged(), true);
+});
+
+test("the disk poll uses a stat fingerprint and only re-reads when it changes", () => {
+  const { path } = fixture();
+  const file = DocumentFile.open(path);
+  assert.equal(file.statUnchanged(), true);
+  // A same-content touch changes the stat but not the signature: not a conflict,
+  // and the full check refreshes the fingerprint so polling stays cheap.
+  utimesSync(path, new Date(0), new Date(0));
+  assert.equal(file.statUnchanged(), false);
+  assert.equal(file.changed(), false);
+  assert.equal(file.statUnchanged(), true);
+  // A real edit is detected by the fingerprint and confirmed by the full read.
+  writeFileSync(path, "Another writer\n");
+  assert.equal(file.statUnchanged(), false);
+  assert.equal(file.changed(), true);
+  file.reload();
+  assert.equal(file.statUnchanged(), true);
+  // A sidecar appearing is visible without reading the document.
+  writeFileSync(`${path}.sideleaf.json`, "{}");
+  assert.equal(file.statUnchanged(), false);
+  assert.equal(file.changed(), true);
+  // Once it is gone the change is still visible against the last full read,
+  // and the full check confirms the signature matches the open state again.
+  unlinkSync(`${path}.sideleaf.json`);
+  assert.equal(file.statUnchanged(), false);
+  assert.equal(file.changed(), false);
+  assert.equal(file.statUnchanged(), true);
+  // A deleted file always falls through to the full read.
+  unlinkSync(path);
+  assert.equal(file.statUnchanged(), false);
+  assert.throws(() => file.changed());
 });
 
 test("Save As keeps the original document and rejects another document's annotations", () => {
