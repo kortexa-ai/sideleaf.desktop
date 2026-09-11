@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, opendirSync, realpathSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, lstatSync, opendirSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { DocumentFile } from "./files.ts";
 import { SaveTransfer } from "./save-transfer.ts";
@@ -115,7 +115,7 @@ export class DocumentWorkspace {
     this.sessions.set(file.id, session); this.activeId = file.id; return session;
   }
   open(path: string): OpenResult {
-    if (lstatSync(path).isDirectory()) return this.openFolder(path);
+    if (statSync(path).isDirectory()) return this.openFolder(path);
     const canonical = realpathSync(path);
     const existing = this.explicit && [...this.sessions.values()].find((session) => session.file.path === canonical);
     if (existing) { this.activeId = existing.file.id; return this.result(); }

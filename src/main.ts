@@ -157,7 +157,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         const { response } = await Utils.showMessageBox({ type: "question", title: "Move to Trash", message: `Move ${file.name} to ${process.platform === "win32" ? "the Recycle Bin" : "Trash"}?`, detail: "The file will be removed from this folder.", buttons: ["Move to Trash", "Cancel"], defaultId: 1, cancelId: 1 });
         if (response !== 0) return workspace.result();
         if (workspace.get(id) !== session || file.changed()) throw new Error("The file changed before it could be moved. Your document is still open.");
-        if (!Utils.moveToTrash(file.path)) throw new Error("The system could not move this file to Trash. Your document is still open.");
+        file.trash(Utils.moveToTrash);
         const result = mutateWorkspace(() => workspace.closeDocument(id)); workspace.root?.notify(); return result;
       },
       openPending: () => {
@@ -175,7 +175,11 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         let target: string | undefined;
         if (payload.saveAs || !file.path) {
           if (dialogOpen) throw new Error("A file dialog is already open.");
-          const folder = workspace.root?.resolve(payload.folderKey ?? "", "directory");
+          let folder = workspace.root?.path;
+          if (workspace.root) {
+            try { folder = workspace.root.resolve(payload.folderKey ?? "", "directory"); }
+            catch { folder = workspace.root.resolve("", "directory"); }
+          }
           dialogOpen = true;
           try { target = (await chooseSavePath(file, folder)) ?? undefined; }
           finally { dialogOpen = false; }

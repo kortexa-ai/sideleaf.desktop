@@ -493,7 +493,7 @@ async function fileAction(target: { key: string } | { id: string }, action: "ren
     });
     if (name === null) return;
     const metadata = await rpc.request.renameDocument({ id: buffer.metadata.id, name });
-    buffer.metadata = metadata; current = metadata; generation++; lastScratchGeneration = -1; buffer.recoveryGeneration = -1;
+    buffer.metadata = metadata; current = metadata; lastScratchGeneration = -1; lastScratchJSON = null; buffer.recoveryGeneration = -1; buffer.recoveryJSON = null;
     refreshDocumentName(); updateDirty(); void folderTree.refresh();
   });
 }
@@ -570,7 +570,7 @@ function updateDirty(force = false) {
   }
   dirty = next;
   element("unsaved").hidden = !dirty;
-  element("status").textContent = busy ? "Working…" : !current.id ? "Choose a file in the folder" : dirty ? "Unsaved changes" : current.path ? "Saved locally" : "Ready to write";
+  element("status").textContent = busy ? "Working…" : !current.id ? "Choose a file in the folder" : dirty ? "Unsaved changes" : buffer?.hasCommentDraft ? "Unfinished comment" : current.path ? "Saved locally" : "Ready to write";
   element<HTMLButtonElement>("save").disabled = !current.id || busy;
   refreshOpenDocuments();
 }
@@ -589,6 +589,7 @@ function activateBuffer(buffer: EditorBuffer, capture = true) {
   element("workspace").dataset.empty = "false";
   dirty = buffer.dirty; previewDirty = true;
   refreshDocumentName(); updateDirty(true); updateWordCount(); updatePreview(); renderComments(); updateSelection();
+  if (buffer.hasCommentDraft || buffer.state.field(commentField).length) showComments(true);
   // Restore after the new state's DOM is measured, without scrolling another
   // buffer if a second activation arrives before this frame.
   requestAnimationFrame(() => {
@@ -605,7 +606,7 @@ function applyDocument(snapshot: DocumentSnapshot, recovered = false) {
 function showEmptyWorkspace() {
   current = { id: "", path: null, name: workspaceInfo.name, lineEnding: "\n", notice: null };
   savedDoc = EditorState.create({ doc: "" }).doc; savedComments = "[]"; dirty = false;
-  pendingAnchor = null; element("comment-form").hidden = true; element("conflict").hidden = true;
+  pendingAnchor = null; element("comment-form").hidden = true; element("conflict").hidden = true; element("notice").hidden = true;
   view.setState(createEditorState("")); view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) });
   element("workspace").dataset.empty = "true"; element("folder-empty-name").textContent = workspaceInfo.name;
   refreshDocumentName(); updateDirty(); updateWordCount(); updateSelection(); refreshOpenDocuments();

@@ -102,3 +102,22 @@ test("rename refuses active locks and missing files without changing another wri
   unlinkSync(lock); unlinkSync(file.path!); assert.throws(() => file.rename("next.md"));
   assert.equal(existsSync(join(root, "next.md")), false);
 });
+
+test("Trash refuses locks and stale data, and failed trash retains the file", () => {
+  const root = fixture(), file = DocumentFile.open(join(root, "A.md")), lock = `${file.path}.sideleaf.lock`;
+  assert.throws(() => file.trash(() => false), /still open/);
+  assert.equal(readFileSync(file.path!, "utf8"), "Alpha\n"); assert.equal(existsSync(lock), false);
+  writeFileSync(lock, "writer"); assert.throws(() => file.trash(() => { throw new Error("must not run"); }));
+  assert.equal(readFileSync(lock, "utf8"), "writer"); unlinkSync(lock);
+  writeFileSync(file.path!, "External"); assert.throws(() => file.trash(() => true), /changed on disk/);
+  file.reload(); const destination = join(root, "trashed.md");
+  file.trash((path) => { assert.equal(existsSync(lock), true); renameSync(path, destination); return true; });
+  assert.equal(readFileSync(destination, "utf8"), "External"); assert.equal(existsSync(lock), false);
+});
+
+test("explicit folder launch resolves a directory alias without allowing tree traversal through links", () => {
+  const root = fixture(), parent = fixture(), alias = join(parent, "alias"), workspace = new DocumentWorkspace();
+  symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
+  assert.equal(workspace.open(alias).workspace.root, root); assert.equal(workspace.info().explicit, true);
+  workspace.reset();
+});

@@ -218,13 +218,28 @@ export class DocumentFile {
       if (this.changed()) throw new Error("The file changed on disk. Reload it or save a copy before renaming.");
       // An exclusive hard link reserves the new name without POSIX rename's
       // overwrite behavior. If the filesystem cannot do this, leave it alone.
-      linkSync(source, target);
+      // Windows' WSL redirector rejects linkSync; let Linux create the same
+      // exclusive link. -T prevents an existing directory becoming the target.
+      if (isWSL(source)) linuxFileCommand(target, "ln", ["-T", "--", wslLocation(source)!.path]);
+      else linkSync(source, target);
       try { unlinkSync(source); }
       catch (error) { unlinkSync(target); throw error; }
       this.path = target; this.statKey = diskStatKey(target);
       if (this.disk) this.disk.statKey = this.statKey ?? "";
       return this.snapshot();
     } finally { for (const lock of locks.reverse()) { closeSync(lock.fd); unlinkSync(lock.path); } }
+  }
+
+  trash(move: (path: string) => boolean): void {
+    if (!this.path) throw new Error("This document has no file to move to Trash.");
+    const path = this.path, lock = `${path}.sideleaf.lock`;
+    const fd = openSync(lock, "wx", 0o600);
+    try {
+      writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+      if (existsSync(metadataPath(path))) throw new Error("Save this document once to move its legacy comments into the file before moving it to Trash.");
+      if (this.changed()) throw new Error("The file changed on disk. Reload it before moving it to Trash.");
+      if (!move(path)) throw new Error("The system could not move this file to Trash. Your document is still open.");
+    } finally { closeSync(fd); unlinkSync(lock); }
   }
 
   save(draft: Draft, target?: string, actor = "local-user"): DocumentSnapshot {
