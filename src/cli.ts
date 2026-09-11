@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync, spawn } from "node:child_process";
@@ -17,6 +17,7 @@ sideleaf comment-add FILE --if-revision HASH --actor NAME < comment.json
 sideleaf comment-update FILE --if-revision HASH --actor NAME < update.json
 sideleaf comment-remove FILE --if-revision HASH --actor NAME < remove.json
 sideleaf open FILE [--app PATH]
+sideleaf open-folder DIRECTORY [--app PATH]
 sideleaf skills install [--user | --target NAME] [--force]
 
 edit.json: {"from":0,"to":0,"text":"New text\\n"}
@@ -51,7 +52,7 @@ async function main() {
     const targets = installSideleafSkills({ home: options.home ?? process.env.SIDELEAF_SKILLS_HOME, ...options });
     output({ ok: true, skill: "sideleaf", targets }); return;
   }
-  if (!["read", "comments", "edit", "comment-add", "comment-update", "comment-remove", "open"].includes(command)) inputError("Unknown command. Run sideleaf --help.");
+  if (!["read", "comments", "edit", "comment-add", "comment-update", "comment-remove", "open", "open-folder"].includes(command)) inputError("Unknown command. Run sideleaf --help.");
   const filename = args.shift();
   if (!filename || filename.startsWith("--")) inputError("A document path is required.");
   const options = new Map<string, string>();
@@ -63,8 +64,9 @@ async function main() {
   }
   let path = resolve(filename);
   if (process.platform === "linux" && /^[a-z]:[\\/]/i.test(filename)) path = execFileSync("wslpath", ["-u", filename], { encoding: "utf8" }).trim();
-  if (command === "open") {
-    if (!existsSync(path)) inputError("The document does not exist.");
+  if (command === "open" || command === "open-folder") {
+    if (!existsSync(path)) inputError("The path does not exist.");
+    if (command === "open-folder" ? !statSync(path).isDirectory() : !statSync(path).isFile()) inputError(command === "open-folder" ? "A folder path is required." : "A file path is required. Use open-folder for a directory.");
     const override = options.get("--app");
     if (process.platform === "darwin") {
       execFileSync("/usr/bin/open", ["-n", ...(override ? ["-a", resolve(override)] : ["-b", "ai.kortexa.sideleaf"]), "--env", `SIDELEAF_OPEN_PATH=${path}`]);

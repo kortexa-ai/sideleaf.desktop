@@ -2,8 +2,8 @@ import { dirname, join } from "node:path";
 import * as Utils from "electrobun/main/utils";
 import { RESOURCES_FOLDER } from "electrobun/main/paths";
 
-export async function chooseSavePath(document: { name: string; path: string | null }): Promise<string | null> {
-  const folder = document.path ? dirname(document.path) : Utils.paths.documents;
+export async function chooseSavePath(document: { name: string; path: string | null }, defaultFolder?: string): Promise<string | null> {
+  const folder = document.path ? dirname(document.path) : defaultFolder ?? Utils.paths.documents;
   if (process.platform === "darwin") {
     const { dlopen, FFIType, CString } = await import("bun:ffi");
     const library = dlopen(join(RESOURCES_FOLDER, "app/native/libSideleafDialogs.dylib"), {

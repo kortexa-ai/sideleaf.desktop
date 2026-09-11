@@ -49,6 +49,10 @@ describe("custom shortcuts", () => {
   });
 
   test("uses Command-Shift or Control-Alt for layout shortcuts", () => {
+    expect(layoutShortcutAction("macos", event({ code: "KeyF", key: "f", metaKey: true, shiftKey: true }))).toBe("toggleFolder");
+    expect(layoutShortcutAction("windows", event({ code: "KeyF", key: "f", ctrlKey: true, altKey: true }))).toBe("toggleFolder");
+    expect(layoutShortcutAction("windows", event({ code: "KeyF", key: "f", ctrlKey: true }))).toBeNull();
+    expect(layoutShortcutAction("macos", event({ code: "KeyF", key: "f", metaKey: true, shiftKey: true, isComposing: true }))).toBeNull();
     expect(layoutShortcutAction("macos", event({ code: "KeyM", key: "m", metaKey: true, shiftKey: true }))).toBe("toggleMinimalLayout");
     expect(layoutShortcutAction("macos", event({ code: "KeyV", key: "v", metaKey: true, shiftKey: true }))).toBe("toggleComments");
     expect(layoutShortcutAction("windows", event({ code: "KeyM", key: "m", ctrlKey: true, altKey: true }))).toBe("toggleMinimalLayout");

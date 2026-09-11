@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { makeAnchor } from "../src/document/anchors.ts";
 import { DocumentFile } from "../src/document/files.ts";
 import { ScratchStore } from "../src/document/scratch.ts";
+import { RecoveryStore } from "../src/document/scratch.ts";
+import { randomUUID } from "node:crypto";
 
 const fixture = () => {
   const folder = mkdtempSync(join(tmpdir(), "sideleaf-scratch-"));
@@ -51,4 +53,30 @@ test("clearing scratch recovery is idempotent", () => {
   store.clear();
   assert.equal(existsSync(path), false);
   assert.equal(store.load(), null);
+});
+
+test("workspace recovery keeps independent named and untitled drafts without modifying originals", () => {
+  const { folder } = fixture(), store = new RecoveryStore(join(folder, "recovery"));
+  const original = join(folder, "original.md"); writeFileSync(original, "Disk version");
+  const file = DocumentFile.open(original), a = randomUUID(), b = randomUUID();
+  const draft = { text: "Unsaved Alpha", comments: [] };
+  store.save({ id: a, originalPath: original, revision: file.revision(), draft, pending: { anchor: makeAnchor(draft.text, 0, 7), body: "Unfinished thought", valid: true } });
+  store.save({ id: b, originalPath: null, revision: null, draft: { text: "Untitled Beta", comments: [] } });
+  assert.equal(store.load().records.length, 2); assert.equal(store.load().errors.length, 0);
+  assert.equal(readFileSync(original, "utf8"), "Disk version");
+  const recovered = store.load().records.find((record) => record.id === a)!;
+  assert.equal(recovered.originalPath, original); assert.equal(recovered.revision, file.revision());
+  assert.equal(recovered.pending!.body, "Unfinished thought");
+  const copy = DocumentFile.fromDraft(recovered.draft);
+  assert.equal(copy.path, null); assert.equal(copy.snapshot().text, "Unsaved Alpha");
+  store.clear(a); assert.equal(store.load().records[0]!.id, b);
+  store.clear(b); assert.equal(store.load().records.length, 0);
+});
+
+test("a damaged recovery record does not hide other buffers or get deleted", () => {
+  const { folder } = fixture(), store = new RecoveryStore(join(folder, "recovery")), a = randomUUID(), b = randomUUID();
+  for (const id of [a, b]) store.save({ id, originalPath: null, revision: null, draft: { text: id, comments: [] } });
+  const bad = join(store.directory, `${a}.json`); writeFileSync(bad, "broken");
+  assert.equal(store.load().records[0]!.id, b); assert.equal(store.load().errors.length, 1);
+  store.clearAll(); assert.equal(readFileSync(bad, "utf8"), "broken");
 });

@@ -150,12 +150,14 @@ and add features because daily use needs them.
 - Toggle the sidebar with Command-Shift-F on macOS or Control-Alt-F on Windows.
   Use a folder icon without text: immediately before Comments in Minimal layout,
   and between Write/Split/Read and Comments in full layout. Disable the button
-  for a new untitled file; the case of New inside an existing workspace needs
-  the clarification recorded in the work-unit plan.
+  for a standalone untitled file. New inside an open folder retains the
+  workspace, its buffers and the available sidebar toggle.
 - Hiding the sidebar does not close the folder or discard document buffers.
   Switching files preserves unsaved text, comments, undo history and position.
   Closing a document, replacing/closing a workspace, and quitting must account
   for every affected dirty document and pending comment.
+- When enabled, autosave covers edited named files throughout the workspace,
+  including inactive buffers. Keep recovery copies separate from original files.
 - Browse existing folders in the first pass. Folder creation is deferred to
   [desktop #54](https://github.com/kortexa-ai/sideleaf.desktop/issues/54).
   Obsidian-specific configuration, plugins, wikilinks and graph behavior remain

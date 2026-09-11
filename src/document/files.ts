@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync, linkSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
 import { relocateComment } from "./anchors.ts";
@@ -195,8 +195,36 @@ export class DocumentFile {
 
   reload(): DocumentSnapshot {
     if (!this.path) throw new Error("This document has no file to reload.");
-    this.load(); this.id = randomUUID();
+    this.load();
     return this.snapshot();
+  }
+
+  rename(name: string): DocumentSnapshot {
+    if (!this.path) throw new Error("Save this document before renaming it.");
+    if (typeof name !== "string" || !name.trim() || name.length > 240 || /[\\/\x00-\x1f<>:"|?*]/.test(name) || /[. ]$/.test(name) ||
+      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) || !/\.(md|markdown|mdown|txt)$/i.test(name)) throw new Error("Use a valid text filename ending in .md, .markdown, .mdown or .txt.");
+    const source = this.path, target = join(dirname(source), name);
+    if (target === source) return this.snapshot();
+    if (existsSync(target)) throw new Error("That name already exists. For a case-only rename, use a different name first.");
+    if (existsSync(metadataPath(source))) throw new Error("Save this document once to move its legacy comments into the file before renaming.");
+    if (existsSync(metadataPath(target))) throw new Error("That name already has a Sideleaf sidecar.");
+    const locks: { path: string; fd: number }[] = [];
+    try {
+      for (const path of [source, target]) {
+        const lock = `${path}.sideleaf.lock`;
+        const fd = openSync(lock, "wx", 0o600); locks.push({ path: lock, fd });
+        writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+      }
+      if (this.changed()) throw new Error("The file changed on disk. Reload it or save a copy before renaming.");
+      // An exclusive hard link reserves the new name without POSIX rename's
+      // overwrite behavior. If the filesystem cannot do this, leave it alone.
+      linkSync(source, target);
+      try { unlinkSync(source); }
+      catch (error) { unlinkSync(target); throw error; }
+      this.path = target; this.statKey = diskStatKey(target);
+      if (this.disk) this.disk.statKey = this.statKey ?? "";
+      return this.snapshot();
+    } finally { for (const lock of locks.reverse()) { closeSync(lock.fd); unlinkSync(lock.path); } }
   }
 
   save(draft: Draft, target?: string, actor = "local-user"): DocumentSnapshot {

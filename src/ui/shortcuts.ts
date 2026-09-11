@@ -1,7 +1,7 @@
 import type { Command } from "../shared/contracts.ts";
 
 export type ShortcutPlatform = "macos" | "windows" | "linux";
-export type LayoutShortcutAction = "toggleMinimalLayout" | "toggleComments";
+export type LayoutShortcutAction = "toggleMinimalLayout" | "toggleComments" | "toggleFolder";
 export type ShortcutEvent = {
   altKey: boolean;
   code: string;
@@ -44,6 +44,7 @@ export function layoutShortcutAction(platform: ShortcutPlatform, event: Shortcut
   const key = event.code.startsWith("Key") ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
   if (key === "m") return "toggleMinimalLayout";
   if (key === "v") return "toggleComments";
+  if (key === "f") return "toggleFolder";
   return null;
 }
 

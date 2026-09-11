@@ -106,6 +106,12 @@ paths into Windows drive/UNC paths. Windows drive paths are also accepted. Pipes
 and `--input` work; `sideleaf open FILE` finds the installed Windows app automatically.
 This requires WSL interoperability and Windows access to the current distro.
 
+`sideleaf open-folder DIRECTORY` opens a folder workspace with the sidebar visible.
+It accepts the same `--app` override and Windows/WSL path handling as `open`.
+The command requires a directory; `open` continues to require a file. Files in
+the folder load only when selected in the desktop tree. CLI single-instance
+delivery remains separate work; these commands currently launch a new instance.
+
 The installed desktop app also registers `md`, `markdown`, and `mdown` as
 editable Markdown document types. Finder's Open With menu and Windows Default
 Apps can therefore select Sideleaf, while the final default remains the user's

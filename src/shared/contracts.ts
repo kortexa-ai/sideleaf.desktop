@@ -22,12 +22,18 @@ export type DocumentMetadata = {
   notice: string | null;
 };
 export type DocumentSnapshot = Draft & DocumentMetadata;
-export type InitialDocument = { document: DocumentSnapshot; recoveredScratch: boolean; recoveryError: string | null };
+export type WorkspaceInfo = { id: string; root: string | null; name: string; explicit: boolean; activeId: string | null };
+export type OpenResult = { workspace: WorkspaceInfo; document: DocumentSnapshot | null };
+export type FolderEntry = { key: string; name: string; kind: "directory" | "file"; path: string };
+export type FolderListing = { workspaceId: string; key: string; entries: FolderEntry[]; error: string | null; truncated: boolean };
+export type PendingComment = { anchor: Anchor; body: string; valid: boolean };
+export type RecoveredDocument = { document: DocumentSnapshot; originalPath: string | null; revision: string | null; pending?: PendingComment | null };
+export type InitialDocument = OpenResult & { recovered: RecoveredDocument[]; recoveredScratch: boolean; recoveryError: string | null };
 export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
   const { id, path, name, lineEnding, notice } = snapshot;
   return { id, path, name, lineEnding, notice };
 }
-export type Command = "new" | "open" | "openExternal" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo" | "modeWrite" | "modeSplit" | "modeRead" | "distractionFree" | "zoomIn" | "zoomOut" | "zoomReset" | "about" | "settings" | "makeDefaultEditor";
+export type Command = "new" | "open" | "openFolder" | "closeFolder" | "toggleFolder" | "openExternal" | "save" | "saveAs" | "close" | "quit" | "comment" | "find" | "undo" | "redo" | "modeWrite" | "modeSplit" | "modeRead" | "distractionFree" | "zoomIn" | "zoomOut" | "zoomReset" | "about" | "settings" | "makeDefaultEditor";
 export type WindowAction = "minimize" | "toggle-maximize" | "close" | "move" | "system-menu" | "titlebar-double-click" | "enter-distraction-free" | "exit-distraction-free";
 export type UpdateState = { status: "idle" | "checking" | "current" | "error" } | { status: "available"; version: string; url: string };
 
@@ -41,17 +47,27 @@ export type SideleafRPC = {
       checkUpdates: { params: undefined; response: UpdateState };
       dismissUpdate: { params: undefined; response: boolean };
       openDefaultApps: { params: undefined; response: boolean };
-      open: { params: undefined; response: DocumentSnapshot | null };
-      openPending: { params: undefined; response: DocumentSnapshot | null };
+      open: { params: undefined; response: OpenResult | null };
+      openFolder: { params: undefined; response: OpenResult | null };
+      closeFolder: { params: undefined; response: OpenResult };
+      openPending: { params: undefined; response: OpenResult | null };
       cancelPendingOpen: { params: undefined; response: boolean };
-      newDocument: { params: undefined; response: DocumentSnapshot };
+      newDocument: { params: undefined; response: OpenResult };
+      workspace: { params: undefined; response: WorkspaceInfo };
+      listFolder: { params: { workspaceId: string; key: string }; response: FolderListing };
+      watchFolders: { params: { workspaceId: string; keys: string[] }; response: boolean };
+      openEntry: { params: { workspaceId: string; key: string }; response: OpenResult };
+      activateDocument: { params: { id: string }; response: WorkspaceInfo };
+      closeDocument: { params: { id: string }; response: OpenResult };
+      renameDocument: { params: { id: string; name: string }; response: DocumentMetadata };
+      trashDocument: { params: { id: string }; response: OpenResult };
       stageSave: { params: SaveChunk & { id: string }; response: boolean };
-      save: { params: { id: string; transferId: string; saveAs: boolean }; response: DocumentMetadata | null };
-      saveScratch: { params: { id: string; transferId: string }; response: boolean };
-      clearScratch: { params: undefined; response: boolean };
+      save: { params: { id: string; transferId: string; saveAs: boolean; folderKey?: string }; response: DocumentMetadata | null };
+      saveScratch: { params: { id: string; transferId: string; pending?: PendingComment | null }; response: boolean };
+      clearScratch: { params: { id?: string }; response: boolean };
       check: { params: { id: string }; response: { changed: boolean; error: string | null } };
       reload: { params: { id: string }; response: DocumentSnapshot };
-      confirmDiscard: { params: undefined; response: "save" | "discard" | "cancel" };
+      confirmDiscard: { params: { id: string }; response: "save" | "discard" | "cancel" };
       openLink: { params: { url: string }; response: boolean };
       windowAction: { params: { action: WindowAction }; response: boolean };
       finishClose: { params: { quit: boolean }; response: boolean };
@@ -60,7 +76,7 @@ export type SideleafRPC = {
   };
   webview: {
     requests: {};
-    messages: { command: Command; update: UpdateState };
+    messages: { command: Command; update: UpdateState; foldersChanged: { workspaceId: string } };
   };
 };
 

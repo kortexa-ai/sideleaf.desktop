@@ -36,15 +36,14 @@ buffers. The initial defaults apply to a new open context, not each file switch
 or layout change. Folder creation is explicitly deferred to
 [#54](https://github.com/kortexa-ai/sideleaf.desktop/issues/54).
 
-## One product clarification before implementation
+## New documents and autosave
 
-Franci requested that the folder button be disabled for a new file. Keep that
-rule for a standalone untitled document. The remaining case is **New inside an
-already open folder**. Recommended: retain the workspace and let its sidebar
-stay available; an untitled buffer should not strand the user outside the tree.
-This exception is a proposal pending confirmation, not an accepted change to
-the requested disabled state. An empty folder view itself is not an unsaved New
-document: it still needs a working sidebar toggle and Open Folder action.
+Disable the folder button for a standalone untitled document. **New inside an
+already open folder** retains the workspace and its available sidebar. An
+empty folder view is not an unsaved New document: it still needs a working
+sidebar toggle and Open Folder action. When enabled, autosave saves all edited
+named buffers, including inactive documents; preserve recovery for unsaved
+buffers without writing recovered content over an original automatically.
 
 ## Proposed defaults for the remaining edges
 

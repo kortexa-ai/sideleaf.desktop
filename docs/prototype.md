@@ -19,8 +19,9 @@ the original LF/CRLF style and UTF-8 BOM. Markdown is never parsed and reseriali
 for persistence. Mixed separators and invalid UTF-8 are explicitly unsupported.
 All annotation offsets are UTF-16 code units in the logical editor document.
 
-Each open document has a fresh host-issued ID. The webview can save only that opened
-document; Save As obtains a path from a native picker. A SHA-256 fingerprint includes
+Each open document has a host-issued session ID, retained through save, rename and
+reload. The webview can save only an open session; each session has its own staged
+transfer. Save As obtains a path from a native picker. A SHA-256 fingerprint includes
 the complete file and any legacy comment sidecar. It is checked before every save, and a
 two-second poll detects external writes. Reload creates a history boundary. Saving
 preserves undo history. Comment insertion/removal and anchor changes share the text
@@ -59,6 +60,42 @@ a symlink resolves its target; later replacement of that target with a link is r
 Extended attributes, ACLs, hard-link identity, network-filesystem guarantees, and a
 different process racing between the last check and rename need more work. This is
 not an operating-system-wide compare-and-swap protocol.
+
+## Folder workspaces and recovery
+
+One host workspace owns a root, document registry and per-directory watchers.
+The renderer keeps a CodeMirror EditorState per buffer and mounts one EditorView.
+Selection, undo, comments, pending comment text, scroll and saved baselines remain
+with the originating buffer. Saves use captured states and session IDs, including
+background autosave; typing during transfer remains dirty. Dirty native window
+state covers every buffer. Close Folder and Quit check all affected documents.
+
+Folder listings enumerate one directory at a time, with a 10,000-entry limit.
+Only supported text files and ordinary directories appear. Dot entries, internal
+directories, links and junctions are omitted. Root and entry identities are checked
+again when used; old-root requests, traversal and links outside the root fail.
+The app retains up to 64 open buffers and refuses another open at the limit rather
+than evicting edits or undo history.
+
+Nonrecursive filesystem watchers cover up to 64 expanded directories. Visible
+directories also refresh every ten seconds for WSL/network or unavailable watches.
+Hiding the panel releases watches and stops directory refresh; open-document
+conflict polling continues. Unchanged listings do not replace the tree DOM.
+Renames reserve the destination with an exclusive hard link, preserve session
+identity and check the saved disk revision. Unsupported hard-link filesystems fail
+without substituting overwrite-prone rename. Existing names, including case-only
+aliases, are refused. Trash uses the OS recovery mechanism and is disabled for
+Windows network/WSL paths. Legacy sidecars must migrate through Save first.
+
+With Keep unsaved draft enabled, each dirty buffer has its own private atomic
+recovery record, checked every five seconds independently of autosave. Records
+include original path/revision and unfinished comments. Startup migrates the older
+single untitled record only after writing its replacement. Recovered named content
+opens as a separate untitled copy; recovery never replays it over an original.
+Saving or discarding one document cannot clear another document's recovery record.
+Corrupt records remain in place and do not hide valid records. Full workspace
+session restoration (root, expansion and clean documents across app restarts) is
+separate work.
 
 ## Native integration and preview
 

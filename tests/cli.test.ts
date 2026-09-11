@@ -33,3 +33,12 @@ test("CLI requires revision/actor and rejects splitting emoji", () => {
   assert.equal(cli(["edit", path, "--if-revision", revision, "--actor", "test"], { from: 1, to: 1, text: "x" }).status, 2);
   assert.equal(readFileSync(path, "utf8"), "🌿");
 });
+
+test("open-folder requires a directory and file-open keeps its file contract", () => {
+  const folder = mkdtempSync(join(tmpdir(), "sideleaf-cli-folder-")), path = join(folder, "a.md"); writeFileSync(path, "a");
+  assert.equal(cli(["open-folder", path]).status, 2);
+  assert.match(cli(["open-folder", path]).data.error, /folder path/);
+  assert.equal(cli(["open", folder]).status, 2);
+  assert.match(cli(["open", folder]).data.error, /open-folder/);
+  assert.equal(cli(["open-folder", join(folder, "missing")]).status, 2);
+});

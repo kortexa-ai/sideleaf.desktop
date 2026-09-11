@@ -15,7 +15,9 @@ import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } fr
 import { wordCountField } from "./word-count.ts";
 import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
 import { commentRange, makeAnchor } from "../document/anchors.ts";
-import { documentMetadata, SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState, type WindowAction } from "../shared/contracts.ts";
+import { SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState, type WindowAction, type WorkspaceInfo, type OpenResult } from "../shared/contracts.ts";
+import { EditorBuffer } from "./workspace.ts";
+import { FolderTree } from "./folder-tree.ts";
 import { APP_VERSION } from "../shared/version.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -44,6 +46,11 @@ function writeSetting(setting: Setting, value: boolean) {
   settings[setting] = value;
   try { localStorage.setItem(settingKeys[setting], String(value)); } catch { /* Keep the in-memory preference usable. */ }
 }
+const buffers = new Map<string, EditorBuffer>();
+let workspaceInfo: WorkspaceInfo = { id: "", root: null, name: "Sideleaf", explicit: false, activeId: null };
+let folderVisible = false;
+let pendingQuit = false;
+let recoveryRunning = false;
 let current: DocumentMetadata;
 let savedDoc: Text;
 let savedComments = "[]";
@@ -110,7 +117,7 @@ const rpc = Electroview.defineRPC<SideleafRPC>({
   handlers: { messages: { command: (command) => {
     if (command === "openExternal") { pendingExternalOpen = true; void performPendingExternalOpen(); }
     else void perform(command);
-  }, update: renderUpdate } },
+  }, update: renderUpdate, foldersChanged: ({ workspaceId }) => { if (workspaceId === workspaceInfo.id) void folderTree.refresh(); } } },
 });
 // A person choosing a file must not time out while the host still owns the
 // dialog. Other requests retain the bounded timeout for startup diagnostics.
@@ -237,10 +244,12 @@ if (platform !== "linux") {
   document.addEventListener("keydown", (event) => {
     const action = layoutShortcutAction(platform, event);
     if (!action) return;
+    if (document.querySelector("dialog[open]") || event.getModifierState("AltGraph")) return;
     if (action === "toggleComments" && (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) return;
     event.preventDefault(); event.stopPropagation();
     if (event.repeat) return;
     if (action === "toggleMinimalLayout") applyMinimalLayout(!settings.minimalLayout);
+    else if (action === "toggleFolder") void perform("toggleFolder");
     else showComments(element("comments-panel").hidden);
   }, true);
 }
@@ -294,6 +303,7 @@ if (window.__electrobunPlatform !== "linux") {
 const documentBar = document.querySelector<HTMLElement>(".document-bar")!;
 const documentName = documentBar.querySelector<HTMLElement>(".document-name")!;
 const commentsToggle = element<HTMLButtonElement>("comments-toggle");
+const folderToggle = element<HTMLButtonElement>("folder-toggle");
 const minimalActionsContainer = element("minimal-actions-container");
 const minimalActionsToggle = element<HTMLButtonElement>("minimal-actions-toggle");
 const minimalActionsMenu = element("minimal-actions-menu");
@@ -329,10 +339,10 @@ function applyMinimalLayout(enabled: boolean, persist = true) {
   closeDocumentActions();
   if (active) {
     minimalDocumentSlot.append(documentName);
-    minimalCommentsSlot.append(commentsToggle);
+    minimalCommentsSlot.append(folderToggle, commentsToggle);
   } else {
     documentBar.prepend(documentName);
-    documentBar.append(commentsToggle);
+    documentBar.append(folderToggle, commentsToggle);
   }
   const input = document.getElementById("setting-minimal-layout") as HTMLInputElement | null;
   if (input) input.checked = active;
@@ -385,14 +395,16 @@ applyMinimalLayout(settings.minimalLayout, false);
 setHardBreaks(settings.hardBreaks);
 for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave", "autoSave"], ["setting-keep-scratch", "keepScratch"], ["setting-minimal-layout", "minimalLayout"], ["setting-breaks", "hardBreaks"]] as const) {
   const input = element<HTMLInputElement>(id); input.checked = settings[setting];
-  input.onchange = () => {
+  input.onchange = async () => {
     if (setting === "minimalLayout") { applyMinimalLayout(input.checked); return; }
     writeSetting(setting, input.checked);
     if (setting === "wrapLines") view.dispatch({ effects: wrapping.reconfigure(input.checked ? EditorView.lineWrapping : []) });
     if (setting === "hardBreaks") { setHardBreaks(input.checked); previewDirty = true; updatePreview(); }
     if (setting === "keepScratch" && !input.checked) {
       lastScratchJSON = null;
-      void rpc.request.clearScratch().catch((error) => notice((error as Error).message));
+      await Promise.allSettled([...buffers.values()].map((buffer) => buffer.saving ?? Promise.resolve(true)));
+      await rpc.request.clearScratch({}).catch((error) => notice((error as Error).message));
+      for (const buffer of buffers.values()) { buffer.recoveryJSON = null; buffer.recoveryGeneration = -1; }
     }
   };
 }
@@ -413,6 +425,78 @@ document.querySelectorAll<HTMLButtonElement>("[data-close-dialog]").forEach((but
 element("about-website").onclick = () => { void rpc.request.openLink({ url: "https://sideleaf.xyz/" }).catch((error) => notice(error.message)); };
 
 const view = new EditorView({ parent: element("editor"), state: createEditorState("") });
+const folderTree = new FolderTree(element("folder-tree"), element("open-documents"), {
+  list: (workspaceId, key) => rpc.request.listFolder({ workspaceId, key }),
+  watch: (workspaceId, keys) => rpc.request.watchFolders({ workspaceId, keys }),
+  open: (key) => { void run(async () => { applyOpenResult(await rpc.request.openEntry({ workspaceId: workspaceInfo.id, key })); }); },
+  activate: (id) => { void run(async () => { const buffer = buffers.get(id); if (!buffer) return; workspaceInfo = await rpc.request.activateDocument({ id }); activateBuffer(buffer); }); },
+  close: (id) => { void closeBuffer(id); },
+  fileAction: (target, action) => { void fileAction(target, action); },
+});
+function updateFolderVisibility() {
+  const available = !!workspaceInfo.root || buffers.size > 1;
+  if (!available) folderVisible = false;
+  folderToggle.disabled = !available;
+  folderToggle.setAttribute("aria-expanded", String(folderVisible));
+  folderToggle.setAttribute("aria-pressed", String(folderVisible));
+  folderToggle.setAttribute("aria-label", folderVisible ? "Hide folder" : "Show folder");
+  folderToggle.title = `${folderVisible ? "Hide" : "Show"} folder (${layoutShortcutLabel(platform, "f")})`;
+  element("folder-panel").hidden = !folderVisible;
+  element("folder-name").textContent = workspaceInfo.root ? workspaceInfo.name : "Open documents";
+  element("folder-name").title = workspaceInfo.root ?? "";
+  element("folder-tree").hidden = !workspaceInfo.root;
+  element<HTMLButtonElement>("minimal-close-folder").disabled = !workspaceInfo.root;
+  folderTree.setVisible(folderVisible);
+}
+folderToggle.onclick = () => { void perform("toggleFolder"); };
+element("folder-close").onclick = () => { if (folderVisible) void perform("toggleFolder"); };
+element("folder-open").onclick = () => { void perform("openFolder"); };
+element("folder-empty-open").onclick = () => { void perform("openFolder"); };
+element("folder-empty-new").onclick = () => { void perform("new"); };
+const folderResize = element("folder-resize");
+function folderWidth(width: number, persist = true) {
+  width = Math.max(180, Math.min(400, width));
+  document.documentElement.style.setProperty("--folder-width", `${width}px`);
+  folderResize.setAttribute("aria-valuenow", String(Math.round(width)));
+  if (persist) try { localStorage.setItem("sideleaf.folderWidth", String(width)); } catch { /* Retain this window's width. */ }
+}
+try { const stored = Number(localStorage.getItem("sideleaf.folderWidth")); folderWidth(stored >= 180 ? stored : 230, false); } catch { folderWidth(230, false); }
+folderResize.onpointerdown = (event) => { if (event.button !== 0) return; event.preventDefault(); folderResize.setPointerCapture(event.pointerId); };
+folderResize.onpointermove = (event) => { if (folderResize.hasPointerCapture(event.pointerId)) folderWidth(event.clientX - element("workspace").getBoundingClientRect().left); };
+folderResize.onpointerup = (event) => { if (folderResize.hasPointerCapture(event.pointerId)) folderResize.releasePointerCapture(event.pointerId); };
+folderResize.onkeydown = (event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; event.preventDefault(); folderWidth(element("folder-panel").getBoundingClientRect().width + (event.key === "ArrowRight" ? 10 : -10)); };
+document.addEventListener("pointerdown", (event) => {
+  if (folderVisible && innerWidth < 900 && event.target instanceof Node && !element("folder-panel").contains(event.target) && !folderToggle.contains(event.target)) {
+    folderVisible = false; updateFolderVisibility();
+  }
+});
+async function fileAction(target: { key: string } | { id: string }, action: "rename" | "trash") {
+  await run(async () => {
+    if ("key" in target) applyOpenResult(await rpc.request.openEntry({ workspaceId: workspaceInfo.id, key: target.key }));
+    else {
+      const buffer = buffers.get(target.id); if (!buffer) return;
+      workspaceInfo = await rpc.request.activateDocument({ id: target.id }); activateBuffer(buffer);
+    }
+    const buffer = captureActive(); if (!buffer?.metadata.path) return;
+    if (buffer.saving) await buffer.saving;
+    if (action === "trash") {
+      if (!(await canLeave(buffer))) return;
+      const next = await rpc.request.trashDocument({ id: buffer.metadata.id }, userDialog);
+      if (next.document?.id !== buffer.metadata.id) buffers.delete(buffer.metadata.id);
+      applyOpenResult(next); void folderTree.refresh(); return;
+    }
+    const dialog = element<HTMLDialogElement>("rename-dialog"), input = element<HTMLInputElement>("rename-name");
+    input.value = buffer.metadata.name; dialog.returnValue = "";
+    const name = await new Promise<string | null>((resolve) => {
+      dialog.addEventListener("close", () => resolve(dialog.returnValue === "rename" ? input.value : null), { once: true });
+      dialog.showModal(); input.focus(); input.setSelectionRange(0, input.value.lastIndexOf("."));
+    });
+    if (name === null) return;
+    const metadata = await rpc.request.renameDocument({ id: buffer.metadata.id, name });
+    buffer.metadata = metadata; current = metadata; generation++; lastScratchGeneration = -1; buffer.recoveryGeneration = -1;
+    refreshDocumentName(); updateDirty(); void folderTree.refresh();
+  });
+}
 const zoomSlider = element<HTMLInputElement>("zoom-slider");
 zoomSlider.min = String(MIN_ZOOM); zoomSlider.max = String(MAX_ZOOM); zoomSlider.step = String(ZOOM_STEP);
 zoomSlider.oninput = () => applyZoom(Number(zoomSlider.value));
@@ -459,36 +543,89 @@ function createEditorState(text: string, comments: Draft["comments"] = []) {
   });
 }
 
-function draft(): Draft { return { text: view.state.doc.toString(), comments: view.state.field(commentField) }; }
 function commentsJSON() { return JSON.stringify(view.state.field(commentField)); }
+function captureActive(): EditorBuffer | undefined {
+  const buffer = buffers.get(current?.id);
+  if (!buffer) return;
+  buffer.state = view.state; buffer.metadata = current; buffer.savedDoc = savedDoc; buffer.savedComments = savedComments;
+  buffer.generation = generation; buffer.pendingAnchor = pendingAnchor; buffer.pendingGeneration = pendingGeneration;
+  buffer.commentBody = element<HTMLTextAreaElement>("comment-body").value;
+  buffer.editorTop = view.scrollDOM.scrollTop; buffer.editorLeft = view.scrollDOM.scrollLeft;
+  buffer.previewTop = element("preview").parentElement!.scrollTop;
+  buffer.conflict = !element("conflict").hidden;
+  buffer.recoveryJSON = lastScratchJSON; buffer.recoveryGeneration = lastScratchGeneration;
+  return buffer;
+}
+function refreshOpenDocuments() {
+  folderTree.setDocuments([...buffers.values()].map((buffer) => ({ id: buffer.metadata.id, name: buffer.metadata.name, path: buffer.metadata.path, dirty: buffer.dirty || buffer.hasCommentDraft, conflict: buffer.conflict, active: current?.id === buffer.metadata.id })));
+}
 function updateDirty(force = false) {
   if (!current || !savedDoc) return;
   const next = !view.state.doc.eq(savedDoc) || commentsJSON() !== savedComments;
-  if (next !== dirty || force) { dirty = next; rpc.send.dirty({ id: current.id, dirty }); }
-  if (!next && !current.path && lastScratchJSON !== null) {
-    lastScratchJSON = null;
-    void rpc.request.clearScratch().catch((error) => notice((error as Error).message));
+  const buffer = captureActive();
+  if (buffer && (next !== dirty || force)) { dirty = next; rpc.send.dirty({ id: current.id, dirty: next || buffer.hasCommentDraft }); }
+  if (buffer && !next && !buffer.hasCommentDraft && lastScratchJSON !== null) {
+    lastScratchJSON = null; buffer.recoveryJSON = null;
+    void rpc.request.clearScratch({ id: current.id }).catch((error) => notice((error as Error).message));
   }
+  dirty = next;
   element("unsaved").hidden = !dirty;
-  element("status").textContent = busy ? "Working…" : dirty ? "Unsaved changes" : current.path ? "Saved locally" : "Ready to write";
+  element("status").textContent = busy ? "Working…" : !current.id ? "Choose a file in the folder" : dirty ? "Unsaved changes" : current.path ? "Saved locally" : "Ready to write";
+  element<HTMLButtonElement>("save").disabled = !current.id || busy;
+  refreshOpenDocuments();
+}
+function activateBuffer(buffer: EditorBuffer, capture = true) {
+  if (capture) captureActive();
+  const scroll = { top: buffer.editorTop, left: buffer.editorLeft, preview: buffer.previewTop };
+  current = buffer.metadata; savedDoc = buffer.savedDoc; savedComments = buffer.savedComments;
+  generation = buffer.generation; pendingAnchor = buffer.pendingAnchor; pendingGeneration = buffer.pendingGeneration;
+  lastScratchJSON = buffer.recoveryJSON; lastScratchGeneration = buffer.recoveryGeneration;
+  view.setState(buffer.state);
+  view.dispatch({ effects: [readonly.reconfigure(EditorState.readOnly.of(busy)), wrapping.reconfigure(settings.wrapLines ? EditorView.lineWrapping : [])] });
+  element<HTMLTextAreaElement>("comment-body").value = buffer.commentBody;
+  element("comment-form").hidden = !pendingAnchor; element("comment-quote").textContent = pendingAnchor?.quote ?? "";
+  element("conflict").hidden = !buffer.conflict; element("notice").hidden = true;
+  if (buffer.error || current.notice) notice(buffer.error ?? current.notice!);
+  element("workspace").dataset.empty = "false";
+  dirty = buffer.dirty; previewDirty = true;
+  refreshDocumentName(); updateDirty(true); updateWordCount(); updatePreview(); renderComments(); updateSelection();
+  // Restore after the new state's DOM is measured, without scrolling another
+  // buffer if a second activation arrives before this frame.
+  requestAnimationFrame(() => {
+    if (current.id !== buffer.metadata.id) return;
+    view.scrollDOM.scrollTop = scroll.top; view.scrollDOM.scrollLeft = scroll.left;
+    element("preview").parentElement!.scrollTop = scroll.preview;
+  });
+  view.focus(); void folderTree.reveal(current.path);
 }
 function applyDocument(snapshot: DocumentSnapshot, recovered = false) {
-  current = documentMetadata(snapshot);
-  view.setState(createEditorState(snapshot.text, snapshot.comments));
-  savedDoc = recovered ? EditorState.create({ doc: "" }).doc : view.state.doc;
-  savedComments = recovered ? "[]" : commentsJSON();
-  lastScratchJSON = recovered ? JSON.stringify(draft()) : null;
-  dirty = false; generation++; lastScratchGeneration = generation;
+  const buffer = new EditorBuffer(snapshot, createEditorState(snapshot.text, snapshot.comments), recovered);
+  buffers.set(snapshot.id, buffer); activateBuffer(buffer, false);
+}
+function showEmptyWorkspace() {
+  current = { id: "", path: null, name: workspaceInfo.name, lineEnding: "\n", notice: null };
+  savedDoc = EditorState.create({ doc: "" }).doc; savedComments = "[]"; dirty = false;
   pendingAnchor = null; element("comment-form").hidden = true; element("conflict").hidden = true;
-  previewDirty = true;
-  refreshDocumentName(); updateDirty(); updateWordCount(); updatePreview(); renderComments(); updateSelection();
-  if (snapshot.notice) notice(snapshot.notice); else element("notice").hidden = true;
-  if (snapshot.comments.length) showComments(true);
-  view.focus();
+  view.setState(createEditorState("")); view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) });
+  element("workspace").dataset.empty = "true"; element("folder-empty-name").textContent = workspaceInfo.name;
+  refreshDocumentName(); updateDirty(); updateWordCount(); updateSelection(); refreshOpenDocuments();
+}
+function applyOpenResult(result: OpenResult, replace = false) {
+  captureActive();
+  if (replace) buffers.clear();
+  const changed = workspaceInfo.id !== result.workspace.id;
+  workspaceInfo = result.workspace;
+  folderTree.setWorkspace(workspaceInfo);
+  if (result.document) {
+    const existing = buffers.get(result.document.id);
+    if (existing) activateBuffer(existing, false); else applyDocument(result.document);
+  } else showEmptyWorkspace();
+  if (changed && replace) folderVisible = workspaceInfo.explicit;
+  updateFolderVisibility(); refreshOpenDocuments();
 }
 function refreshDocumentName() {
   element("filename").textContent = current.name;
-  element("filepath").textContent = current.path ?? "A little room for your words.";
+  element("filepath").textContent = current.path ?? (!current.id ? workspaceInfo.root : null) ?? "A little room for your words.";
   element("filepath").title = current.path ?? "";
   element("encoding").textContent = `UTF-8 · ${current.lineEnding === "\r\n" ? "CRLF" : "LF"}`;
 }
@@ -507,7 +644,7 @@ function renderUpdate(state: UpdateState) {
 function updateSelection() {
   const selection = view.state.selection.main;
   const line = view.state.doc.lineAt(selection.head);
-  element<HTMLButtonElement>("add-comment").disabled = busy || (selection.empty && line.length === 0);
+  element<HTMLButtonElement>("add-comment").disabled = !current?.id || busy || (selection.empty && line.length === 0);
   element("selection-status").textContent = selection.empty ? `Ln ${line.number}, Col ${selection.head - line.from + 1}` : `${selection.to - selection.from} selected`;
 }
 function updatePreview() {
@@ -530,61 +667,72 @@ function formatSelection(marker: string): boolean {
   view.dispatch({ changes: [{ from, insert: marker }, { from: to, insert: marker }], selection: { anchor: from + marker.length, head: to + marker.length }, userEvent: "input" });
   return true;
 }
-async function stageDraft<T>(complete: (transferId: string) => Promise<T>): Promise<T> {
-  const transferId = crypto.randomUUID();
+async function stageDraft<T>(buffer: EditorBuffer, state: EditorState, complete: (transferId: string) => Promise<T>): Promise<T> {
+  const transferId = crypto.randomUUID(), id = buffer.metadata.id;
   try {
-    const serialized = JSON.stringify(draft());
+    const serialized = JSON.stringify({ text: state.doc.toString(), comments: state.field(commentField) });
     const total = Math.ceil(serialized.length / SAVE_CHUNK_CHARACTERS);
     for (let index = 0; index < total; index++) {
-      await rpc.request.stageSave({ id: current.id, transferId, index, total, text: serialized.slice(index * SAVE_CHUNK_CHARACTERS, (index + 1) * SAVE_CHUNK_CHARACTERS) });
+      await rpc.request.stageSave({ id, transferId, index, total, text: serialized.slice(index * SAVE_CHUNK_CHARACTERS, (index + 1) * SAVE_CHUNK_CHARACTERS) });
     }
     return await complete(transferId);
   } finally { rpc.send.cancelSave({ transferId }); }
 }
-async function save(saveAs = false): Promise<boolean> {
-  // Record the exact snapshot stageDraft serializes, so text typed while a
-  // non-blocking autosave runs still reports as unsaved.
-  const savedText = view.state.doc; const savedCommentsSnapshot = commentsJSON();
-  const result = await stageDraft((transferId) => rpc.request.save({ id: current.id, transferId, saveAs }, userDialog));
-  if (!result) return false;
-  current = result; savedDoc = savedText; savedComments = savedCommentsSnapshot;
-  lastScratchJSON = null;
-  element("conflict").hidden = true; element("notice").hidden = true;
-  refreshDocumentName();
-  // The host optimistically clears its dirty mirror during the save RPC; a
-  // non-blocking save can leave the renderer dirty (typing during the
-  // transfer), so force the true state back to the native title.
-  updateDirty(true); return true;
+async function saveBuffer(buffer: EditorBuffer, saveAs = false): Promise<boolean> {
+  if (buffer.saving) await buffer.saving;
+  captureActive();
+  if (buffer.conflict && !saveAs) throw new Error("This file changed on disk. Reload it or save a copy first.");
+  const state = buffer.state, id = buffer.metadata.id, folderKey = folderTree.selectedDirectory;
+  const operation = (async () => {
+    const result = await stageDraft(buffer, state, (transferId) => rpc.request.save({ id, transferId, saveAs, folderKey }, userDialog));
+    if (!result || buffers.get(id) !== buffer) return false;
+    buffer.saved(result, state);
+    if (current.id === id) {
+      current = result; savedDoc = buffer.savedDoc; savedComments = buffer.savedComments;
+      lastScratchJSON = null; lastScratchGeneration = -1;
+      element("conflict").hidden = true; element("notice").hidden = true; refreshDocumentName(); updateDirty(true);
+    } else rpc.send.dirty({ id, dirty: buffer.dirty || buffer.hasCommentDraft });
+    workspaceInfo = await rpc.request.workspace(); folderTree.setWorkspace(workspaceInfo);
+    updateFolderVisibility(); refreshOpenDocuments();
+    return true;
+  })();
+  buffer.saving = operation;
+  try { return await operation; } finally { if (buffer.saving === operation) buffer.saving = null; }
 }
-async function persistScratch(): Promise<void> {
-  if (current.path || !settings.keepScratch) return;
-  if (generation === lastScratchGeneration) return;
-  const serialized = JSON.stringify(draft());
-  if (serialized === lastScratchJSON) { lastScratchGeneration = generation; return; }
-  await stageDraft((transferId) => rpc.request.saveScratch({ id: current.id, transferId }));
-  lastScratchJSON = serialized;
-  lastScratchGeneration = generation;
-}
-async function clearScratch(): Promise<void> {
-  lastScratchJSON = null;
-  lastScratchGeneration = generation;
-  await rpc.request.clearScratch();
-}
-function hasCommentDraft(): boolean {
-  return !!pendingAnchor && !!element<HTMLTextAreaElement>("comment-body").value.trim();
-}
-async function canLeave(): Promise<boolean> {
-  if (hasCommentDraft()) {
-    showComments(true);
-    notice("Add or cancel the comment you are writing before leaving this document.");
-    element<HTMLTextAreaElement>("comment-body").focus();
-    return false;
+async function persistScratch(buffer: EditorBuffer): Promise<void> {
+  if (!settings.keepScratch || buffer.saving) return;
+  if (buffer.metadata.id === current.id) captureActive();
+  if (buffer.generation === buffer.recoveryGeneration) return;
+  const generationAtSave = buffer.generation, state = buffer.state;
+  const pending = buffer.hasCommentDraft ? { anchor: buffer.pendingAnchor!, body: buffer.commentBody, valid: buffer.generation === buffer.pendingGeneration } : null;
+  const serialized = JSON.stringify({ draft: buffer.draft(), pending });
+  if (serialized !== buffer.recoveryJSON) {
+    const operation = stageDraft(buffer, state, (transferId) => rpc.request.saveScratch({ id: buffer.metadata.id, transferId, pending }));
+    buffer.saving = operation;
+    try { await operation; } finally { if (buffer.saving === operation) buffer.saving = null; }
   }
-  if (!dirty) return true;
-  const choice = await rpc.request.confirmDiscard(undefined, userDialog);
-  if (choice === "save") return save();
-  if (choice !== "discard") return false;
-  if (!current.path) await clearScratch();
+  buffer.recoveryJSON = serialized; buffer.recoveryGeneration = generationAtSave;
+  if (current.id === buffer.metadata.id) { lastScratchJSON = serialized; lastScratchGeneration = generationAtSave; }
+}
+function hasCommentDraft(): boolean { return !!pendingAnchor && !!element<HTMLTextAreaElement>("comment-body").value.trim(); }
+async function canLeave(buffer = captureActive(), keepUntitled = false): Promise<boolean> {
+  if (!buffer) return true;
+  if (buffer.saving) await buffer.saving;
+  captureActive();
+  if (buffer.hasCommentDraft) {
+    if (current.id !== buffer.metadata.id) { workspaceInfo = await rpc.request.activateDocument({ id: buffer.metadata.id }); activateBuffer(buffer); }
+    showComments(true); notice("Add or cancel the comment you are writing before leaving this document.");
+    element<HTMLTextAreaElement>("comment-body").focus(); return false;
+  }
+  if (!buffer.dirty) return true;
+  if (keepUntitled && !buffer.metadata.path && settings.keepScratch) { await persistScratch(buffer); return true; }
+  const choice = await rpc.request.confirmDiscard({ id: buffer.metadata.id }, userDialog);
+  if (choice === "save") return saveBuffer(buffer);
+  return choice === "discard";
+}
+async function canLeaveAll(keepUntitled = false): Promise<boolean> {
+  captureActive();
+  for (const buffer of buffers.values()) if (!(await canLeave(buffer, keepUntitled))) return false;
   return true;
 }
 async function run(operation: () => Promise<void>, blockInput = true) {
@@ -597,26 +745,39 @@ async function run(operation: () => Promise<void>, blockInput = true) {
   catch (error) { notice((error as Error).message || String(error)); }
   finally {
     busy = false;
-    if (blockInput) view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(false)) });
+    if (blockInput) view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(!current.id)) });
     updateDirty(); updateSelection();
-    if (pendingExternalOpen) queueMicrotask(() => { void performPendingExternalOpen(); });
+    if (pendingQuit) { pendingQuit = false; queueMicrotask(() => { void perform("quit"); }); }
+    else if (pendingExternalOpen) queueMicrotask(() => { void performPendingExternalOpen(); });
   }
 }
 async function performPendingExternalOpen() {
   if (!pendingExternalOpen || busy || !current) return;
   pendingExternalOpen = false;
   await run(async () => {
-    if (!(await canLeave())) { await rpc.request.cancelPendingOpen(); return; }
+    if (!(await canLeaveAll())) { await rpc.request.cancelPendingOpen(); return; }
+    const replace = !workspaceInfo.explicit;
     const next = await rpc.request.openPending();
-    if (next) applyDocument(next);
+    if (next) applyOpenResult(next, replace || next.workspace.id !== workspaceInfo.id);
+  });
+}
+async function closeBuffer(id: string) {
+  await run(async () => {
+    const buffer = buffers.get(id); if (!buffer || !(await canLeave(buffer))) return;
+    const next = await rpc.request.closeDocument({ id }); buffers.delete(id); applyOpenResult(next);
   });
 }
 async function perform(command: Command) {
   if (command === "zoomIn" || command === "zoomOut" || command === "zoomReset") {
     applyZoom(command === "zoomReset" ? DEFAULT_ZOOM : changeZoom(documentZoom, command === "zoomIn" ? 1 : -1)); return;
   }
-  if (busy || !current) return;
   if (command === "openExternal") { pendingExternalOpen = true; await performPendingExternalOpen(); return; }
+  if (busy || !current) { if (command === "quit") pendingQuit = true; return; }
+  if (command === "toggleFolder") {
+    if (folderToggle.disabled) return;
+    if (distractionFree) { await setDistractionFree(false); folderVisible = true; } else folderVisible = !folderVisible;
+    updateFolderVisibility(); if (!folderVisible) view.focus(); return;
+  }
   if (command === "modeWrite" || command === "modeSplit" || command === "modeRead") {
     setMode(command === "modeWrite" ? "write" : command === "modeSplit" ? "split" : "read"); return;
   }
@@ -624,26 +785,23 @@ async function perform(command: Command) {
   if (command === "about") { showAbout(); return; }
   if (command === "settings") { showSettings(); return; }
   if (command === "makeDefaultEditor") { showDefaultEditor(); return; }
-  if (command === "comment") { beginComment(); return; }
-  if (command === "find") { openSearchPanel(view); return; }
-  if (command === "undo" || command === "redo") { (command === "undo" ? undo : redo)(view); view.focus(); return; }
+  if (command === "comment") { if (current.id) beginComment(); return; }
+  if (command === "find") { if (current.id) openSearchPanel(view); return; }
+  if (command === "undo" || command === "redo") { if (current.id) (command === "undo" ? undo : redo)(view); view.focus(); return; }
+  if (command === "close") { if (current.id) await closeBuffer(current.id); return; }
   await run(async () => {
-    if (command === "save" || command === "saveAs") { await save(command === "saveAs"); return; }
-    if (command === "quit" && !current.path && dirty && settings.keepScratch) {
-      if (hasCommentDraft()) {
-        showComments(true);
-        notice("Add or cancel the comment you are writing before quitting Sideleaf.");
-        element<HTMLTextAreaElement>("comment-body").focus();
-        return;
-      }
-      await persistScratch();
-      await rpc.request.finishClose({ quit: true });
-      return;
+    if (command === "save" || command === "saveAs") { const buffer = captureActive(); if (buffer) await saveBuffer(buffer, command === "saveAs"); return; }
+    if (command === "quit") {
+      if (!(await canLeaveAll(true))) return;
+      for (const buffer of buffers.values()) if (buffer.metadata.path) await rpc.request.clearScratch({ id: buffer.metadata.id });
+      await rpc.request.finishClose({ quit: true }); return;
     }
-    if (!(await canLeave())) return;
-    if (command === "open") { const next = await rpc.request.open(undefined, userDialog); if (next) applyDocument(next); }
-    else if (command === "new" || command === "close") applyDocument(await rpc.request.newDocument());
-    else await rpc.request.finishClose({ quit: true });
+    const replace = command === "openFolder" || command === "closeFolder" || !workspaceInfo.explicit;
+    if (replace && !(await canLeaveAll())) return;
+    if (command === "open") { const next = await rpc.request.open(undefined, userDialog); if (next) applyOpenResult(next, replace); }
+    else if (command === "openFolder") { const next = await rpc.request.openFolder(undefined, userDialog); if (next) applyOpenResult(next, true); }
+    else if (command === "closeFolder") applyOpenResult(await rpc.request.closeFolder(), true);
+    else if (command === "new") applyOpenResult(await rpc.request.newDocument(), replace);
   });
 }
 function showComments(show: boolean) {
@@ -708,8 +866,8 @@ function setMode(mode: string, focusDocument = true) {
   if (focusDocument && mode !== "read") view.focus();
   else if (focusDocument && distractionFree) element<HTMLElement>("preview").parentElement!.focus();
 }
-for (const action of ["new", "open", "find", "save"] as const) element(action).onclick = () => { closeDocumentActions(); void perform(action); };
-for (const [id, action] of [["minimal-new", "new"], ["minimal-open", "open"], ["minimal-save", "save"], ["minimal-save-as", "saveAs"], ["minimal-find", "find"]] as const) {
+for (const action of ["new", "open", "openFolder", "find", "save"] as const) element(action).onclick = () => { closeDocumentActions(); void perform(action); };
+for (const [id, action] of [["minimal-new", "new"], ["minimal-open", "open"], ["minimal-open-folder", "openFolder"], ["minimal-close-folder", "closeFolder"], ["minimal-close", "close"], ["minimal-save", "save"], ["minimal-save-as", "saveAs"], ["minimal-find", "find"]] as const) {
   element(id).onclick = () => { closeDocumentActions(); void perform(action); };
 }
 document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((button) => {
@@ -725,7 +883,8 @@ commentsToggle.onclick = () => showComments(element("comments-panel").hidden);
 element("comments-close").onclick = () => showComments(false);
 element("dismiss-notice").onclick = () => { element("notice").hidden = true; };
 element("dismiss-update").onclick = () => { void rpc.request.dismissUpdate(); };
-element("cancel-comment").onclick = () => { pendingAnchor = null; element("comment-form").hidden = true; view.focus(); };
+element("comment-body").addEventListener("input", () => { lastScratchGeneration = -1; updateDirty(true); });
+element("cancel-comment").onclick = () => { pendingAnchor = null; element("comment-form").hidden = true; lastScratchGeneration = -1; updateDirty(true); view.focus(); };
 element("comment-form").onsubmit = (event) => {
   event.preventDefault();
   const body = element<HTMLTextAreaElement>("comment-body").value.trim();
@@ -733,7 +892,7 @@ element("comment-form").onsubmit = (event) => {
   if (generation !== pendingGeneration) { notice("The document changed while you wrote this comment. Select the passage again before adding it."); return; }
   const comment = { id: crypto.randomUUID(), body, createdAt: new Date().toISOString(), anchor: pendingAnchor };
   view.dispatch({ effects: setComments.of([...view.state.field(commentField), comment]), annotations: isolateHistory.of("full") });
-  pendingAnchor = null; element("comment-form").hidden = true; view.focus();
+  pendingAnchor = null; element("comment-form").hidden = true; lastScratchGeneration = -1; updateDirty(true); view.focus();
 };
 element("save-copy").onclick = () => { void perform("saveAs"); };
 element("reload").onclick = () => { void run(async () => {
@@ -746,26 +905,58 @@ element("preview").onclick = (event) => {
 };
 
 setInterval(() => { void checkDisk(); }, 2000);
+setInterval(() => { if (folderVisible) void folderTree.refresh(); }, 10_000);
 setInterval(() => {
-  if (!settings.autoSave || !dirty || busy || !current || view.composing || hasCommentDraft()) return;
-  // Autosave must not block typing: the host re-checks the disk before
-  // committing, and the staged snapshot is a consistent point in time.
-  void run(async () => {
-    if (!dirty) return;
-    if (current.path) await save();
-    else if (settings.keepScratch) await persistScratch();
-  }, false);
+  if (!settings.autoSave || busy || !current || view.composing) return;
+  captureActive();
+  void (async () => {
+    for (const buffer of buffers.values()) {
+      if (busy || view.composing) break;
+      if (!buffer.dirty || !buffer.metadata.path || buffer.saving || buffer.conflict) continue;
+      try { await saveBuffer(buffer); }
+      catch (error) { buffer.error = `Could not save ${buffer.metadata.name}: ${(error as Error).message}`; notice(buffer.error); }
+    }
+    refreshOpenDocuments();
+  })();
 }, 30_000);
+setInterval(() => {
+  if (!settings.keepScratch || busy || recoveryRunning || !current || view.composing) return;
+  captureActive(); recoveryRunning = true;
+  void (async () => {
+    try { for (const buffer of buffers.values()) if ((buffer.dirty || buffer.hasCommentDraft) && !buffer.saving) await persistScratch(buffer); }
+    catch (error) { notice(`Draft recovery failed: ${(error as Error).message}`); }
+    finally { recoveryRunning = false; }
+  })();
+}, 5000);
 async function checkDisk() {
-  if (!current?.path || busy || checking || view.composing) return;
-  checking = true;
-  const id = current.id;
+  if (busy || checking || !current || view.composing) return;
+  captureActive(); checking = true;
   try {
-    const result = await rpc.request.check({ id });
-    if (id !== current.id || busy) return;
-    if (!result.changed) { element("conflict").hidden = true; return; }
-    if (dirty || hasCommentDraft() || result.error) { element("conflict").hidden = false; if (result.error) notice(result.error); }
-    else await run(async () => { applyDocument(await rpc.request.reload({ id })); notice("Reloaded changes made outside Sideleaf."); });
+    for (const buffer of buffers.values()) {
+      const id = buffer.metadata.id;
+      if (!buffer.metadata.path || buffer.saving || busy) continue;
+      const state = buffer.state;
+      const result = await rpc.request.check({ id });
+      if (buffers.get(id) !== buffer || buffer.saving || busy) continue;
+      if (current.id === id) captureActive();
+      if (!result.changed) { buffer.conflict = false; if (current.id === id) element("conflict").hidden = true; continue; }
+      if (buffer.dirty || buffer.hasCommentDraft || result.error || buffer.state.doc !== state.doc) {
+        buffer.conflict = true; buffer.error = result.error;
+        if (current.id === id) { element("conflict").hidden = false; if (result.error) notice(result.error); }
+      } else {
+        await run(async () => {
+          if (current.id === id) captureActive();
+          if (buffer.dirty || buffer.hasCommentDraft || buffer.saving) return;
+          const snapshot = await rpc.request.reload({ id });
+          if (buffers.get(id) !== buffer) return;
+          const next = new EditorBuffer(snapshot, createEditorState(snapshot.text, snapshot.comments));
+          next.editorTop = buffer.editorTop; next.editorLeft = buffer.editorLeft; next.previewTop = buffer.previewTop;
+          buffers.set(id, next);
+          if (current.id === id) { activateBuffer(next, false); notice("Reloaded changes made outside Sideleaf."); }
+        });
+      }
+    }
+    refreshOpenDocuments();
   } catch (error) { notice((error as Error).message); }
   finally { checking = false; }
 }
@@ -773,7 +964,20 @@ async function checkDisk() {
 async function initialize() {
   try {
     const initial = await rpc.request.initial({ restoreScratch: settings.keepScratch });
-    applyDocument(initial.document, initial.recoveredScratch);
+    workspaceInfo = initial.workspace;
+    folderTree.setWorkspace(workspaceInfo);
+    for (const recovered of initial.recovered) {
+      const buffer = new EditorBuffer(recovered.document, createEditorState(recovered.document.text, recovered.document.comments), true);
+      buffer.originalPath = recovered.originalPath;
+      if (recovered.pending) { buffer.pendingAnchor = recovered.pending.anchor; buffer.commentBody = recovered.pending.body; buffer.pendingGeneration = recovered.pending.valid ? buffer.generation : -1; }
+      rpc.send.dirty({ id: buffer.metadata.id, dirty: buffer.dirty || buffer.hasCommentDraft });
+      if (recovered.originalPath) { buffer.metadata.name = `${recovered.originalPath.split(/[\\/]/).at(-1)} (recovered)`; buffer.metadata.notice = `Recovered unsaved changes from ${recovered.originalPath}. Save a copy to keep them; the original file was not changed.`; }
+      buffers.set(buffer.metadata.id, buffer);
+    }
+    if (initial.document) { const existing = buffers.get(initial.document.id); if (existing) activateBuffer(existing, false); else applyDocument(initial.document); }
+    else showEmptyWorkspace();
+    folderVisible = workspaceInfo.explicit || initial.recovered.length > 1;
+    updateFolderVisibility();
     if (initial.recoveryError) notice(initial.recoveryError);
     renderUpdate(await rpc.request.updateState());
     rpc.send.ready({ userAgent: navigator.userAgent });

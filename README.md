@@ -5,7 +5,7 @@ A small desktop Markdown editor for your words and your files.
 Sideleaf uses Electrobun, Cottontail, CodeMirror 6, and the operating system's webview.
 It is an independent implementation with its own product and document boundaries.
 
-Sideleaf 0.1 supports a single Markdown document, native Open and Save As,
+Sideleaf 0.1 supports Markdown files and folders, native Open and Save As,
 literal source editing, live preview, find/replace, and anchored comments with undo.
 Comments and retained revision metadata are embedded in the Markdown file; copy the
 `.md` file to carry them with your writing. Existing comment sidecars migrate on save.
@@ -16,6 +16,26 @@ runtime and needs no separate Node, Bun, or npm installation.
 agents the safe read, edit, and comment workflow.
 Sideleaf registers as a Markdown editor with both operating systems, offers a
 distraction-free full-screen workspace, and scales editor and preview text together.
+
+## Files and folders
+
+Choose **Folder… / Open Folder…** to browse a folder and its nested Markdown and
+text files. Folders expand as needed; opening a folder does not load every file.
+Click a file to edit it. Switching between open documents preserves unsaved text,
+comments, undo history and position. **Open documents** also keeps untitled and
+outside-folder files within reach; its × buttons close individual documents.
+
+The folder icon beside Comments shows or hides the sidebar: **⌘⇧F** on macOS or
+**Ctrl+Alt+F** on Windows. Opening a folder shows it initially; opening a single
+file hides it initially and uses that file's containing folder when shown.
+New inside a folder keeps the workspace and starts Save As in the selected folder.
+A standalone new document has no folder to show until saved. Hiding the sidebar
+keeps the workspace open; **File → Close Folder** closes it with unsaved-change checks.
+
+Right-click a file or open-document name to rename it or move it to Trash / the
+Recycle Bin. Folder creation and folder rename/move are not included. The tree
+shows supported text files, omits dot entries and internal directories, and does
+not follow links or junctions. Open a linked target directly when needed.
 
 ## Download
 
@@ -73,9 +93,11 @@ No image API key or image generation service is used at app runtime.
 
 - UTF-8 (with or without BOM), consistent LF or CRLF, files up to 10 MiB. Unsupported
   encodings and mixed line endings are rejected without changing the file.
-- Autosave runs every 30 seconds by default. Named documents save to their file;
-  one untitled draft can recover from private local app data after a restart. Both
-  behaviors have simple settings. Closing a dirty document still offers Save,
+- Autosave runs every 30 seconds by default for all edited named documents,
+  including inactive buffers. Keep unsaved draft stores separate private recovery
+  copies every five seconds, independently of autosave. Recovered named drafts
+  open as untitled copies with their original path shown; they never overwrite
+  the original automatically. Both behaviors have simple settings. Closing a dirty document offers Save,
   Discard, or Cancel, and external changes show Save a copy and Reload options.
 - Markdown preview supports common Markdown and tables. Raw HTML and image loading
   are disabled. Only HTTP, HTTPS, and email links open externally. The preview shows
@@ -83,7 +105,12 @@ No image API key or image generation service is used at app runtime.
 - Comments participate in undo/redo. Editing their selected text makes them visibly
   unanchored; undo restores the prior anchor. Sideleaf metadata uses its own versioned,
   documented format.
-- Tabs, workspaces, advanced review, recovery for multiple untitled drafts, and full
+- Up to 64 documents can stay open; reaching the limit asks you to close one
+  without discarding other buffers. Directory listings stop after 10,000 entries.
+  Rename requires filesystem hard-link support; for a case-only change on a
+  case-insensitive filesystem, use an intermediate name. Save legacy sidecar
+  documents once before rename or Trash. Trash is unavailable for network/WSL paths.
+- Tabs, multiple folder roots, full workspace session restoration, advanced review, and full
   accessibility/IME acceptance remain later work.
 
 See [PLAN.md](PLAN.md) for product direction and [prototype decisions](docs/prototype.md)
