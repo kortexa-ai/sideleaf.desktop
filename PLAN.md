@@ -223,12 +223,12 @@ These additions define planned product behavior, not a claim of implementation.
   and semantic merge require their own design and adversarial fixtures. They are not MVP
   dependencies.
 
-### Proposed live document collaboration
+### Live document collaboration
 
-The next collaboration contract is proposed in
-[the #59 design](planning/work-units/sideleaf.desktop-59.md). This is a planning
-proposal, not implemented behavior or release authorization. The current CLI
-contract above remains in force until its versioned replacement is accepted.
+The next collaboration contract is defined in
+[the #59 design](planning/work-units/sideleaf.desktop-59.md). These requirements
+define planned product behavior, not a claim of implementation. The existing
+headless CLI keeps its contract while the versioned collaboration API is built.
 
 - Route cooperating agents into the actual open buffer, including unsaved and
   inactive documents, using an explicit path or document ID. With established
@@ -237,7 +237,7 @@ contract above remains in force until its versioned replacement is accepted.
 - Apply one validated batch as one undo step. Distinguish live application from
   disk persistence and honor autosave. Keep existing external-conflict checks,
   recovery and portable annotations; no automatic disk merge is proposed.
-- Propose operation-scoped guards: exact unique quoted targets for passage edits,
+- Use operation-scoped guards: exact unique quoted targets for passage edits,
   semantic thread revisions for replies/state changes, and whole-document
   revisions for whole-body or legacy offset writes. Allow an additional global
   guard for any batch. This explicitly amends the current mandatory whole-file
@@ -251,7 +251,8 @@ contract above remains in force until its versioned replacement is accepted.
   Windows CLI. Require native macOS, native Windows/CMD and Windows/WSL acceptance,
   plus separate proof of each supported harness's wakeup behavior.
 
-No additional daemon, database or custom cryptographic protocol is proposed.
+Keep the implementation free of an additional daemon, database or custom
+cryptographic protocol.
 Reader markers, richer change display and recovery-format changes remain deferred.
 
 No built-in accounts, cloud sync service, telemetry pipeline, model runtime, collaboration

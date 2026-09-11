@@ -1,9 +1,9 @@
-# Sideleaf document collaboration — proposed design
+# Sideleaf document collaboration design
 
 Owning issue: <https://github.com/kortexa-ai/sideleaf.desktop/issues/59>
-Product direction: [PLAN.md](../../PLAN.md#proposed-live-document-collaboration)
+Product direction: [PLAN.md](../../PLAN.md#live-document-collaboration)
 
-This design describes a proposed collaboration contract, its delivery sequence and acceptance gates. It does not authorize implementation or release. The scoped write guards below amend the current whole-file revision policy for the new contract; that amendment remains a proposal until the implementation plan is accepted.
+This design defines the versioned collaboration contract, delivery sequence and acceptance gates. The scoped write guards below amend the whole-file revision policy for the new contract; existing headless commands retain their documented guards. Transport details remain provisional until the integrated native-app gate passes.
 
 ## Recommended approach
 
@@ -15,7 +15,7 @@ The existing WSL wrapper already invokes the Windows CLI/runtime. Preserve that 
 
 - Reads return the current buffer, including unsaved edits. A compact document list identifies named, untitled, active, and inactive documents. Commands target an exact path or explicit document ID, never whichever tab happens to be active.
 - One validated batch becomes one isolated undoable editor transaction. It preserves selection and does not activate another document. If the renderer is composing text, reject the apply with retryable BUSY; do not leave a delayed mutation queued. The same pure operation evaluator supplies the offline path.
-- Evaluate every guard against the actual editor state immediately before dispatch. An open document has an opaque instance/document/generation revision; a saved revision is an exact disk-content hash. Do not keep a second editable host copy synchronized on every keystroke. The scoped guard proposal below avoids rejecting a local passage edit merely because the human typed elsewhere.
+- Evaluate every guard against the actual editor state immediately before dispatch. An open document has an opaque instance/document/generation revision; a saved revision is an exact disk-content hash. Do not keep a second editable host copy synchronized on every keystroke. The scoped guards below avoid rejecting a local passage edit merely because the human typed elsewhere.
 - Read and write receipts distinguish live application from durable file persistence. Honor the existing autosave setting. With autosave off, an agent edit stays dirty and recoverable like a human edit; it must not silently save the human's unrelated draft changes. An explicit Save can save the whole named document through the normal save path. Untitled documents require the user's normal Save As choice.
 - Keep existing disk conflict checks. Uncooperative external editors and stale agent requests can still conflict. Routing cooperating agents into the buffer removes the routine disk-versus-buffer collision; it does not make every conflict impossible.
 - A busy, hung, closing, incompatible, or uncertain app must never trigger a silent fallback to writing its document on disk. Bound requests; expired queued writes cannot apply later. On an uncertain result, return its request identity and require reconciliation. In-session request deduplication is sufficient initially; do not invent an unbounded exactly-once journal.
@@ -32,7 +32,7 @@ Transport choice is provisional until integrated native-app tests pass. A fallba
 
 ## Agent efficiency
 
-Add a batch operation interface with exact quote selection and optional disambiguating context. A missing or ambiguous match rejects the entire batch. Evaluate operations in order against a temporary draft, validate the complete result, and commit once. Quote selection removes UTF-16 calculation from normal agent use. The proposed new contract deliberately replaces the blanket whole-file precondition with operation-scoped guards:
+Add a batch operation interface with exact quote selection and optional disambiguating context. A missing or ambiguous match rejects the entire batch. Evaluate operations in order against a temporary draft, validate the complete result, and commit once. Quote selection removes UTF-16 calculation from normal agent use. The new contract replaces the blanket whole-file precondition with operation-scoped guards:
 
 | Operation | Required guard |
 | --- | --- |
@@ -67,7 +67,7 @@ Cancellation, app closure, and finite timeouts terminate cleanly. The installed 
 2. **Ship the useful collaboration loop.** Shared batch operations, quote addressing, compact reads/receipts, threads (#35), and quiet cursor-based waiting. Include transaction highlights and truthful activity, honor autosave and preserve existing recovery. Threads may progress independently if transport stalls, but that is not integrated live collaboration.
 3. **Add proposals.** Suggest/accept/reject on that same operation path, with restrained UI and explicit stale-target handling. Reader markers and richer change visualization can follow independently.
 
-Do not bundle #47's unrelated quit and abandoned-lock UI work into this plan accidentally. Reuse its agreed recovery semantics where necessary and keep issue ownership clear. No implementation or release is part of this planning request.
+Do not bundle #47's unrelated quit and abandoned-lock UI work into this plan accidentally. Reuse its agreed recovery semantics where necessary and keep issue ownership clear. Deliver the foundation, collaboration loop and suggestions as separate work units through their acceptance gates.
 
 ## Acceptance matrix
 
