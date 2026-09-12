@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
 import { relocateComment } from "./anchors.ts";
 import { isPlainText } from "../shared/document-type.ts";
+import { windowsFileKey } from "../platform/windows-channel.ts";
 
 import { hash, parseMetadata, splitMetadata, embedMetadata, type Metadata, type CommentRevision } from "./metadata.ts";
 type DiskState = { bytes: Buffer; metadata: Buffer | null; mode: number; signature: string; statKey: string };
@@ -90,14 +91,19 @@ function readOptional(path: string): Buffer | null {
   try { return readFileSync(path); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
-// Cheap on-disk fingerprint for the 2-second poll: lstat only, no reads.
+// Cheap on-disk fingerprint for the 2-second poll: metadata only, no content reads.
 // Captured before the bytes are read, so a change that lands after the stat
 // is always visible on the next poll. ctime plus device/inode catch
 // same-size edits that restore mtime and files replaced with copied times.
-// Limit: a writer that resets every timestamp in place (possible on
-// Windows) is invisible to stat-only detection; the save path still
-// re-reads full content before committing.
+// Windows uses the native FILE_BASIC_INFO change time and file identity because
+// Bun exposes the creation time as ctime there. A writer with raw filesystem
+// access can still reset all timestamps; the save path always re-reads content.
 function diskStatKey(path: string): string | null {
+  if (process.platform === "win32") {
+    const primary = windowsFileKey(path);
+    if (primary === null) return null;
+    return `${primary}|${windowsFileKey(metadataPath(path)) ?? "-"}`;
+  }
   let stat;
   try { stat = lstatSync(path); } catch { return null; }
   let sidecar = "-";
@@ -236,7 +242,7 @@ export class DocumentFile {
       matched && matched !== sidecar.revisions[0] ? "Recovered the comment revision matching this file after an interrupted save." : null;
   }
 
-  // Poll with lstat only while the fingerprint matches the last successful
+  // Poll with metadata only while the fingerprint matches the last successful
   // comparison. Reuse both clean and conflicting results so a known conflict
   // stays visible without reading and hashing its bytes again. Missing files
   // and uncached fingerprints fall through to the full read, including errors.

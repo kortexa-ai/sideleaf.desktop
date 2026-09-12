@@ -108,7 +108,8 @@ test("a live PID with a missing endpoint is retryable uncertainty, not absence o
   mkdirSync(paths.directory, { recursive: true, mode: 0o700 }); chmodSync(paths.directory, 0o700);
   mkdirSync(paths.socketDirectory, { recursive: true, mode: 0o700 }); chmodSync(paths.socketDirectory, 0o700);
   const endpoint = join(paths.socketDirectory, `${paths.key}-${crypto.randomUUID()}.sock`);
-  writeFileSync(paths.discovery, `${JSON.stringify({ contract: APP_CHANNEL_CONTRACT, protocol: APP_CHANNEL_PROTOCOL, instanceId: crypto.randomUUID(), token: crypto.randomUUID(), pid: process.pid, startedAt: new Date().toISOString(), endpoint })}\n`, { mode: 0o600 });
+  writeFileSync(paths.discovery, `${JSON.stringify({ contract: APP_CHANNEL_CONTRACT, protocol: APP_CHANNEL_PROTOCOL, instanceId: crypto.randomUUID(), token: crypto.randomUUID(), pid: process.pid,
+    startedAt: new Date().toISOString(), processStartedAtMs: Math.round(Date.now() - process.uptime() * 1_000), endpoint })}\n`, { mode: 0o600 });
   chmodSync(paths.discovery, 0o600);
   await assert.rejects(requestApp(root, { kind: "collaboration", operation: { kind: "ownership", target: { path: join(root, "draft.md") } } }),
     (error: unknown) => !!error && typeof error === "object" && (error as { code?: unknown }).code === "UNCERTAIN" &&
@@ -166,9 +167,29 @@ test("a dead app record does not block a cold launch even when its socket is gon
   mkdirSync(paths.directory, { recursive: true, mode: 0o700 });
   if (process.platform !== "win32") chmodSync(paths.directory, 0o700);
   const endpoint = process.platform === "win32" ? `\\\\.\\pipe\\sideleaf-${paths.key}-${crypto.randomUUID()}` : join(paths.socketDirectory, `${paths.key}-${crypto.randomUUID()}.sock`);
-  writeFileSync(paths.discovery, `${JSON.stringify({ contract: APP_CHANNEL_CONTRACT, protocol: APP_CHANNEL_PROTOCOL, instanceId: crypto.randomUUID(), token: crypto.randomUUID(), pid: 999_999_999, startedAt: new Date().toISOString(), endpoint })}\n`, { mode: 0o600 });
+  writeFileSync(paths.discovery, `${JSON.stringify({ contract: APP_CHANNEL_CONTRACT, protocol: APP_CHANNEL_PROTOCOL, instanceId: crypto.randomUUID(), token: crypto.randomUUID(), pid: 999_999_999,
+    startedAt: new Date().toISOString(), processStartedAtMs: 1, endpoint })}\n`, { mode: 0o600 });
   if (process.platform !== "win32") chmodSync(paths.discovery, 0o600);
   assert.deepEqual(await deliverAppCommand(root, { kind: "activate" }), { delivered: false, requestId: null });
+});
+
+test("Windows rejects a reused live PID before connecting to a recorded pipe", async () => {
+  if (process.platform !== "win32") return;
+  const root = userData();
+  const started = await startAppChannel(root, async () => {});
+  assert.equal(started.kind, "primary");
+  const paths = appChannelPaths(root), record = JSON.parse(readFileSync(paths.discovery, "utf8"));
+  await (started as AppChannel).close();
+  const endpoint = `${record.endpoint}-reused`;
+  const received: string[] = [];
+  const server = createServer((socket) => socket.on("data", (chunk) => received.push(String(chunk))));
+  await new Promise<void>((accept, reject) => { server.once("error", reject); server.listen(endpoint, accept); });
+  record.endpoint = endpoint; record.processStartedAtMs++;
+  writeFileSync(paths.discovery, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+  try {
+    assert.deepEqual(await deliverAppCommand(root, { kind: "activate" }), { delivered: false, requestId: null });
+    assert.deepEqual(received, []);
+  } finally { await new Promise<void>((accept) => server.close(() => accept())); }
 });
 
 test("app-data roots preserve stable/dev separation", () => {

@@ -1,4 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { EventEmitter } from "node:events";
 import {
   chmodSync,
   closeSync,
@@ -15,10 +16,17 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, posix, resolve, win32 } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import type { ApplyEnvelope } from "./operations.ts";
 import type { CollaborationTarget as DocumentTarget } from "../shared/contracts.ts";
+import {
+  secureWindowsChannelDirectory,
+  verifyWindowsChannelPath,
+  windowsChannelExecutable,
+  windowsCurrentProcessStartMs,
+  windowsEndpointProcessState,
+} from "../platform/windows-channel.ts";
 
 export const APP_CHANNEL_CONTRACT = "sideleaf-app-channel/v1" as const;
 export const APP_CHANNEL_PROTOCOL = 1 as const;
@@ -49,6 +57,7 @@ type EndpointRecord = {
   token: string;
   pid: number;
   startedAt: string;
+  processStartedAtMs: number;
   endpoint: string;
 };
 
@@ -100,7 +109,7 @@ export function appChannelPaths(userData: string, platform = process.platform): 
     directory,
     discovery: join(directory, "endpoint.json"),
     socketDirectory,
-    owner: platform === "win32" ? `\\\\.\\pipe\\sideleaf-owner-${key}` : join(directory, "owner.lock"),
+    owner: join(directory, "owner.lock"),
     key,
   };
 }
@@ -115,21 +124,30 @@ export function sideleafUserData(channel = "stable", platform = process.platform
 function ensurePrivateDirectory(path: string) {
   if (existsSync(path) && lstatSync(path).isSymbolicLink()) throw new Error(`Unsafe Sideleaf channel directory: ${path}`);
   mkdirSync(path, { recursive: true, mode: 0o700 });
-  if (process.platform !== "win32") {
-    chmodSync(path, 0o700);
-    const stat = lstatSync(path);
-    if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0) {
-      throw new Error(`Sideleaf channel directory is not private to this user: ${path}`);
-    }
+  if (process.platform === "win32") {
+    secureWindowsChannelDirectory(path);
+    return;
   }
-}
-
-function assertPrivateDirectory(path: string) {
-  if (process.platform === "win32") return;
+  chmodSync(path, 0o700);
   const stat = lstatSync(path);
   if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0) {
     throw new Error(`Sideleaf channel directory is not private to this user: ${path}`);
   }
+}
+
+function assertPrivateDirectory(path: string) {
+  if (process.platform === "win32") {
+    verifyWindowsChannelPath(path, true, true);
+    return;
+  }
+  const stat = lstatSync(path);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0) {
+    throw new Error(`Sideleaf channel directory is not private to this user: ${path}`);
+  }
+}
+
+function assertPrivateFile(path: string) {
+  if (process.platform === "win32") verifyWindowsChannelPath(path, false, false);
 }
 
 function atomicPrivateWrite(path: string, contents: string) {
@@ -143,6 +161,7 @@ function atomicPrivateWrite(path: string, contents: string) {
     closeSync(fd);
     fd = undefined;
     renameSync(temp, path);
+    assertPrivateFile(path);
   } finally {
     if (fd !== undefined) closeSync(fd);
     if (existsSync(temp)) unlinkSync(temp);
@@ -174,6 +193,7 @@ function validEndpoint(record: unknown, paths: ChannelPaths, platform = process.
     typeof value.instanceId === "string" && /^[a-f0-9-]{36}$/.test(value.instanceId) &&
     typeof value.token === "string" && /^[a-f0-9-]{36}$/.test(value.token) &&
     Number.isSafeInteger(value.pid) && value.pid! > 0 &&
+    Number.isSafeInteger(value.processStartedAtMs) && value.processStartedAtMs! > 0 &&
     typeof value.startedAt === "string" && value.startedAt.length <= 40 && endpointValid;
 }
 
@@ -183,6 +203,7 @@ function readEndpoint(paths: ChannelPaths): EndpointRecord | null {
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
   assertPrivateDirectory(paths.directory);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 8_192) throw new Error("Sideleaf's app endpoint record is unsafe.");
+  assertPrivateFile(paths.discovery);
   if (process.platform !== "win32" && (stat.uid !== process.getuid!() || (stat.mode & 0o077) !== 0)) {
     throw new Error("Sideleaf's app endpoint record is not private to this user.");
   }
@@ -235,7 +256,7 @@ function validateCommand(value: unknown): asserts value is AppRequest {
   }
 }
 
-function writeWire(socket: Socket, value: unknown) {
+function writeWire(socket: { write(value: string): unknown }, value: unknown) {
   const line = `${JSON.stringify(value)}\n`;
   if (Buffer.byteLength(line) > MAX_WIRE_BYTES) throw new Error("Sideleaf app request is too large.");
   socket.write(line);
@@ -315,8 +336,57 @@ async function listen(server: Server, endpoint: string): Promise<void> {
   await new Promise<void>((accept, reject) => {
     const error = (value: Error) => { server.off("listening", ready); reject(value); };
     const ready = () => { server.off("error", error); accept(); };
-    server.once("error", error); server.once("listening", ready); server.listen(endpoint);
+    server.once("error", error); server.once("listening", ready);
+    server.listen(process.platform === "win32" ? { path: endpoint, readableAll: false, writableAll: false } : endpoint);
   });
+}
+
+function endpointProcessState(record: EndpointRecord): "live" | "dead" | "unknown" {
+  return process.platform === "win32" ? windowsEndpointProcessState(record.pid, record.processStartedAtMs) : processState(record.pid);
+}
+
+type ClientTransport = EventEmitter & {
+  setEncoding(encoding: BufferEncoding): ClientTransport;
+  write(value: string): boolean;
+  end(): void;
+  destroy(error?: Error): void;
+};
+
+class WindowsPipeTransport extends EventEmitter implements ClientTransport {
+  private readonly child: ChildProcessWithoutNullStreams;
+  private stderr = "";
+  private closed = false;
+  constructor(record: EndpointRecord) {
+    super();
+    this.child = spawn(windowsChannelExecutable(), ["connect", record.endpoint, String(record.pid), String(record.processStartedAtMs)],
+      { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    this.child.stdout.setEncoding("utf8").on("data", (chunk: string) => this.emit("data", chunk));
+    this.child.stderr.setEncoding("utf8").on("data", (chunk: string) => { if (this.stderr.length < 8_192) this.stderr += chunk; });
+    this.child.once("error", (error) => this.emit("error", error));
+    this.child.once("close", (status) => {
+      if (this.closed) return;
+      this.closed = true;
+      if (status === 0) this.emit("end");
+      else this.emit("error", new Error(this.stderr.trim() || `Sideleaf's Windows channel adapter exited with status ${status}.`));
+      this.emit("close");
+    });
+    this.child.stdin.once("error", (error) => this.emit("error", error));
+  }
+  setEncoding(_encoding: BufferEncoding): ClientTransport { return this; }
+  write(value: string): boolean { return this.child.stdin.write(value); }
+  end(): void { this.child.stdin.end(); }
+  destroy(error?: Error): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.child.kill();
+    if (error) queueMicrotask(() => this.emit("error", error));
+    queueMicrotask(() => this.emit("close"));
+  }
+}
+
+function connectTransport(record: EndpointRecord): ClientTransport {
+  if (process.platform === "win32") return new WindowsPipeTransport(record);
+  return createConnection(record.endpoint) as ClientTransport;
 }
 
 async function closeServer(server: Server | null): Promise<void> {
@@ -324,18 +394,51 @@ async function closeServer(server: Server | null): Promise<void> {
   await new Promise<void>((accept) => server.close(() => accept()));
 }
 
-async function acquireOwner(paths: ChannelPaths): Promise<{ owned: boolean; server: Server | null }> {
+type OwnerLease = { owned: boolean; close(): Promise<void> };
+
+async function acquireWindowsOwner(path: string): Promise<OwnerLease> {
+  return new Promise<OwnerLease>((accept, reject) => {
+    const child = spawn(windowsChannelExecutable(), ["owner", path], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    let ready = false, stderr = "", stdout = "", closed: Promise<void> | null = null;
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { if (stderr.length < 8_192) stderr += chunk; });
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+      if (ready) return;
+      stdout += chunk;
+      if (stdout === "owned\n") {
+        ready = true;
+        accept({
+          owned: true,
+          close: () => closed ??= new Promise<void>((done) => {
+            if (child.exitCode !== null) { done(); return; }
+            child.once("close", () => done()); child.stdin.end();
+          }),
+        });
+      } else if (stdout.length > 16 || !"owned\n".startsWith(stdout)) {
+        child.kill(); reject(new Error("The Windows Sideleaf owner adapter returned an invalid result."));
+      }
+    });
+    child.once("error", reject);
+    child.once("close", (status) => {
+      if (ready) return;
+      if (status === 40) accept({ owned: false, async close() {} });
+      else reject(new Error(stderr.trim() || `The Windows Sideleaf owner adapter exited with status ${status}.`));
+    });
+  });
+}
+
+async function acquireOwner(paths: ChannelPaths): Promise<OwnerLease> {
   if (process.platform === "darwin") {
     try {
       execFileSync("/usr/bin/shlock", ["-p", String(process.pid), "-f", paths.owner], { stdio: "ignore" });
-      return { owned: true, server: null };
-    } catch { return { owned: false, server: null }; }
+      return { owned: true, async close() {} };
+    } catch { return { owned: false, async close() {} }; }
   }
+  if (process.platform === "win32") return acquireWindowsOwner(paths.owner);
   const server = createServer((socket) => socket.end());
-  try { await listen(server, paths.owner); return { owned: true, server }; }
+  try { await listen(server, paths.owner); return { owned: true, close: () => closeServer(server) }; }
   catch (error) {
     server.close();
-    if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") return { owned: false, server: null };
+    if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") return { owned: false, async close() {} };
     throw error;
   }
 }
@@ -356,7 +459,7 @@ function sweepStaleSockets(paths: ChannelPaths) {
 async function exchange<T>(record: EndpointRecord, command: AppRequest, timeoutMs: number, suppliedRequestId?: string): Promise<{ requestId: string; value: T }> {
   const requestId = suppliedRequestId ?? randomUUID();
   return new Promise<{ requestId: string; value: T }>((accept, reject) => {
-    const socket = createConnection(record.endpoint);
+    const socket = connectTransport(record);
     socket.setEncoding("utf8");
     const timer = setTimeout(() => socket.destroy(new Error("The running Sideleaf app did not respond in time.")), timeoutMs);
     let buffer = "", authenticated = false, commandSent = false, settled = false, resultChunks: string[] | null = null, expectedChunks = 0, resultCharacters = 0;
@@ -423,13 +526,14 @@ async function exchange<T>(record: EndpointRecord, command: AppRequest, timeoutM
 export async function requestApp<T = unknown>(userData: string, command: AppRequest, options: { timeoutMs?: number; requestId?: string } = {}): Promise<AppRequestDelivery<T>> {
   validateCommand(command);
   const paths = appChannelPaths(userData);
+  ensurePrivateDirectory(paths.directory);
   const requestId = options.requestId ?? randomUUID();
   let record: EndpointRecord | null;
   try { record = readEndpoint(paths); }
   catch (error) {
     throw new AppChannelError(`Sideleaf's endpoint record is stale or could not be verified. Retry after it is republished: ${(error as Error).message}`, requestId, "UNCERTAIN", true);
   }
-  if (!record || processState(record.pid) === "dead") return { delivered: false, requestId: null };
+  if (!record || endpointProcessState(record) === "dead") return { delivered: false, requestId: null };
   try {
     assertPrivateEndpoint(record, paths);
     const result = await exchange<T>(record, command, options.timeoutMs ?? DEFAULT_TIMEOUT_MS, requestId);
@@ -438,7 +542,7 @@ export async function requestApp<T = unknown>(userData: string, command: AppRequ
   catch (error) {
     const value = error instanceof AppChannelError ? error : new AppChannelError((error as Error).message, requestId);
     if (value.responseReceived) throw value;
-    if (!value.commandSent && processState(record.pid) === "dead") return { delivered: false, requestId: null };
+    if (!value.commandSent && endpointProcessState(record) === "dead") return { delivered: false, requestId: null };
     const message = value.commandSent
       ? `Sideleaf did not confirm request completion. Reconcile with request ${requestId} before retrying: ${value.message}`
       : `Sideleaf's endpoint record is stale or could not be verified. Retry after the owning process exits or republishes it: ${value.message}`;
@@ -480,7 +584,8 @@ export async function startAppChannel(userData: string, handler: (command: AppRe
   const endpoint = process.platform === "win32"
     ? `\\\\.\\pipe\\sideleaf-${paths.key}-${instanceId}`
     : join(paths.socketDirectory, `${paths.key}-${instanceId}.sock`);
-  const record: EndpointRecord = { contract: APP_CHANNEL_CONTRACT, protocol: APP_CHANNEL_PROTOCOL, instanceId, token, pid: process.pid, startedAt: new Date().toISOString(), endpoint };
+  const record: EndpointRecord = { contract: APP_CHANNEL_CONTRACT, protocol: APP_CHANNEL_PROTOCOL, instanceId, token, pid: process.pid,
+    startedAt: new Date().toISOString(), processStartedAtMs: process.platform === "win32" ? windowsCurrentProcessStartMs() : Math.round(Date.now() - process.uptime() * 1_000), endpoint };
   const serialized = `${JSON.stringify(record)}\n`;
   const completed = new Map<string, CompletedRequest>();
   const server = createServer((socket) => serveConnection(socket, record, handler, completed));
@@ -499,7 +604,7 @@ export async function startAppChannel(userData: string, handler: (command: AppRe
     if (process.platform !== "win32") chmodSync(endpoint, 0o600);
     atomicPrivateWrite(paths.discovery, serialized);
   } catch (error) {
-    await closeServer(server); await closeServer(owner.server); cleanupFiles(); throw error;
+    await closeServer(server); await owner.close(); cleanupFiles(); throw error;
   }
   process.once("exit", cleanupFiles);
   return {
@@ -508,7 +613,7 @@ export async function startAppChannel(userData: string, handler: (command: AppRe
     async close() {
       if (closed) return;
       closed = true; process.off("exit", cleanupFiles);
-      await closeServer(server); await closeServer(owner.server); cleanupFiles();
+      await closeServer(server); await owner.close(); cleanupFiles();
     },
   };
 }

@@ -16,7 +16,7 @@
     "build": "bun run prepare:assets && electrobun build --env=dev",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./tests",
-    "validate": "bun run typecheck && bun run test",
+    "validate": "bun run build:native && bun run typecheck && bun run test",
     "bench:editor": "bun scripts/benchmark-editor.ts",
     "build:release": "bun run validate && bun run prepare:assets && electrobun build --env=stable && bun scripts/prepare-release.mjs",
     "build:cli": "bun scripts/build-cli.mjs",
