@@ -54,3 +54,30 @@ and supported file modes.
   commits, pending-draft durability, missing targets and concurrent human changes.
 - Native macOS and Windows acceptance exercises migration, sidebar actions, draft
   focus/recovery, autosave, CLI-owned live buffers and exact byte preservation.
+
+## Acceptance
+
+Native acceptance completed against code commit
+`466f45939740229db109e84548e2b3ae37f0e4ef` on macOS and Windows:
+
+- The pinned native builds passed 118/118 tests on macOS and 115/115 with three
+  expected platform skips on Windows. Both packaged CLIs passed their thread,
+  ownership, Unicode, revision and lock checks with Bun and Node absent from
+  `PATH`.
+- Visible desktop checks migrated version-1 Markdown threads with stable IDs,
+  anchors, missing attribution and retained revisions. Saving wrote version 2
+  while preserving BOM, CRLF and supported modes; the installed older CLI
+  refused the new format without changing either Markdown or plain-text files.
+- Native macOS, Windows CMD and Windows/WSL agents applied source and thread
+  changes to the actual live buffer. Active, inactive, untitled and WSL-native
+  documents retained one-step undo/redo, autosave behavior, exact line endings
+  and Linux mode 0640.
+- The sidebar passed reply, edit, reply deletion, resolve/reopen, filter counts,
+  destructive confirmation and long-content layout checks. Human attribution
+  used the local OS identity; literal markup remained text.
+- Pending Unicode reply/edit text, focus and caret survived unrelated agent
+  updates and buffer activation. Missing-target drafts remained copyable and
+  two quit/relaunch cycles recovered both normal and missing-target composers.
+  Deterministic interleaving tests cover composition becoming busy before an
+  agent commit; this work unit makes no native IME input-method claim.
+- No release was cut as part of this work unit.
