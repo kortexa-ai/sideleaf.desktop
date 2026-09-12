@@ -22,10 +22,11 @@ general batch surfaces assigned to later work units.
   the bearer value or document path, then checks the endpoint greeting. Abandoned
   sockets in the app's private namespace are removed only after the new app owns the
   single-instance lock.
-- Windows keeps discovery, the bearer value, owner identity and document traffic in a
-  current-user-only directory. A small native bridge verifies the connected named-pipe
-  server's PID, exact process creation time and user SID before forwarding any of that
-  private material. If another local identity somehow learns the random pipe name, the
+- Windows keeps its discovery record, bearer value and owner file in a
+  current-user-only directory. Document requests and replies require the authenticated
+  same-user channel. A small native bridge verifies the connected named-pipe server's
+  PID, exact process creation time and user SID before forwarding any private material.
+  If another local identity somehow learns the random pipe name, the
   runtime's default pipe ACL permits a read-only connection that receives only the
   nonsecret protocol greeting; it cannot create the first instance, open read/write,
   authenticate or receive document data. Unauthenticated connections time out after
@@ -75,6 +76,5 @@ Native acceptance completed at
   public greeting over a read-only connection. The temporary task, output permission,
   server and fixtures were removed after the check.
 
-Independent Fable review passed the final Windows transport and document-lock deltas.
 The foundation does not claim semantic activity wakes, which remain assigned to the
 next collaboration work unit.
