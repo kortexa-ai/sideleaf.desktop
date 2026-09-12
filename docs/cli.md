@@ -127,7 +127,7 @@ an already-running build that shares Sideleaf's bundle identifier.
 `sideleaf documents` lists every buffer in the selected running app, including the
 active state, dirty state, path (or `null` for untitled work), document ID, live
 revision and saved revision. `sideleaf read FILE` reads that live buffer when Sideleaf
-owns it and otherwise reads a coherent disk snapshot while holding the document lock.
+owns it and otherwise reads the current saved disk snapshot.
 Use `sideleaf read --document ID` for untitled buffers and whenever an exact live
 identity is preferable to a path.
 
@@ -153,8 +153,10 @@ Receipts distinguish `live`, `saved` and `dirty`. With autosave off, a successfu
 apply remains in the recoverable dirty buffer and leaves disk unchanged. With autosave
 on, it follows the same delayed save path as human typing. An unowned named file uses
 the same evaluator under `.sideleaf.lock`, rechecking live ownership after acquiring
-the lock and saving atomically only when app absence is established. Legacy `edit` and
-comment mutations reject an owned document with `open in Sideleaf; use apply`.
+the lock and saving atomically only when app absence is established. Offline reads stay
+available in read-only directories because they do not mutate or lock the document.
+Legacy `edit` and comment mutations reject an owned document with
+`open in Sideleaf; use apply`.
 
 `sideleaf wait FILE --after LIVE_REVISION --timeout SECONDS` is a silent one-shot
 foundation wait. It returns immediately with `resync` if the live revision already

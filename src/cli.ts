@@ -217,14 +217,13 @@ async function main() {
     if (!value) {
       if (!path) throw new CollaborationError("The Sideleaf document ID is no longer open.", "NOT_FOUND");
       assertOfflineFile(path);
-      value = await withOfflineLock(path, async (lock) => {
-        const raced = await liveRead();
-        if (raced) return raced;
-        const file = DocumentFile.open(path, lock), draft = file.snapshot();
-        return command === "read"
+      value = await liveRead();
+      if (!value) {
+        const file = DocumentFile.open(path), draft = file.snapshot();
+        value = command === "read"
           ? { path: file.path, revision: file.revision(), text: draft.text, comments: draft.comments, revisions: file.history(), lineEnding: draft.lineEnding, notice: draft.notice }
           : { revision: file.revision(), comments: draft.comments };
-      });
+      }
     }
     output(command === "comments" && value.live === true ? { contract: value.contract, live: true, saved: value.saved, dirty: value.dirty,
       documentId: value.documentId, revision: value.revision, savedRevision: value.savedRevision, comments: value.comments, requestId: value.requestId } : value);

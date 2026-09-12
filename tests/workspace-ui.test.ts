@@ -5,6 +5,7 @@ import { history, undo, redo } from "@codemirror/commands";
 import { commentField, commentHistory, setComments } from "../src/ui/comments.ts";
 import { EditorBuffer } from "../src/ui/workspace.ts";
 import { makeAnchor } from "../src/document/anchors.ts";
+import { CollaborationError, evaluateApply, liveRevision } from "../src/collaboration/operations.ts";
 import type { DocumentSnapshot } from "../src/shared/contracts.ts";
 
 function buffer(id: string, text: string) {
@@ -42,4 +43,15 @@ test("pending comment drafts and recovery state stay attached to the buffer", ()
   assert.equal(a.editorTop, 410); assert.equal(a.previewTop, 250);
   const restored = new EditorBuffer({ ...a.metadata, ...a.draft() }, a.state, true);
   assert.equal(restored.dirty, true);
+});
+test("reloading a document advances its live generation and rejects the pre-reload revision", () => {
+  const instance = crypto.randomUUID(), a = buffer(crypto.randomUUID(), "before");
+  a.generation = 7;
+  const before = liveRevision(instance, a.metadata.id, a.generation);
+  const snapshot: DocumentSnapshot = { ...a.metadata, text: "external", comments: [] };
+  const next = EditorBuffer.reloaded(snapshot, EditorState.create({ doc: snapshot.text, extensions: [commentField] }), a);
+  const after = liveRevision(instance, next.metadata.id, next.generation);
+  assert.notEqual(after, before); assert.equal(next.generation, 8);
+  assert.throws(() => evaluateApply(next.draft(), { operations: [{ kind: "replace", from: 0, to: 8, text: "lost" }] }, before, after),
+    (error: CollaborationError) => error.code === "CONFLICT");
 });

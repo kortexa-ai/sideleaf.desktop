@@ -12,8 +12,9 @@ general batch surfaces assigned to later work units.
 - The app publishes its channel before loading a document. Every app file load takes
   the canonical per-file `.sideleaf.lock`, loads and registers ownership, then
   releases it. Lock waits are asynchronous and bounded.
-- A CLI read or write queries ownership without taking that lock. An offline route
-  then takes the lock and repeats discovery and ownership before reading or writing.
+- A CLI read or write queries ownership without taking that lock. An offline write
+  then takes the lock and repeats discovery and ownership before mutating the file.
+  An offline read stays read-only and returns the saved disk snapshot.
   A live, unknown, incompatible, hung or closing endpoint fails closed. Only an
   established absent owner permits disk fallback.
 - The private macOS Unix socket record binds protocol, process and random app instance.

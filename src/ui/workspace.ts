@@ -25,6 +25,15 @@ export class EditorBuffer {
     this.savedDoc = recovered ? EditorState.create({ doc: "" }).doc : state.doc;
     this.savedComments = recovered ? "[]" : this.commentsJSON();
   }
+  static reloaded(snapshot: DocumentSnapshot, state: EditorState, previous: EditorBuffer) {
+    if (snapshot.id !== previous.metadata.id) throw new Error("Reload result belongs to another document.");
+    const next = new EditorBuffer(snapshot, state);
+    // A document ID is stable for the session, so a replaced editor state must
+    // advance the monotonic generation instead of reusing revision generation 0.
+    next.generation = previous.generation + 1;
+    next.editorTop = previous.editorTop; next.editorLeft = previous.editorLeft; next.previewTop = previous.previewTop;
+    return next;
+  }
   commentsJSON() { return JSON.stringify(this.state.field(commentField)); }
   draft(): Draft { return { text: this.state.doc.toString(), comments: this.state.field(commentField) }; }
   get dirty() { return !this.state.doc.eq(this.savedDoc) || this.commentsJSON() !== this.savedComments; }

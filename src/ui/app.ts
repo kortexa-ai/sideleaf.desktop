@@ -668,8 +668,9 @@ function activateBuffer(buffer: EditorBuffer, capture = true) {
   });
   view.focus(); void folderTree.reveal(current.path);
 }
-function applyDocument(snapshot: DocumentSnapshot, recovered = false) {
-  const buffer = new EditorBuffer(snapshot, createEditorState(snapshot.text, snapshot.comments, snapshot.name), recovered);
+function applyDocument(snapshot: DocumentSnapshot, recovered = false, previous?: EditorBuffer) {
+  const state = createEditorState(snapshot.text, snapshot.comments, snapshot.name);
+  const buffer = previous ? EditorBuffer.reloaded(snapshot, state, previous) : new EditorBuffer(snapshot, state, recovered);
   buffers.set(snapshot.id, buffer); activateBuffer(buffer, false);
 }
 function showEmptyWorkspace() {
@@ -983,7 +984,10 @@ element("comment-form").onsubmit = (event) => {
 };
 element("save-copy").onclick = () => { void perform("saveAs"); };
 element("reload").onclick = () => { void run(async () => {
-  if (await canLeave()) applyDocument(await rpc.request.reload({ id: current.id }));
+  const previous = captureActive();
+  if (!previous || !(await canLeave(previous))) return;
+  const snapshot = await rpc.request.reload({ id: previous.metadata.id });
+  if (buffers.get(previous.metadata.id) === previous) applyDocument(snapshot, false, previous);
 }); };
 element("preview").onclick = (event) => {
   const link = (event.target as HTMLElement).closest("a"); if (!link) return;
@@ -1036,8 +1040,7 @@ async function checkDisk() {
           if (buffer.dirty || buffer.hasCommentDraft || buffer.saving) return;
           const snapshot = await rpc.request.reload({ id });
           if (buffers.get(id) !== buffer) return;
-          const next = new EditorBuffer(snapshot, createEditorState(snapshot.text, snapshot.comments));
-          next.editorTop = buffer.editorTop; next.editorLeft = buffer.editorLeft; next.previewTop = buffer.previewTop;
+          const next = EditorBuffer.reloaded(snapshot, createEditorState(snapshot.text, snapshot.comments), buffer);
           buffers.set(id, next);
           if (current.id === id) { activateBuffer(next, false); notice("Reloaded changes made outside Sideleaf."); }
         });

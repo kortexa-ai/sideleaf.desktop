@@ -353,7 +353,7 @@ async function handleCollaboration(operation: CollaborationOperation, context: A
     if (!response.ok) throw new CollaborationError(response.error, response.code, response.retryable);
     const result = response.result;
     if (ownedSession({ documentId: result.document.id }) !== session) throw new CollaborationError("The document changed ownership during apply. Reconcile by reading it again.", "UNCERTAIN", true);
-    return { owned: true, contract: COLLABORATION_CONTRACT, live: true, saved: !result.document.dirty, dirty: result.document.dirty,
+    return { owned: true, ok: true, contract: COLLABORATION_CONTRACT, live: true, saved: !result.document.dirty, dirty: result.document.dirty,
       autoSave: result.autoSave, documentId: result.document.id, path: result.document.path, revision: result.document.revision,
       savedRevision: session.file.path ? session.file.revision() : null, change: result.change };
   }
