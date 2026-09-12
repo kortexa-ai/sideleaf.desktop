@@ -14,12 +14,13 @@ import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } fr
 import { wordCountField } from "./word-count.ts";
 import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
 import { commentRange, makeAnchor } from "../document/anchors.ts";
-import { SAVE_CHUNK_CHARACTERS, type Anchor, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type SideleafRPC, type UpdateState, type WindowAction, type WorkspaceInfo, type OpenResult } from "../shared/contracts.ts";
+import { SAVE_CHUNK_CHARACTERS, type Anchor, type CollaborationTarget, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type LiveApplyResponse, type LiveApplyResult, type LiveDocumentInfo, type LiveReadStart, type SideleafRPC, type UpdateState, type WindowAction, type WorkspaceInfo, type OpenResult } from "../shared/contracts.ts";
 import { EditorBuffer } from "./workspace.ts";
 import { FolderTree } from "./folder-tree.ts";
 import { APP_VERSION } from "../shared/version.ts";
 import { documentViewMode, isPlainText, type ViewMode } from "../shared/document-type.ts";
 import { documentExtensions, documentMode } from "./document-mode.ts";
+import { CollaborationError, evaluateApply, liveRevision } from "../collaboration/operations.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
@@ -65,6 +66,7 @@ let pendingGeneration = 0;
 let generation = 0;
 let previewDirty = true;
 let lastScratchJSON: string | null = null;
+const collaborationReads = new Map<string, { serialized: string; next: number }>();
 // The generation at which lastScratchJSON was written, so idle autosave ticks
 // skip serializing an unchanged draft instead of stringifying it to compare.
 let lastScratchGeneration = -1;
@@ -116,7 +118,18 @@ function applyZoom(value: number, persist = true) {
 
 const rpc = Electroview.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
-  handlers: { messages: { command: (command) => {
+  handlers: { requests: {
+    collaborationDocuments: ({ instanceId }) => collaborationDocuments(instanceId),
+    collaborationReadStart: ({ instanceId, target }) => collaborationReadStart(instanceId, target),
+    collaborationReadChunk: ({ transferId, index }) => collaborationReadChunk(transferId, index),
+    collaborationApply: (payload): LiveApplyResponse => {
+      try { return { ok: true, result: collaborationApply(payload) }; }
+      catch (error) {
+        if (error instanceof CollaborationError) return { ok: false, error: error.message, code: error.code, retryable: error.retryable };
+        throw error;
+      }
+    },
+  }, messages: { command: (command) => {
     if (command === "openExternal") { pendingExternalOpen = true; void performPendingExternalOpen(); }
     else void perform(command);
   }, update: renderUpdate, foldersChanged: ({ workspaceId }) => { if (workspaceId === workspaceInfo.id) void folderTree.refresh(); } } },
@@ -556,6 +569,61 @@ function captureActive(): EditorBuffer | undefined {
   buffer.recoveryJSON = lastScratchJSON; buffer.recoveryGeneration = lastScratchGeneration;
   return buffer;
 }
+
+function collaborationBuffer(target: CollaborationTarget): EditorBuffer {
+  captureActive();
+  const matches = [...buffers.values()].filter((buffer) => target.documentId ? buffer.metadata.id === target.documentId : buffer.metadata.path === target.path);
+  if (matches.length !== 1) throw new CollaborationError(matches.length ? "The collaboration target is ambiguous." : "This document is not open in Sideleaf.", "NOT_FOUND");
+  return matches[0]!;
+}
+
+function collaborationInfo(buffer: EditorBuffer, instanceId: string): LiveDocumentInfo {
+  return { ...buffer.metadata, active: current.id === buffer.metadata.id, dirty: buffer.dirty || buffer.hasCommentDraft, generation: buffer.generation,
+    revision: liveRevision(instanceId, buffer.metadata.id, buffer.generation) };
+}
+
+function collaborationDocuments(instanceId: string): LiveDocumentInfo[] {
+  captureActive();
+  return [...buffers.values()].map((buffer) => collaborationInfo(buffer, instanceId));
+}
+
+function collaborationReadStart(instanceId: string, target: CollaborationTarget): LiveReadStart {
+  const buffer = collaborationBuffer(target);
+  const serialized = JSON.stringify(buffer.draft());
+  const transferId = crypto.randomUUID(), total = Math.max(1, Math.ceil(serialized.length / SAVE_CHUNK_CHARACTERS));
+  if (collaborationReads.size >= 4) collaborationReads.delete(collaborationReads.keys().next().value!);
+  collaborationReads.set(transferId, { serialized, next: 0 });
+  setTimeout(() => collaborationReads.delete(transferId), 10_000);
+  return { transferId, total, document: collaborationInfo(buffer, instanceId) };
+}
+
+function collaborationReadChunk(transferId: string, index: number): string {
+  const transfer = collaborationReads.get(transferId);
+  if (!transfer || !Number.isSafeInteger(index) || index !== transfer.next) throw new CollaborationError("The live snapshot transfer expired or arrived out of order. Reread the document.", "UNCERTAIN", true);
+  const text = transfer.serialized.slice(index * SAVE_CHUNK_CHARACTERS, (index + 1) * SAVE_CHUNK_CHARACTERS);
+  transfer.next++;
+  if (transfer.next * SAVE_CHUNK_CHARACTERS >= transfer.serialized.length) collaborationReads.delete(transferId);
+  return text;
+}
+
+function collaborationApply(payload: { instanceId: string; target: CollaborationTarget; actor: string; ifRevision: string; envelope: unknown; deadline: number }): LiveApplyResult {
+  if (Date.now() > payload.deadline) throw new CollaborationError("The apply request expired before the editor could evaluate it. Reread before retrying.", "UNCERTAIN", true);
+  const buffer = collaborationBuffer(payload.target), active = current.id === buffer.metadata.id;
+  if (busy || buffer.saving || (active && view.composing)) throw new CollaborationError("Sideleaf is busy with this document. Retry after the current edit or save finishes.", "BUSY", true);
+  const revision = liveRevision(payload.instanceId, buffer.metadata.id, buffer.generation);
+  const evaluated = evaluateApply(buffer.draft(), payload.envelope, payload.ifRevision, revision);
+  const operation = payload.envelope && typeof payload.envelope === "object" ? (payload.envelope as { operations: [{ from: number; to: number; text: string }] }).operations[0] : null;
+  if (!operation) throw new CollaborationError("Invalid apply operation.", "INVALID");
+  const spec = { changes: { from: operation.from, to: operation.to, insert: operation.text }, effects: setComments.of(evaluated.draft.comments), annotations: isolateHistory.of("full"), userEvent: "input.agent" };
+  if (active) { view.dispatch(spec); captureActive(); }
+  else {
+    buffer.state = buffer.state.update(spec).state;
+    buffer.generation++;
+    rpc.send.dirty({ id: buffer.metadata.id, dirty: buffer.dirty || buffer.hasCommentDraft });
+  }
+  refreshOpenDocuments();
+  return { document: collaborationInfo(buffer, payload.instanceId), change: evaluated.change, autoSave: settings.autoSave };
+}
 function refreshOpenDocuments() {
   folderTree.setDocuments([...buffers.values()].map((buffer) => ({ id: buffer.metadata.id, name: buffer.metadata.name, path: buffer.metadata.path, dirty: buffer.dirty || buffer.hasCommentDraft, conflict: buffer.conflict, active: current?.id === buffer.metadata.id })));
 }
@@ -763,8 +831,8 @@ async function performPendingExternalOpen() {
   if (!pendingExternalOpen || busy || !current) return;
   pendingExternalOpen = false;
   await run(async () => {
-    if (!(await canLeaveAll())) { await rpc.request.cancelPendingOpen(); return; }
-    const replace = !workspaceInfo.explicit;
+    const replace = await rpc.request.pendingOpenRequiresLeave();
+    if (replace && !(await canLeaveAll())) { await rpc.request.cancelPendingOpen(); return; }
     const next = await rpc.request.openPending();
     if (next) applyOpenResult(next, replace || next.workspace.id !== workspaceInfo.id);
   });

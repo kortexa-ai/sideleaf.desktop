@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { splitMetadata } from "../src/document/metadata.ts";
-import { wslLocation, DocumentFile, decodeMarkdown } from "../src/document/files.ts";
+import { acquireDocumentLock, acquireDocumentLockAsync, wslLocation, DocumentFile, decodeMarkdown } from "../src/document/files.ts";
 import { makeAnchor, relocateComment } from "../src/document/anchors.ts";
 import { validateDraft } from "../src/shared/contracts.ts";
 
@@ -13,6 +13,21 @@ const fixture = (bytes = Buffer.from("# Notes\n\nHello 🌿 café.\n")) => {
   const folder = mkdtempSync(join(tmpdir(), "sideleaf-test-"));
   const path = join(folder, "notes.md"); writeFileSync(path, bytes); return { folder, path };
 };
+
+test("one held document lock covers a coherent offline load and save", async () => {
+  const { path } = fixture();
+  const lock = acquireDocumentLock(realpathSync(path));
+  const waiting = acquireDocumentLockAsync(realpathSync(path), { timeoutMs: 500 });
+  await new Promise((accept) => setTimeout(accept, 40));
+  const file = DocumentFile.open(path, lock), draft = file.snapshot();
+  draft.text = "Guarded handoff\n";
+  file.save(draft, undefined, "agent:test", lock);
+  assert.equal(existsSync(`${path}.sideleaf.lock`), true);
+  lock.release();
+  const next = await waiting; next.release();
+  assert.equal(existsSync(`${path}.sideleaf.lock`), false);
+  assert.equal(DocumentFile.open(path).snapshot().text, "Guarded handoff\n");
+});
 
 test("a literal UTF-8 BOM/CRLF file survives comment save without rewriting", () => {
   const bytes = Buffer.from("\uFEFF# Notes\r\n\r\nHello 🌿 café.\r\n");

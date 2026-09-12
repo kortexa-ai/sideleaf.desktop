@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, opendirSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
-import { DocumentFile } from "./files.ts";
+import { acquireDocumentLockAsync, DocumentFile } from "./files.ts";
 import { SaveTransfer } from "./save-transfer.ts";
 import type { FolderListing, OpenResult, WorkspaceInfo } from "../shared/contracts.ts";
 
@@ -117,11 +117,25 @@ export class DocumentWorkspace {
   open(path: string): OpenResult {
     if (statSync(path).isDirectory()) return this.openFolder(path);
     const canonical = realpathSync(path);
-    const existing = this.explicit && [...this.sessions.values()].find((session) => session.file.path === canonical);
+    const existing = [...this.sessions.values()].find((session) => session.file.path === canonical);
     if (existing) { this.activeId = existing.file.id; return this.result(); }
     const file = DocumentFile.open(canonical);
     if (!this.explicit) { const root = new FolderRoot(dirname(canonical), this.changed); this.reset(); this.root = root; }
     this.add(file); return this.result();
+  }
+  async openOwned(path: string): Promise<OpenResult> {
+    if (statSync(path).isDirectory()) return this.openFolder(path);
+    const canonical = realpathSync(path);
+    const existing = [...this.sessions.values()].find((session) => session.file.path === canonical);
+    if (existing) { this.activeId = existing.file.id; return this.result(); }
+    const lock = await acquireDocumentLockAsync(canonical);
+    try {
+      const raced = [...this.sessions.values()].find((session) => session.file.path === canonical);
+      if (raced) { this.activeId = raced.file.id; return this.result(); }
+      const file = DocumentFile.open(canonical, lock);
+      if (!this.explicit) { const root = new FolderRoot(dirname(canonical), this.changed); this.reset(); this.root = root; }
+      this.add(file); return this.result();
+    } finally { lock.release(); }
   }
   openFolder(path: string): OpenResult {
     const root = new FolderRoot(path, this.changed);
@@ -132,6 +146,17 @@ export class DocumentWorkspace {
     const existing = [...this.sessions.values()].find((session) => session.file.path === path);
     const file = existing?.file ?? DocumentFile.open(path);
     this.explicit = true; this.add(file); return this.result();
+  }
+  async openEntryOwned(workspaceId: string, key: string): Promise<OpenResult> {
+    const path = this.folder(workspaceId).resolve(key, "file");
+    const existing = [...this.sessions.values()].find((session) => session.file.path === path);
+    if (existing) { this.explicit = true; this.add(existing.file); return this.result(); }
+    const lock = await acquireDocumentLockAsync(path);
+    try {
+      const raced = [...this.sessions.values()].find((session) => session.file.path === path);
+      this.explicit = true; this.add(raced?.file ?? DocumentFile.open(path, lock)); return this.result();
+    }
+    finally { lock.release(); }
   }
   newDocument(): OpenResult { if (!this.explicit) this.reset(); this.add(new DocumentFile()); return this.result(); }
   activate(id: string) { this.get(id); this.activeId = id; return this.info(); }

@@ -1,20 +1,25 @@
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, realpathSync, statSync } from "node:fs";
 import { resolve, join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { DocumentFile } from "./document/files.ts";
+import { acquireDocumentLockAsync, DocumentFile, type DocumentLock } from "./document/files.ts";
 import { makeAnchor } from "./document/anchors.ts";
 import { MAX_DOCUMENT_BYTES } from "./shared/contracts.ts";
 import { installSideleafSkills, parseSkillInstallArgs } from "./skill.ts";
-import { deliverAppCommand, sideleafUserData, type AppCommand } from "./collaboration/channel.ts";
+import { AppChannelError, deliverAppCommand, requestApp, sideleafUserData, type AppCommand, type CollaborationOperation } from "./collaboration/channel.ts";
+import { COLLABORATION_CONTRACT, CollaborationError, evaluateApply, parseApplyEnvelope, type DocumentTarget } from "./collaboration/operations.ts";
 
 const help = `sideleaf — local Markdown and comments (JSON output)
 
 sideleaf [--app PATH]
 sideleaf FILE [--app PATH]
 sideleaf read FILE
+sideleaf read --document ID [--app PATH]
 sideleaf comments FILE
+sideleaf documents [--app PATH]
+sideleaf apply FILE --if-revision REV --actor NAME < apply.json
+sideleaf wait FILE --after REV [--timeout SECONDS]
 sideleaf edit FILE --if-revision HASH --actor NAME < edit.json
 sideleaf comment-add FILE --if-revision HASH --actor NAME < comment.json
 sideleaf comment-update FILE --if-revision HASH --actor NAME < update.json
@@ -27,11 +32,13 @@ edit.json: {"from":0,"to":0,"text":"New text\\n"}
 comment.json: {"from":0,"to":8,"body":"A thought"}
 update.json: {"id":"comment-id","body":"Revised thought"}
 remove.json: {"id":"comment-id"}
+apply.json: {"operations":[{"kind":"replace","from":0,"to":0,"text":"New text\\n"}]}
 
 Offsets are zero-based UTF-16 code units in logical LF source, end-exclusive.
 Use read.revision as --if-revision for every write. Actor names are explicit
 attribution, not authenticated identities. Exit: 0 success, 2 input/usage,
-3 revision conflict or writer lock, 1 filesystem/runtime failure.
+3 revision conflict or writer lock, 4 busy/uncertain live request,
+1 filesystem/runtime failure.
 Use --input PATH instead of stdin. The desktop app supplies the runtime.
 Skill targets: agents, claude, codex, omp, hermes, pi. The default installs
 ~/.agents/skills/sideleaf/SKILL.md. --user installs all supported user targets.
@@ -101,6 +108,53 @@ async function openDesktop(command: AppCommand, override?: string): Promise<"run
   return "launched";
 }
 
+async function readInput(options: Map<string, string>): Promise<Record<string, unknown>> {
+  let raw: Buffer;
+  const input = options.get("--input");
+  if (input) {
+    if (statSync(input).size > 2 * MAX_DOCUMENT_BYTES) inputError("Input exceeds 20 MiB.");
+    raw = readFileSync(input);
+  } else {
+    const chunks: Buffer[] = []; let size = 0;
+    for await (const chunk of process.stdin) { size += chunk.length; if (size > 2 * MAX_DOCUMENT_BYTES) inputError("Input exceeds 20 MiB."); chunks.push(Buffer.from(chunk)); }
+    raw = Buffer.concat(chunks);
+  }
+  let payload: unknown;
+  try { payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)); } catch { inputError("Input must be valid UTF-8 JSON."); }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) inputError("Input must be a JSON object.");
+  return payload as Record<string, unknown>;
+}
+
+function collaborationTarget(filename: string | undefined, documentId: string | undefined): { target: DocumentTarget; path: string | null } {
+  if (documentId) {
+    if (!/^[a-f0-9-]{36}$/.test(documentId)) inputError("--document requires a Sideleaf document ID.");
+    return { target: { documentId }, path: null };
+  }
+  if (!filename || filename.startsWith("--")) inputError("A document path is required.");
+  let path = resolve(filename);
+  if (process.platform === "linux" && /^[a-z]:[\\/]/i.test(filename)) path = execFileSync("wslpath", ["-u", filename], { encoding: "utf8" }).trim();
+  if (existsSync(path)) {
+    if (!statSync(path).isFile()) inputError("A file path is required.");
+    path = realpathSync(path);
+  } else {
+    try { path = join(realpathSync(dirname(path)), basename(path)); } catch { /* The live query below remains fail-closed. */ }
+  }
+  return { target: { path }, path };
+}
+
+function assertOfflineFile(path: string) {
+  if (!existsSync(path) || !statSync(path).isFile()) inputError("A file path is required.");
+}
+
+async function appCollaboration<T>(operation: CollaborationOperation, override?: string, timeoutMs?: number) {
+  return requestApp<T>(appChannelRoot(override), { kind: "collaboration", operation }, { ...(timeoutMs ? { timeoutMs } : {}) });
+}
+
+async function withOfflineLock<T>(path: string, operation: (lock: DocumentLock) => Promise<T> | T): Promise<T> {
+  const lock = await acquireDocumentLockAsync(path);
+  try { return await operation(lock); } finally { lock.release(); }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (!args.length) { output({ ok: true, delivery: await openDesktop({ kind: "activate" }) }); return; }
@@ -116,50 +170,118 @@ async function main() {
     const targets = installSideleafSkills({ home: options.home ?? process.env.SIDELEAF_SKILLS_HOME, ...options });
     output({ ok: true, skill: "sideleaf", targets }); return;
   }
-  if (!["read", "comments", "edit", "comment-add", "comment-update", "comment-remove", "open", "open-folder"].includes(command)) {
+  if (!["read", "comments", "documents", "apply", "wait", "edit", "comment-add", "comment-update", "comment-remove", "open", "open-folder"].includes(command)) {
     if (command.startsWith("-")) inputError("Unknown command. Run sideleaf --help.");
     args.unshift(command); command = "open";
   }
-  const filename = args.shift();
-  if (!filename || filename.startsWith("--")) inputError("A document path is required.");
+  let documentId: string | undefined;
+  if (args[0] === "--document") { args.shift(); documentId = args.shift(); if (!documentId) inputError("--document requires an ID."); }
+  const filename = command === "documents" || documentId ? undefined : args.shift();
+  if (command !== "documents" && !documentId && (!filename || filename.startsWith("--"))) inputError("A document path is required.");
   const options = new Map<string, string>();
   while (args.length) {
     const key = args.shift()!;
     if (key === "--json") continue;
-    if (!["--if-revision", "--actor", "--input", "--app"].includes(key) || options.has(key) || !args.length) inputError(`Invalid option: ${key}`);
+    if (!["--if-revision", "--actor", "--input", "--app", "--after", "--timeout"].includes(key) || options.has(key) || !args.length) inputError(`Invalid option: ${key}`);
     options.set(key, args.shift()!);
   }
-  let path = resolve(filename);
-  if (process.platform === "linux" && /^[a-z]:[\\/]/i.test(filename)) path = execFileSync("wslpath", ["-u", filename], { encoding: "utf8" }).trim();
+  const override = options.get("--app");
+  if (command === "documents") {
+    if ([...options.keys()].some((key) => key !== "--app")) inputError("documents accepts only --app PATH.");
+    const result = await appCollaboration<Record<string, unknown>>({ kind: "documents" }, override);
+    if (!result.delivered) throw new CollaborationError("Sideleaf is not running; document IDs exist only for live buffers.", "NOT_FOUND");
+    output({ ...(result.value ?? {}), requestId: result.requestId }); return;
+  }
+  let path = filename ? resolve(filename) : "";
+  if (filename && process.platform === "linux" && /^[a-z]:[\\/]/i.test(filename)) path = execFileSync("wslpath", ["-u", filename], { encoding: "utf8" }).trim();
   if (command === "open" || command === "open-folder") {
+    if (documentId) inputError("Desktop open requires a path.");
     if (!existsSync(path)) inputError("The path does not exist.");
     if (command === "open-folder" ? !statSync(path).isDirectory() : !statSync(path).isFile()) inputError(command === "open-folder" ? "A folder path is required." : "A file path is required. Use open-folder for a directory.");
-    const override = options.get("--app");
     if (process.platform === "linux" && !!process.env.WSL_DISTRO_NAME) path = execFileSync("wslpath", ["-w", path], { encoding: "utf8" }).trim();
     const action: AppCommand = command === "open-folder" ? { kind: "open-folder", path } : { kind: "open", path };
     output({ ok: true, path, delivery: await openDesktop(action, override) }); return;
   }
-  const file = DocumentFile.open(path);
-  const draft = file.snapshot();
-  if (command === "read") { output({ path: file.path, revision: file.revision(), text: draft.text, comments: draft.comments, revisions: file.history(), lineEnding: draft.lineEnding, notice: draft.notice }); return; }
-  if (command === "comments") { output({ revision: file.revision(), comments: draft.comments }); return; }
+  const resolved = collaborationTarget(filename, documentId);
+  const target = resolved.target; path = resolved.path ?? "";
+
+  const liveRead = async (): Promise<Record<string, any> | null> => {
+    const result = await appCollaboration<Record<string, unknown>>({ kind: "read", target }, override);
+    if (!result.delivered || result.value?.owned === false) return null;
+    if (result.value?.owned !== true) throw new CollaborationError("Sideleaf returned an invalid live read result.", "UNCERTAIN", true);
+    const { owned: _owned, ...value } = result.value;
+    return { ...value, requestId: result.requestId };
+  };
+  if (command === "read" || command === "comments") {
+    let value: Record<string, any> | null = await liveRead();
+    if (!value) {
+      if (!path) throw new CollaborationError("The Sideleaf document ID is no longer open.", "NOT_FOUND");
+      assertOfflineFile(path);
+      value = await withOfflineLock(path, async (lock) => {
+        const raced = await liveRead();
+        if (raced) return raced;
+        const file = DocumentFile.open(path, lock), draft = file.snapshot();
+        return command === "read"
+          ? { path: file.path, revision: file.revision(), text: draft.text, comments: draft.comments, revisions: file.history(), lineEnding: draft.lineEnding, notice: draft.notice }
+          : { revision: file.revision(), comments: draft.comments };
+      });
+    }
+    output(command === "comments" && value.live === true ? { contract: value.contract, live: true, saved: value.saved, dirty: value.dirty,
+      documentId: value.documentId, revision: value.revision, savedRevision: value.savedRevision, comments: value.comments, requestId: value.requestId } : value);
+    return;
+  }
+
+  if (command === "wait") {
+    const after = options.get("--after");
+    if (!after) inputError("wait requires --after REV from a live read.");
+    const seconds = Number(options.get("--timeout") ?? "30");
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 120) inputError("--timeout must be 1–120 seconds.");
+    if ([...options.keys()].some((key) => !["--after", "--timeout", "--app"].includes(key))) inputError("Invalid wait option.");
+    const timeoutMs = seconds * 1_000;
+    const result = await appCollaboration<Record<string, unknown>>({ kind: "wait", target, after, timeoutMs }, override, timeoutMs + 2_000);
+    if (!result.delivered || result.value?.owned === false) throw new CollaborationError("The target is not owned by a running Sideleaf app.", "NOT_FOUND");
+    output({ ...(result.value ?? {}), requestId: result.requestId }); return;
+  }
+
   const actor = options.get("--actor");
   if (!actor?.trim() || actor.length > 200) inputError("Writes require --actor NAME (1–200 characters).");
   const revision = options.get("--if-revision");
-  if (!revision || !/^[a-f0-9]{64}$/.test(revision)) inputError("Writes require --if-revision from sideleaf read.");
-  if (revision !== file.revision()) throw Object.assign(new Error("Revision conflict: reread the document before writing."), { exitCode: 3 });
-  // Bound input before parsing, including pipe input (readFileSync(0) is unbounded).
-  let raw: Buffer;
-  const input = options.get("--input");
-  if (input) { const { statSync } = await import("node:fs"); if (statSync(input).size > 2 * MAX_DOCUMENT_BYTES) inputError("Input exceeds 20 MiB."); raw = readFileSync(input); }
-  else {
-    const chunks: Buffer[] = []; let size = 0;
-    for await (const chunk of process.stdin) { size += chunk.length; if (size > 2 * MAX_DOCUMENT_BYTES) inputError("Input exceeds 20 MiB."); chunks.push(Buffer.from(chunk)); }
-    raw = Buffer.concat(chunks);
+  if (!revision || (!/^[a-f0-9]{64}$/.test(revision) && !/^sl1\.[a-f0-9-]{36}\.[a-f0-9-]{36}\.[0-9]+$/.test(revision))) inputError("Writes require --if-revision from sideleaf read.");
+  const payload = await readInput(options);
+
+  if (command === "apply") {
+    const envelope = parseApplyEnvelope(payload);
+    const route = async () => appCollaboration<Record<string, unknown>>({ kind: "apply", target, actor, ifRevision: revision, envelope, deadline: Date.now() + 3_500 }, override);
+    let result = await route();
+    if (result.delivered && result.value?.owned === true) { output({ ...result.value, requestId: result.requestId }); return; }
+    if (result.delivered && result.value?.owned !== false) throw new CollaborationError("Sideleaf returned an invalid apply result.", "UNCERTAIN", true);
+    if (!path) throw new CollaborationError("The Sideleaf document ID is no longer open.", "NOT_FOUND");
+    assertOfflineFile(path);
+    const receipt = await withOfflineLock(path, async (lock) => {
+      result = await route();
+      if (result.delivered && result.value?.owned === true) return { ...result.value, requestId: result.requestId };
+      if (result.delivered && result.value?.owned !== false) throw new CollaborationError("Sideleaf returned an invalid apply result.", "UNCERTAIN", true);
+      const file = DocumentFile.open(path, lock), current = file.snapshot();
+      const evaluated = evaluateApply(current, envelope, revision, file.revision());
+      file.save(evaluated.draft, undefined, actor, lock);
+      return { ok: true, contract: COLLABORATION_CONTRACT, live: false, saved: true, dirty: false, documentId: null, path: file.path,
+        revision: file.revision(), savedRevision: file.revision(), change: evaluated.change };
+    });
+    output(receipt); return;
   }
-  let payload: Record<string, unknown>;
-  try { payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)); } catch { inputError("Input must be valid UTF-8 JSON."); }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) inputError("Input must be a JSON object.");
+
+  if (documentId) inputError(`${command} requires a file path; use apply for an open document ID.`);
+  assertOfflineFile(path);
+  const assertLegacyUnowned = async () => {
+    const result = await appCollaboration<{ owned?: unknown }>({ kind: "ownership", target }, override);
+    if (result.delivered && result.value?.owned === true) throw Object.assign(new Error("This document is open in Sideleaf; use apply so the live buffer remains authoritative."), { exitCode: 3 });
+    if (result.delivered && result.value?.owned !== false) throw new CollaborationError("Sideleaf returned an invalid ownership result.", "UNCERTAIN", true);
+  };
+  await assertLegacyUnowned();
+  const result = await withOfflineLock(path, async (lock) => {
+    await assertLegacyUnowned();
+    const file = DocumentFile.open(path, lock), draft = file.snapshot();
+    if (revision !== file.revision()) throw Object.assign(new Error("Revision conflict: reread the document before writing."), { exitCode: 3 });
   const now = new Date().toISOString();
   if (command === "edit") {
     const from = integer(payload.from), to = integer(payload.to);
@@ -183,10 +305,14 @@ async function main() {
     if (command === "comment-remove") draft.comments = draft.comments.filter((c) => c !== comment);
     else { comment.body = body(payload.body); comment.updatedAt = now; comment.updatedBy = actor; }
   }
-  file.save(draft, undefined, actor);
-  output({ ok: true, revision: file.revision(), text: draft.text, comments: draft.comments });
+    file.save(draft, undefined, actor, lock);
+    return { ok: true, revision: file.revision(), text: draft.text, comments: draft.comments };
+  });
+  output(result);
 }
 main().catch((error) => {
-  const code = error.exitCode ?? (/changed on disk|changed during|holds this document|Revision conflict/.test(error.message) ? 3 : 1);
-  process.stderr.write(`${json({ ok: false, error: error.message, code })}\n`); process.exitCode = code;
+  const code = error.exitCode ?? (error instanceof CollaborationError ? (error.code === "INVALID" ? 2 : error.code === "CONFLICT" ? 3 : 4) :
+    error instanceof AppChannelError ? (error.code === "CONFLICT" ? 3 : 4) : /changed on disk|changed during|holds this document|Revision conflict/.test(error.message) ? 3 : 1);
+  process.stderr.write(`${json({ ok: false, error: error.message, code, ...(error.code ? { reason: error.code } : {}),
+    ...(error.retryable ? { retryable: true } : {}), ...(error.requestId ? { requestId: error.requestId } : {}) })}\n`); process.exitCode = code;
 });

@@ -22,6 +22,11 @@ export type DocumentMetadata = {
   notice: string | null;
 };
 export type DocumentSnapshot = Draft & DocumentMetadata;
+export type CollaborationTarget = { path: string; documentId?: never } | { path?: never; documentId: string };
+export type LiveDocumentInfo = DocumentMetadata & { active: boolean; dirty: boolean; generation: number; revision: string };
+export type LiveReadStart = { transferId: string; total: number; document: LiveDocumentInfo };
+export type LiveApplyResult = { document: LiveDocumentInfo; change: { from: number; to: number; inserted: number }; autoSave: boolean };
+export type LiveApplyResponse = { ok: true; result: LiveApplyResult } | { ok: false; error: string; code: "BUSY" | "CONFLICT" | "NOT_FOUND" | "INVALID" | "UNCERTAIN"; retryable: boolean };
 export type WorkspaceInfo = { id: string; root: string | null; name: string; explicit: boolean; activeId: string | null };
 export type OpenResult = { workspace: WorkspaceInfo; document: DocumentSnapshot | null };
 export type FolderEntry = { key: string; name: string; kind: "directory" | "file"; path: string };
@@ -51,6 +56,7 @@ export type SideleafRPC = {
       openFolder: { params: undefined; response: OpenResult | null };
       closeFolder: { params: undefined; response: OpenResult };
       openPending: { params: undefined; response: OpenResult | null };
+      pendingOpenRequiresLeave: { params: undefined; response: boolean };
       cancelPendingOpen: { params: undefined; response: boolean };
       newDocument: { params: undefined; response: OpenResult };
       workspace: { params: undefined; response: WorkspaceInfo };
@@ -75,7 +81,12 @@ export type SideleafRPC = {
     messages: { cancelSave: { transferId: string }; dirty: { id: string; dirty: boolean }; ready: { userAgent: string }; diagnostic: { event: string; message: string } };
   };
   webview: {
-    requests: {};
+    requests: {
+      collaborationDocuments: { params: { instanceId: string }; response: LiveDocumentInfo[] };
+      collaborationReadStart: { params: { instanceId: string; target: CollaborationTarget }; response: LiveReadStart };
+      collaborationReadChunk: { params: { transferId: string; index: number }; response: string };
+      collaborationApply: { params: { instanceId: string; target: CollaborationTarget; actor: string; ifRevision: string; envelope: unknown; deadline: number }; response: LiveApplyResponse };
+    };
     messages: { command: Command; update: UpdateState; foldersChanged: { workspaceId: string } };
   };
 };

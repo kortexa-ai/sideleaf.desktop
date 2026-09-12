@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DocumentWorkspace, FolderRoot } from "../src/document/workspace.ts";
-import { DocumentFile } from "../src/document/files.ts";
+import { acquireDocumentLock, DocumentFile } from "../src/document/files.ts";
 
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "sideleaf-workspace-")));
@@ -12,6 +12,19 @@ function fixture() {
   writeFileSync(join(root, "A.md"), "Alpha\n"); writeFileSync(join(root, "Notes", "B.md"), "Beta\n");
   return root;
 }
+test("app open waits asynchronously and registers ownership before releasing the document lock", async () => {
+  const root = fixture(), path = realpathSync(join(root, "A.md"));
+  const writer = acquireDocumentLock(path), workspace = new DocumentWorkspace();
+  const opening = workspace.openOwned(path), raced = workspace.openOwned(path);
+  await new Promise((accept) => setTimeout(accept, 40));
+  assert.equal(workspace.sessions.size, 0);
+  writer.release();
+  const opened = await opening;
+  const second = await raced;
+  assert.equal(second.document!.id, opened.document!.id);
+  assert.equal(workspace.get(opened.document!.id).file.path, path);
+  assert.equal(existsSync(`${path}.sideleaf.lock`), false);
+});
 test("opening a folder does not load documents; nested entries are lazy, filtered and naturally sorted", () => {
   const root = fixture(); mkdirSync(join(root, ".obsidian")); mkdirSync(join(root, "node_modules"));
   writeFileSync(join(root, "z10.md"), "10"); writeFileSync(join(root, "z2.md"), "2");

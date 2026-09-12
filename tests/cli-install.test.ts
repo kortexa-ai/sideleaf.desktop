@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { shellQuote, appleScriptString, defaultWSLDistro } from "../src/platform/cli-install.ts";
 
 test("installation paths survive shell and AppleScript string boundaries", { skip: process.platform === "win32" }, () => {
@@ -11,4 +12,9 @@ test("installation paths survive shell and AppleScript string boundaries", { ski
 });
 test("WSL installation is unavailable outside Windows", { skip: process.platform === "win32" }, async () => {
   assert.equal(await defaultWSLDistro(), null);
+});
+test("the WSL wrapper translates collaboration document operands and execs the Windows CLI", () => {
+  const source = readFileSync(new URL("../src/platform/install-cli-wsl.sh", import.meta.url), "utf8");
+  assert.match(source, /read\|comments\|apply\|wait\|edit/);
+  assert.match(source, /exec "\$launcher" "\$\{args\[@\]\}"/);
 });

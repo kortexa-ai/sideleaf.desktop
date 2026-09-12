@@ -113,9 +113,59 @@ This requires WSL interoperability and Windows access to the current distro.
 It accepts the same `--app` override and Windows/WSL path handling as `open`.
 The command requires a directory; `open` continues to require a file. Files in
 the folder load only when selected in the desktop tree. Running-instance opens use
-the same Save, Cancel and Discard flow as File → Open, so a pending request does not
-overwrite a dirty buffer. A live app channel that does not answer produces an error
-instead of starting a second instance.
+the same Save, Cancel and Discard flow as File → Open when they replace the current
+standalone document or folder. Opening another file in an existing folder workspace
+adds or activates its tab without asking to discard unrelated dirty tabs. A successful
+delivery result means the host accepted the request; the user can still cancel a
+queued replacement in the desktop. A live app channel that does not answer produces
+an error instead of starting a second instance. On macOS, `--app` is required when an
+automation must distinguish dev from stable; without it, Launch Services can activate
+an already-running build that shares Sideleaf's bundle identifier.
+
+## Live document foundation
+
+`sideleaf documents` lists every buffer in the selected running app, including the
+active state, dirty state, path (or `null` for untitled work), document ID, live
+revision and saved revision. `sideleaf read FILE` reads that live buffer when Sideleaf
+owns it and otherwise reads a coherent disk snapshot while holding the document lock.
+Use `sideleaf read --document ID` for untitled buffers and whenever an exact live
+identity is preferable to a path.
+
+The first collaboration operation is one guarded UTF-16 replacement:
+
+```sh
+sideleaf read --document DOCUMENT_ID > snapshot.json
+sideleaf apply --document DOCUMENT_ID \
+  --if-revision LIVE_REVISION --actor agent:reviewer <<'JSON'
+{"operations":[{"kind":"replace","from":0,"to":0,"text":"# Review\n\n"}]}
+JSON
+```
+
+The replacement is evaluated against the current live generation immediately before
+one editor transaction. It is one undo step, preserves the editor selection mapping,
+works for active and inactive buffers, and never activates another tab. Composition,
+save-in-progress, closing, stale revision, timeout and uncertain transport outcomes
+reject without leaving a queued write. The foundation limits inserted text to 8,000
+logical-LF characters so the complete request stays within the local channel's bounded
+frame. Later collaboration work will add quote-scoped batches and thread operations.
+
+Receipts distinguish `live`, `saved` and `dirty`. With autosave off, a successful live
+apply remains in the recoverable dirty buffer and leaves disk unchanged. With autosave
+on, it follows the same delayed save path as human typing. An unowned named file uses
+the same evaluator under `.sideleaf.lock`, rechecking live ownership after acquiring
+the lock and saving atomically only when app absence is established. Legacy `edit` and
+comment mutations reject an owned document with `open in Sideleaf; use apply`.
+
+`sideleaf wait FILE --after LIVE_REVISION --timeout SECONDS` is a silent one-shot
+foundation wait. It returns immediately with `resync` if the live revision already
+changed, returns `app-closed` when the app closes, or returns `timeout`; it writes no
+idle output. Semantic thread/activity cursors and event filtering belong to the next
+collaboration slice.
+
+Live failures use exit 4 and include a stable reason plus `retryable` and `requestId`
+when reconciliation is required. A request that crossed the authenticated endpoint
+but lost its receipt never falls back to disk. Reread the exact target before deciding
+whether to retry that operation.
 
 The installed desktop app also registers `md`, `markdown`, and `mdown` as
 editable Markdown document types, and `txt` as plain text. Finder's Open With menu and Windows Default

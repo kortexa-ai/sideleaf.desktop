@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync, linkSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, fstatSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync, linkSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
 import { relocateComment } from "./anchors.ts";
@@ -26,6 +26,65 @@ function linuxFileCommand(path: string, command: string, args: string[] = []): s
 const isWSL = (path: string) => process.platform === "win32" && wslLocation(path) !== null;
 
 const metadataPath = (path: string) => `${path}.sideleaf.json`;
+
+/** The existing per-document lock is the only app/CLI ownership handoff arbiter. */
+export class DocumentLock {
+  readonly lockPath: string;
+  private released = false;
+  private readonly identity: string;
+  constructor(readonly path: string, private readonly fd: number) {
+    this.lockPath = `${path}.sideleaf.lock`;
+    const stat = fstatSync(fd);
+    this.identity = `${stat.dev}:${stat.ino}`;
+  }
+  assert(path: string) {
+    if (this.released || path !== this.path) throw new Error("The document lock does not cover this path.");
+  }
+  release() {
+    if (this.released) return;
+    this.released = true;
+    closeSync(this.fd);
+    try {
+      const stat = lstatSync(this.lockPath);
+      if (`${stat.dev}:${stat.ino}` === this.identity) unlinkSync(this.lockPath);
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+}
+
+function tryDocumentLock(path: string): DocumentLock | null {
+  const lockPath = `${path}.sideleaf.lock`;
+  let fd: number;
+  try { fd = openSync(lockPath, "wx", 0o600); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return null;
+    throw error;
+  }
+  try {
+    writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
+    return new DocumentLock(path, fd);
+  } catch (error) { closeSync(fd); try { unlinkSync(lockPath); } catch { /* Preserve the original error. */ } throw error; }
+}
+
+export function acquireDocumentLock(path: string): DocumentLock {
+  const lock = tryDocumentLock(path);
+  if (!lock) throw new Error("Another Sideleaf writer holds this document's lock. Retry after it finishes; recover an abandoned lock only after checking its owner.");
+  return lock;
+}
+
+export async function acquireDocumentLockAsync(path: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<DocumentLock> {
+  const deadline = Date.now() + (options.timeoutMs ?? 2_000);
+  while (true) {
+    if (options.signal?.aborted) throw new Error("Document lock wait was cancelled.");
+    const lock = tryDocumentLock(path);
+    if (lock) return lock;
+    if (Date.now() >= deadline) throw new Error("Another Sideleaf writer holds this document's lock. Retry after it finishes; recover an abandoned lock only after checking its owner.");
+    await new Promise<void>((accept) => {
+      const finish = () => { clearTimeout(timer); options.signal?.removeEventListener("abort", finish); accept(); };
+      const timer = setTimeout(finish, 25);
+      options.signal?.addEventListener("abort", finish, { once: true });
+    });
+  }
+}
 
 function readOptional(path: string): Buffer | null {
   try { return readFileSync(path); }
@@ -137,9 +196,10 @@ export class DocumentFile {
     return { ...structuredClone(this.draft), id: this.id, path: this.path, name: this.name, lineEnding: this.lineEnding, notice: this.notice };
   }
 
-  static open(path: string): DocumentFile {
+  static open(path: string, lock?: DocumentLock): DocumentFile {
     const file = new DocumentFile();
     file.path = realpathSync(path);
+    lock?.assert(file.path);
     file.load();
     return file;
   }
@@ -245,22 +305,16 @@ export class DocumentFile {
     } finally { closeSync(fd); unlinkSync(lock); }
   }
 
-  save(draft: Draft, target?: string, actor = "local-user"): DocumentSnapshot {
+  save(draft: Draft, target?: string, actor = "local-user", heldLock?: DocumentLock): DocumentSnapshot {
     validateDraft(draft);
     if (draft.text.includes("\r")) throw new Error("Editor text must use logical LF line endings.");
     const path = target ? join(realpathSync(dirname(resolve(target))), basename(target)) : this.path;
     if (!path) throw new Error("Choose a file location first.");
     // Cooperative desktop/CLI writers serialize the check-and-replace sequence.
     // An abandoned lock is deliberately never stolen based only on its age.
-    const lock = `${path}.sideleaf.lock`;
-    let fd: number;
-    try { fd = openSync(lock, "wx", 0o600); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Another Sideleaf writer holds this document's lock. Retry after it finishes; recover an abandoned lock only after checking its owner.");
-      throw error;
-    }
+    const lock = heldLock ?? acquireDocumentLock(path);
+    lock.assert(path);
     try {
-      writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
       const samePath = path === this.path;
       const previousDisk = existsSync(path) ? readDisk(path) : null;
       if (!previousDisk && existsSync(metadataPath(path))) throw new Error("An existing Sideleaf sidecar is already at that location. Choose a new filename.");
@@ -300,7 +354,7 @@ export class DocumentFile {
       }
       this.revisions = annotated ? revisions : [];
       this.disk = disk; this.statKey = disk.statKey; this.statChanged = false;
-    } finally { closeSync(fd); unlinkSync(lock); }
+    } finally { if (!heldLock) lock.release(); }
 
     this.path = path;
     this.draft = structuredClone(draft);

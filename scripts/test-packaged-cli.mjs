@@ -11,11 +11,12 @@ const run = (args, input, expected = 0) => {
   assert.equal(result.status, expected, JSON.stringify({ args, status: result.status, stderr: result.stderr, error: result.error }));
   return JSON.parse(result.stdout || result.stderr);
 };
-const runAsync = (args, childEnv) => new Promise((accept, reject) => {
-  const child = spawn(executable, args, { env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
+const runAsync = (args, childEnv, input) => new Promise((accept, reject) => {
+  const child = spawn(executable, args, { env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
   let stdout = "", stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  child.stdin.end(input === undefined ? undefined : JSON.stringify(input));
   child.once("error", reject);
   child.once("close", (status) => accept({ status, stdout, stderr }));
 });
@@ -50,8 +51,20 @@ const launchEnv = {
   USERPROFILE: launchHome,
   ...(process.platform === "win32" ? { LOCALAPPDATA: join(launchHome, "AppData", "Local") } : {}),
 };
-const commands = [];
-const channel = await startAppChannel(sideleafUserData("stable", process.platform, launchEnv), (command) => { commands.push(command); });
+const commands = [], documentId = crypto.randomUUID(), instanceId = crypto.randomUUID();
+let generation = 2, liveText = "unsaved live";
+const liveRevision = () => `sl1.${instanceId}.${documentId}.${generation}`;
+const channel = await startAppChannel(sideleafUserData("stable", process.platform, launchEnv), (command) => {
+  if (command.kind !== "collaboration") { commands.push(command); return; }
+  const operation = command.operation;
+  if (operation.kind === "documents") return { contract: "sideleaf-collaboration/v1", documents: [{ id: documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, active: false, dirty: true, generation, revision: liveRevision(), savedRevision: snapshot.revision }] };
+  if (operation.kind === "ownership") return { owned: true };
+  if (operation.kind === "read") return { owned: true, contract: "sideleaf-collaboration/v1", live: true, saved: false, dirty: true, active: false,
+    documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, revision: liveRevision(), savedRevision: snapshot.revision, text: liveText, comments: [] };
+  if (operation.kind === "apply") { liveText = operation.envelope.operations[0].text; generation++; return { owned: true, contract: "sideleaf-collaboration/v1", live: true,
+    saved: false, dirty: true, autoSave: false, documentId, path: file, revision: liveRevision(), savedRevision: snapshot.revision, change: { from: 0, to: 12, inserted: liveText.length } }; }
+  return { owned: false };
+});
 assert.equal(channel.kind, "primary");
 try {
   const activated = await runAsync([], launchEnv);
@@ -61,7 +74,16 @@ try {
   assert.equal(opened.status, 0, JSON.stringify(opened));
   assert.equal(JSON.parse(opened.stdout).delivery, "running");
   assert.deepEqual(commands, [{ kind: "activate" }, { kind: "open", path: file }]);
+  const listed = await runAsync(["documents"], launchEnv);
+  assert.equal(JSON.parse(listed.stdout).documents[0].id, documentId);
+  const live = JSON.parse((await runAsync(["read", "--document", documentId], launchEnv)).stdout);
+  assert.equal(live.text, "unsaved live");
+  const applied = await runAsync(["apply", "--document", documentId, "--if-revision", live.revision, "--actor", "agent:packaged"], launchEnv,
+    { operations: [{ kind: "replace", from: 0, to: 12, text: "packaged live" }] });
+  assert.equal(JSON.parse(applied.stdout).live, true); assert.equal(liveText, "packaged live");
+  const refused = await runAsync(["edit", file, "--if-revision", snapshot.revision, "--actor", "agent:packaged"], launchEnv, { from: 0, to: 0, text: "lost" });
+  assert.equal(refused.status, 3); assert.match(JSON.parse(refused.stderr).error, /open in Sideleaf; use apply/);
 } finally {
   if (channel.kind === "primary") await channel.close();
 }
-console.log(`Packaged Cottontail CLI passed headless help, running-instance activation/open, pipes, input files, Unicode, BOM/CRLF, comments, revision and lock checks without Node/Bun on PATH: ${executable}`);
+console.log(`Packaged Cottontail CLI passed headless help, running-instance activation/open, live read/apply ownership, pipes, input files, Unicode, BOM/CRLF, comments, revision and lock checks without Node/Bun on PATH: ${executable}`);

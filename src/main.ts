@@ -14,11 +14,12 @@ import { defaultWSLDistro, installCommandLineTool, installWSLCommand } from "./p
 import { chooseSavePath } from "./platform/dialogs.ts";
 import { handleWindowAction } from "./platform/window-controls.ts";
 import { loadWindowsChrome, type WindowsChrome } from "./platform/windows-chrome.ts";
-import { documentMetadata, type Command, type RecoveredDocument, type SideleafRPC } from "./shared/contracts.ts";
+import { documentMetadata, validateDraft, type CollaborationTarget, type Command, type Draft, type LiveDocumentInfo, type RecoveredDocument, type SideleafRPC } from "./shared/contracts.ts";
 import { APP_VERSION } from "./shared/version.ts";
 import { customShortcutAccelerator, saveAsAccelerator } from "./ui/shortcuts.ts";
 import { UpdateChecker } from "./updates.ts";
-import { startAppChannel, type AppCommand } from "./collaboration/channel.ts";
+import { startAppChannel, type AppCommand, type AppRequest, type AppRequestContext, type CollaborationOperation } from "./collaboration/channel.ts";
+import { COLLABORATION_CONTRACT, CollaborationError } from "./collaboration/operations.ts";
 
 import { migrateIdentityData, windowsIdentity } from "./platform/identity.ts";
 
@@ -44,21 +45,37 @@ diagnostic("host-started", `Sideleaf ${APP_VERSION}`);
 const activatedPath = takeInitialFileActivation();
 const launchRequest = launchRequestFromLaunch(process.argv, process.env.SIDELEAF_OPEN_PATH, process.env.SIDELEAF_OPEN_KIND) ??
   (activatedPath ? { kind: "open" as const, path: activatedPath } : null);
+let rendererReady = false;
+const workspace = new DocumentWorkspace((workspaceId) => { if (rendererReady) rpc.send.foldersChanged({ workspaceId }); });
 const earlyAppCommands: AppCommand[] = [];
-let appCommandReceiver = (command: AppCommand) => { earlyAppCommands.push(command); };
-const appChannel = await startAppChannel(Utils.paths.userData, (command) => appCommandReceiver(command), { secondaryCommand: launchRequest ?? { kind: "activate" } });
+let markAppReceiverReady!: () => void;
+let appReceiverReadyFlag = false;
+const appReceiverReady = new Promise<void>((accept) => { markAppReceiverReady = accept; });
+let appCommandReceiver = (command: AppRequest, _context: AppRequestContext): unknown => {
+  if (command.kind === "collaboration") throw new CollaborationError("Sideleaf is still starting. Retry shortly.", "BUSY", true);
+  earlyAppCommands.push(command);
+  return undefined;
+};
+const appChannel = await startAppChannel(Utils.paths.userData, async (command, context) => {
+  if (command.kind === "collaboration" && !appReceiverReadyFlag) {
+    if (command.operation.kind === "ownership") return { owned: !!ownedSession(command.operation.target) };
+    await appReceiverReady;
+  }
+  return appCommandReceiver(command, context);
+}, { secondaryCommand: launchRequest ?? { kind: "activate" } });
 if (appChannel.kind === "delivered") process.exit(0);
+if (appChannel.kind !== "primary") throw new Error("Sideleaf app channel did not start.");
+const primaryChannel = appChannel;
 const launchPath = launchRequest?.path ?? null;
 let hasInitialPath = launchPath !== null;
-const workspace = new DocumentWorkspace((workspaceId) => { if (rendererReady) rpc.send.foldersChanged({ workspaceId }); });
-if (launchPath) workspace.open(launchPath); else workspace.newDocument();
+if (launchPath) await workspace.openOwned(launchPath); else workspace.newDocument();
 const scratch = new ScratchStore(join(Utils.paths.userData, "untitled-draft.json"));
 const recovery = new RecoveryStore(join(Utils.paths.userData, "document-recovery"));
 let initialDelivered = false;
 let recoveredScratch = false;
 let recoveryError: string | null = null;
-const pendingOpenPaths: string[] = [];
-let rendererReady = false;
+const pendingOpenPaths: { path: string; kind: "open" | "open-folder" }[] = [];
+const closingWaiters = new Set<(value: { outcome: "app-closed" }) => void>();
 let approvedClose = false;
 let dialogOpen = false;
 let updateChecksStarted = false;
@@ -71,19 +88,23 @@ function mutateWorkspace<T>(operation: () => T): T {
   const previous = [...workspace.sessions.keys()];
   const result = operation(); clearClosedRecovery(previous); updateTitle(); return result;
 }
+async function mutateWorkspaceAsync<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = [...workspace.sessions.keys()];
+  const result = await operation(); clearClosedRecovery(previous); updateTitle(); return result;
+}
 
 // When the app is already open, let the renderer run the same dirty-document
 // flow as File → Open before the host consumes the pending path.
-function receiveExternalOpen(path: string) {
+async function receiveExternalOpen(path: string, kind: "open" | "open-folder" = "open") {
   if (!initialDelivered) {
-    try { workspace.open(path); hasInitialPath = true; }
+    try { await workspace.openOwned(path); hasInitialPath = true; }
     catch (error) { recoveryError = `Sideleaf could not open the selected file: ${(error as Error).message}`; diagnostic("file-activation-failed", (error as Error).message); }
     return;
   }
-  pendingOpenPaths.push(path);
+  pendingOpenPaths.push({ path, kind });
   if (rendererReady) rpc.send.command("openExternal");
 }
-setFileActivationReceiver(receiveExternalOpen);
+setFileActivationReceiver((path) => { void receiveExternalOpen(path); });
 
 const rpc = BrowserView.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
@@ -138,7 +159,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       open: async () => {
         const paths = await Utils.openFileDialog({ allowedFileTypes: "md,markdown,mdown,txt", canChooseDirectory: false, allowsMultipleSelection: false });
         if (!paths[0]) return null;
-        return mutateWorkspace(() => workspace.open(paths[0]!));
+        return mutateWorkspaceAsync(() => workspace.openOwned(paths[0]!));
       },
       openFolder: async () => {
         const paths = await Utils.openFileDialog({ canChooseFiles: false, canChooseDirectory: true, allowsMultipleSelection: false });
@@ -149,7 +170,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       workspace: () => workspace.info(),
       listFolder: ({ workspaceId, key }) => workspace.folder(workspaceId).list(key),
       watchFolders: ({ workspaceId, keys }) => { workspace.folder(workspaceId).watch(keys); return true; },
-      openEntry: ({ workspaceId, key }) => { const result = workspace.openEntry(workspaceId, key); updateTitle(); return result; },
+      openEntry: async ({ workspaceId, key }) => { const result = await workspace.openEntryOwned(workspaceId, key); updateTitle(); return result; },
       activateDocument: ({ id }) => { const info = workspace.activate(id); updateTitle(); return info; },
       closeDocument: ({ id }) => mutateWorkspace(() => workspace.closeDocument(id)),
       renameDocument: ({ id, name }) => {
@@ -169,13 +190,14 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         file.trash(Utils.moveToTrash);
         const result = mutateWorkspace(() => workspace.closeDocument(id)); workspace.root?.notify(); return result;
       },
-      openPending: () => {
-        const path = pendingOpenPaths.shift();
-        if (!path) return null;
-        const result = mutateWorkspace(() => workspace.open(path));
+      openPending: async () => {
+        const pending = pendingOpenPaths.shift();
+        if (!pending) return null;
+        const result = await mutateWorkspaceAsync(() => workspace.openOwned(pending.path));
         if (pendingOpenPaths.length && rendererReady) queueMicrotask(() => rpc.send.command("openExternal"));
         return result;
       },
+      pendingOpenRequiresLeave: () => pendingOpenPaths[0]?.kind === "open-folder" || (!!pendingOpenPaths[0] && !workspace.explicit),
       cancelPendingOpen: () => {
         pendingOpenPaths.shift();
         if (pendingOpenPaths.length && rendererReady) queueMicrotask(() => rpc.send.command("openExternal"));
@@ -243,7 +265,8 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       },
       finishClose: async ({ quit }) => {
         approvedClose = true;
-        await appChannel.close();
+        for (const close of [...closingWaiters]) close({ outcome: "app-closed" });
+        await primaryChannel.close();
         if (quit) Utils.quit(); else appWindow.close();
         return true;
       },
@@ -273,6 +296,87 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
   },
 });
 
+function ownedSession(target: CollaborationTarget) {
+  const matches = [...workspace.sessions.values()].filter((session) => target.documentId ? session.file.id === target.documentId : session.file.path === target.path);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+async function waitForRenderer(context: AppRequestContext) {
+  while (!rendererReady) {
+    if (approvedClose || context.signal.aborted || Date.now() >= context.deadline) throw new CollaborationError("Sideleaf is not ready to answer this request. Retry shortly.", "BUSY", true);
+    await new Promise((accept) => setTimeout(accept, 20));
+  }
+}
+
+async function rendererDocuments(context: AppRequestContext): Promise<LiveDocumentInfo[]> {
+  await waitForRenderer(context);
+  return rpc.request.collaborationDocuments({ instanceId: primaryChannel.instanceId });
+}
+
+async function readLive(target: CollaborationTarget, context: AppRequestContext) {
+  const session = ownedSession(target);
+  if (!session) return { owned: false as const };
+  await waitForRenderer(context);
+  const start = await rpc.request.collaborationReadStart({ instanceId: primaryChannel.instanceId, target });
+  if (start.total < 1 || start.total > 256 || start.document.id !== session.file.id) throw new CollaborationError("The live snapshot transfer was inconsistent. Reread the document.", "UNCERTAIN", true);
+  let serialized = "";
+  for (let index = 0; index < start.total; index++) {
+    if (context.signal.aborted || Date.now() >= context.deadline) throw new CollaborationError("The live snapshot request expired. Reread the document.", "UNCERTAIN", true);
+    serialized += await rpc.request.collaborationReadChunk({ transferId: start.transferId, index });
+  }
+  let draft: Draft;
+  try { draft = JSON.parse(serialized); validateDraft(draft); }
+  catch { throw new CollaborationError("Sideleaf returned an invalid live snapshot.", "UNCERTAIN", true); }
+  if (ownedSession({ documentId: start.document.id }) !== session) throw new CollaborationError("The document changed ownership during the live read. Reread it.", "UNCERTAIN", true);
+  return { owned: true as const, contract: COLLABORATION_CONTRACT, live: true as const, saved: !start.document.dirty,
+    dirty: start.document.dirty, active: start.document.active, documentId: start.document.id, path: start.document.path,
+    name: start.document.name, lineEnding: start.document.lineEnding, notice: start.document.notice, revision: start.document.revision,
+    savedRevision: session.file.path ? session.file.revision() : null, text: draft.text, comments: draft.comments };
+}
+
+async function handleCollaboration(operation: CollaborationOperation, context: AppRequestContext): Promise<unknown> {
+  if (approvedClose) throw new CollaborationError("Sideleaf is closing. Reconcile the request after it exits.", "UNCERTAIN", true);
+  if (operation.kind === "ownership") return { owned: !!ownedSession(operation.target) };
+  if (operation.kind === "documents") {
+    const documents = await rendererDocuments(context);
+    return { contract: COLLABORATION_CONTRACT, documents: documents.map((document) => ({ ...document,
+      savedRevision: document.path ? workspace.get(document.id).file.revision() : null })) };
+  }
+  if (operation.kind === "read") return readLive(operation.target, context);
+  if (operation.kind === "apply") {
+    const session = ownedSession(operation.target);
+    if (!session) return { owned: false };
+    await waitForRenderer(context);
+    if (context.signal.aborted || Date.now() > operation.deadline) throw new CollaborationError("The apply request expired before dispatch. Reread before retrying.", "UNCERTAIN", true);
+    const response = await rpc.request.collaborationApply({ instanceId: primaryChannel.instanceId, target: operation.target, actor: operation.actor,
+      ifRevision: operation.ifRevision, envelope: operation.envelope, deadline: operation.deadline });
+    if (!response.ok) throw new CollaborationError(response.error, response.code, response.retryable);
+    const result = response.result;
+    if (ownedSession({ documentId: result.document.id }) !== session) throw new CollaborationError("The document changed ownership during apply. Reconcile by reading it again.", "UNCERTAIN", true);
+    return { owned: true, contract: COLLABORATION_CONTRACT, live: true, saved: !result.document.dirty, dirty: result.document.dirty,
+      autoSave: result.autoSave, documentId: result.document.id, path: result.document.path, revision: result.document.revision,
+      savedRevision: session.file.path ? session.file.revision() : null, change: result.change };
+  }
+  if (operation.kind !== "wait") throw new CollaborationError("Unsupported collaboration operation.", "INVALID");
+  const session = ownedSession(operation.target);
+  if (!session) return { owned: false };
+  const documents = await rendererDocuments(context);
+  const document = documents.find((candidate) => candidate.id === session.file.id);
+  if (!document) throw new CollaborationError("The owned document is not ready in the editor.", "BUSY", true);
+  if (document.revision !== operation.after) return { owned: true, contract: COLLABORATION_CONTRACT, outcome: "resync", revision: document.revision };
+  return new Promise((accept, reject) => {
+    let settled = false;
+    const finish = (value: { outcome: "app-closed" } | { outcome: "timeout" }) => {
+      if (settled) return; settled = true; clearTimeout(timer); closingWaiters.delete(close); context.signal.removeEventListener("abort", abort);
+      accept({ owned: true, contract: COLLABORATION_CONTRACT, ...value });
+    };
+    const close = (value: { outcome: "app-closed" }) => finish(value);
+    const abort = () => { if (!settled) { settled = true; clearTimeout(timer); closingWaiters.delete(close); reject(new CollaborationError("The wait was cancelled.", "UNCERTAIN", true)); } };
+    const timer = setTimeout(() => finish({ outcome: "timeout" }), operation.timeoutMs);
+    closingWaiters.add(close); context.signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
 const updates = new UpdateChecker({ installedVersion: APP_VERSION, cachePath: join(Utils.paths.userData, "updates.json"), onChange: (state) => rpc.send.update(state) });
 
 appWindow = new BrowserWindow({
@@ -286,12 +390,14 @@ appWindow = new BrowserWindow({
   rpc,
 });
 windowsChrome = configureWindowsChrome?.(appWindow);
-appCommandReceiver = (command) => {
+appCommandReceiver = async (command, context) => {
+  if (command.kind === "collaboration") return handleCollaboration(command.operation, context);
   if (appWindow.isMinimized()) appWindow.unminimize();
   appWindow.show();
-  if (command.kind !== "activate") receiveExternalOpen(command.path);
+  if (command.kind !== "activate") await receiveExternalOpen(command.path, command.kind);
 };
-for (const command of earlyAppCommands.splice(0)) appCommandReceiver(command);
+appReceiverReadyFlag = true; markAppReceiverReady();
+for (const command of earlyAppCommands.splice(0)) void appCommandReceiver(command, { requestId: "startup", deadline: Date.now() + 4_000, signal: new AbortController().signal });
 
 function updateTitle() { appWindow.setTitle(`${workspace.dirty ? "● " : ""}${workspace.activeId ? workspace.get(workspace.activeId).file.name : workspace.info().name} — Sideleaf`); }
 updateTitle();

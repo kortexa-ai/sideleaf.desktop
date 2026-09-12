@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
@@ -9,10 +10,11 @@ import {
   APP_CHANNEL_CONTRACT,
   APP_CHANNEL_PROTOCOL,
   deliverAppCommand,
+  requestApp,
   sideleafUserData,
   startAppChannel,
   type AppChannel,
-  type AppCommand,
+  type AppRequest,
 } from "../src/collaboration/channel.ts";
 
 const directories: string[] = [];
@@ -29,7 +31,7 @@ function userData(): string {
 }
 
 test("one primary channel receives exact Unicode open commands and a second app hands off", async () => {
-  const root = userData(), received: AppCommand[] = [];
+  const root = userData(), received: AppRequest[] = [];
   const started = await startAppChannel(root, async (command) => { received.push(command); });
   assert.equal(started.kind, "primary");
   channels.push(started as AppChannel);
@@ -94,10 +96,69 @@ test("a live but unresponsive owner fails closed", async () => {
   writeFileSync(paths.discovery, `${JSON.stringify(record)}\n`, { mode: 0o600 });
   if (process.platform !== "win32") chmodSync(paths.discovery, 0o600);
   try {
-    await assert.rejects(deliverAppCommand(root, { kind: "activate" }, { timeoutMs: 80 }), /owns this app channel.*did not respond/s);
+    await assert.rejects(deliverAppCommand(root, { kind: "activate" }, { timeoutMs: 80 }), /stale or could not be verified.*did not respond/s);
   } finally {
     await new Promise<void>((accept) => server.close(() => accept()));
   }
+});
+
+test("a live PID with a missing endpoint is retryable uncertainty, not absence or ownership", async () => {
+  if (process.platform === "win32") return;
+  const root = userData(), paths = appChannelPaths(root);
+  mkdirSync(paths.directory, { recursive: true, mode: 0o700 }); chmodSync(paths.directory, 0o700);
+  mkdirSync(paths.socketDirectory, { recursive: true, mode: 0o700 }); chmodSync(paths.socketDirectory, 0o700);
+  const endpoint = join(paths.socketDirectory, `${paths.key}-${crypto.randomUUID()}.sock`);
+  writeFileSync(paths.discovery, `${JSON.stringify({ contract: APP_CHANNEL_CONTRACT, protocol: APP_CHANNEL_PROTOCOL, instanceId: crypto.randomUUID(), token: crypto.randomUUID(), pid: process.pid, startedAt: new Date().toISOString(), endpoint })}\n`, { mode: 0o600 });
+  chmodSync(paths.discovery, 0o600);
+  await assert.rejects(requestApp(root, { kind: "collaboration", operation: { kind: "ownership", target: { path: join(root, "draft.md") } } }),
+    (error: unknown) => !!error && typeof error === "object" && (error as { code?: unknown }).code === "UNCERTAIN" &&
+      (error as { retryable?: unknown }).retryable === true && !(error as Error).message.includes("owns this app channel"));
+});
+
+test("an invalid discovery record fails closed with a request identity", async () => {
+  const root = userData(), paths = appChannelPaths(root);
+  mkdirSync(paths.directory, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") chmodSync(paths.directory, 0o700);
+  writeFileSync(paths.discovery, "not-json\n", { mode: 0o600 });
+  if (process.platform !== "win32") chmodSync(paths.discovery, 0o600);
+  await assert.rejects(requestApp(root, { kind: "collaboration", operation: { kind: "ownership", target: { path: join(root, "draft.md") } } }),
+    (error: unknown) => !!error && typeof error === "object" && (error as { code?: unknown }).code === "UNCERTAIN" &&
+      typeof (error as { requestId?: unknown }).requestId === "string" && (error as { retryable?: unknown }).retryable === true);
+});
+
+test("a disconnected request after command delivery reports uncertain completion with its request ID", async () => {
+  const root = userData();
+  const started = await startAppChannel(root, async () => {});
+  assert.equal(started.kind, "primary"); channels.push(started as AppChannel);
+  const paths = appChannelPaths(root), record = JSON.parse(readFileSync(paths.discovery, "utf8"));
+  const endpoint = process.platform === "win32" ? `${record.endpoint}-drop` : join(paths.socketDirectory, `${paths.key}-${crypto.randomUUID()}.sock`);
+  const server = createServer((socket) => {
+    socket.setEncoding("utf8");
+    socket.write(`${JSON.stringify({ contract: record.contract, protocol: record.protocol, type: "hello", instanceId: record.instanceId, pid: record.pid })}\n`);
+    socket.once("data", () => socket.destroy());
+  });
+  await new Promise<void>((accept, reject) => { server.once("error", reject); server.listen(endpoint, accept); });
+  if (process.platform !== "win32") chmodSync(endpoint, 0o600);
+  record.endpoint = endpoint; writeFileSync(paths.discovery, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+  if (process.platform !== "win32") chmodSync(paths.discovery, 0o600);
+  const requestId = crypto.randomUUID();
+  try {
+    await assert.rejects(requestApp(root, { kind: "collaboration", operation: { kind: "ownership", target: { path: join(root, "draft.md") } } }, { requestId }),
+      (error: unknown) => !!error && typeof error === "object" && (error as { requestId?: unknown }).requestId === requestId &&
+        (error as { commandSent?: unknown }).commandSent === true && /did not confirm request completion/.test((error as Error).message));
+  } finally { await new Promise<void>((accept) => server.close(() => accept())); }
+});
+
+test("a new primary removes abandoned sockets in its private namespace", async () => {
+  if (process.platform === "win32") return;
+  const root = userData(), paths = appChannelPaths(root);
+  mkdirSync(paths.socketDirectory, { recursive: true, mode: 0o700 }); chmodSync(paths.socketDirectory, 0o700);
+  const stale = join(paths.socketDirectory, `${paths.key}-${crypto.randomUUID()}.sock`);
+  const child = spawnSync(process.execPath, ["-e", `const {createServer}=require('node:net');createServer(()=>{}).listen(${JSON.stringify(stale)},()=>process.exit(0))`]);
+  assert.equal(child.status, 0, child.stderr.toString()); assert.equal(existsSync(stale), true);
+  const started = await startAppChannel(root, async () => {});
+  assert.equal(started.kind, "primary"); channels.push(started as AppChannel);
+  assert.equal(existsSync(stale), false);
 });
 
 test("a dead app record does not block a cold launch even when its socket is gone", async () => {
@@ -113,4 +174,35 @@ test("a dead app record does not block a cold launch even when its socket is gon
 test("app-data roots preserve stable/dev separation", () => {
   assert.equal(sideleafUserData("dev", "darwin", { HOME: "/Users/test" }), "/Users/test/Library/Application Support/ai.kortexa.sideleaf/dev");
   assert.equal(sideleafUserData("stable", "win32", { LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local" }), "C:\\Users\\test\\AppData\\Local\\ai.kortexa.sideleaf\\stable");
+});
+
+test("collaboration responses chunk large live snapshots and deduplicate mutation request IDs", async () => {
+  const root = userData(); let handled = 0;
+  const started = await startAppChannel(root, (request) => {
+    handled++;
+    assert.equal(request.kind, "collaboration");
+    return request.kind === "collaboration" && request.operation.kind === "read" ? { owned: true, text: "🌿".repeat(80_000) } : { owned: true, applied: true };
+  });
+  assert.equal(started.kind, "primary"); channels.push(started as AppChannel);
+  const requestId = crypto.randomUUID(), command = { kind: "collaboration" as const, operation: { kind: "read" as const, target: { path: join(root, "large.md") } } };
+  const first = await requestApp<{ owned: boolean; text: string }>(root, command, { requestId });
+  assert.equal(first.value?.text, "🌿".repeat(80_000));
+  const applyId = crypto.randomUUID(), apply: AppRequest = { kind: "collaboration", operation: { kind: "apply", target: { path: join(root, "large.md") },
+    actor: "agent:test", ifRevision: "a".repeat(64), envelope: { operations: [{ kind: "replace", from: 0, to: 0, text: "x" }] }, deadline: Date.now() + 1_000 } };
+  const applied = await requestApp<{ owned: boolean; applied: boolean }>(root, apply, { requestId: applyId });
+  const replay = await requestApp<{ owned: boolean; applied: boolean }>(root, apply, { requestId: applyId });
+  assert.deepEqual(replay.value, applied.value);
+  const changed = structuredClone(apply); changed.operation.kind === "apply" && (changed.operation.envelope.operations[0].text = "y");
+  await assert.rejects(requestApp(root, changed, { requestId: applyId }), (error: unknown) => (error as { code?: unknown }).code === "INVALID");
+  assert.equal(handled, 2);
+});
+
+test("structured busy results retain their request identity and retryable reason", async () => {
+  const root = userData();
+  const started = await startAppChannel(root, () => { throw Object.assign(new Error("composing"), { code: "BUSY", retryable: true }); });
+  assert.equal(started.kind, "primary"); channels.push(started as AppChannel);
+  const requestId = crypto.randomUUID();
+  await assert.rejects(requestApp(root, { kind: "collaboration", operation: { kind: "ownership", target: { path: join(root, "draft.md") } } }, { requestId }),
+    (error: unknown) => !!error && typeof error === "object" && (error as { requestId?: unknown }).requestId === requestId &&
+      (error as { code?: unknown }).code === "BUSY" && (error as { retryable?: unknown }).retryable === true);
 });
