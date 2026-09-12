@@ -6,6 +6,7 @@
 #include <aclapi.h>
 #include <shellapi.h>
 #include <sddl.h>
+#include <winioctl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -195,11 +196,11 @@ __declspec(dllexport) int sideleaf_verify_path(const WCHAR *path, int directory,
     return private_acl(path, directory != 0, protect != 0);
 }
 
-// Return a cheap high-resolution NTFS change fingerprint. Unlike Bun's ctime
-// mapping on Windows, FILE_BASIC_INFO.ChangeTime advances for an ordinary
-// write even when a writer restores LastWriteTime.
+// Return a cheap Windows change fingerprint. NTFS's per-file USN catches
+// several changes inside one system-clock tick; redirectors that do not expose
+// it retain change/write times and stable file identity without failing open.
 __declspec(dllexport) int sideleaf_file_key(const WCHAR *path, char *output, DWORD capacity) {
-    HANDLE file = CreateFileW(path, FILE_READ_ATTRIBUTES,
+    HANDLE file = CreateFileW(path, GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, NULL);
     if (file == INVALID_HANDLE_VALUE) {
@@ -219,6 +220,14 @@ __declspec(dllexport) int sideleaf_file_key(const WCHAR *path, char *output, DWO
         memcpy(identity.FileId.Identifier, &fallback.nFileIndexLow, sizeof(fallback.nFileIndexLow));
         memcpy(identity.FileId.Identifier + sizeof(fallback.nFileIndexLow), &fallback.nFileIndexHigh, sizeof(fallback.nFileIndexHigh));
     }
+    uint64_t usn = 0;
+    BYTE usn_record[512] = {0}; DWORD usn_bytes = 0;
+    if (DeviceIoControl(file, FSCTL_READ_FILE_USN_DATA, NULL, 0, usn_record, sizeof(usn_record), &usn_bytes, NULL) && usn_bytes >= 32) {
+        USHORT major = 0;
+        memcpy(&major, usn_record + 4, sizeof(major));
+        DWORD offset = major >= 3 ? 40 : 24;
+        if (usn_bytes >= offset + sizeof(usn)) memcpy(&usn, usn_record + offset, sizeof(usn));
+    }
     CloseHandle(file);
     int used = snprintf(output, capacity, "%llx:%llx:%llx:", (unsigned long long)basic.ChangeTime.QuadPart,
         (unsigned long long)basic.LastWriteTime.QuadPart,
@@ -229,8 +238,9 @@ __declspec(dllexport) int sideleaf_file_key(const WCHAR *path, char *output, DWO
         if (next != 2) return -1;
         used += next;
     }
-    int next = snprintf(output + used, capacity - (DWORD)used, ":%llx:%lx",
-        (unsigned long long)standard.EndOfFile.QuadPart, (unsigned long)basic.FileAttributes);
+    int next = snprintf(output + used, capacity - (DWORD)used, ":%llx:%lx:%llx",
+        (unsigned long long)standard.EndOfFile.QuadPart, (unsigned long)basic.FileAttributes,
+        (unsigned long long)usn);
     if (next < 0 || (DWORD)(used + next) >= capacity) return -1;
     return used + next;
 }
