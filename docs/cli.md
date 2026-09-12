@@ -172,6 +172,11 @@ revision and saved revision. `sideleaf read FILE` reads that live buffer when Si
 owns it and otherwise reads the current saved disk snapshot.
 Use `sideleaf read --document ID` for untitled buffers and whenever an exact live
 identity is preferable to a path.
+Recovered named drafts reopen as separate untitled copies with new document IDs;
+they do not replace or take ownership of the original path. After recovery, run
+`sideleaf documents`, select the recovered copy by its name and exact document ID,
+then use `--document ID` for read, focus, apply or wait. Rereading the old path
+addresses the original file and does not return its unsaved recovered copy.
 
 Collaboration operations include guarded batches. This example applies two sequential
 source changes and replies to one thread in a single editor transaction:

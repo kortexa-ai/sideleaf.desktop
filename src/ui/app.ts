@@ -21,7 +21,7 @@ import { APP_VERSION } from "../shared/version.ts";
 import { documentViewMode, isPlainText, type ViewMode } from "../shared/document-type.ts";
 import { documentExtensions, documentMode } from "./document-mode.ts";
 import { CollaborationError, evaluateApply, focusDraft, liveRevision, threadRevision, threadSemanticValue, type SuggestionOperation, type ThreadOperation } from "../collaboration/operations.ts";
-import { ActivityJournal, activityForOperation, diffDraftActivity } from "../collaboration/activity.ts";
+import { ActivityJournal, activityForOperation, diffDraftActivity, recordReloadActivity } from "../collaboration/activity.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
@@ -744,9 +744,19 @@ function activateBuffer(buffer: EditorBuffer, capture = true) {
   void folderTree.reveal(current.path);
 }
 function applyDocument(snapshot: DocumentSnapshot, recovered = false, previous?: EditorBuffer) {
-  const state = createEditorState(snapshot.text, snapshot.threads, snapshot.name);
-  const buffer = previous ? EditorBuffer.reloaded(snapshot, state, previous) : new EditorBuffer(snapshot, state, recovered);
-  buffers.set(snapshot.id, buffer); activateBuffer(buffer, false);
+  const buffer = previous ? reloadBuffer(snapshot, previous)
+    : new EditorBuffer(snapshot, createEditorState(snapshot.text, snapshot.threads, snapshot.name), recovered);
+  if (!previous) buffers.set(snapshot.id, buffer);
+  activateBuffer(buffer, false);
+}
+function reloadBuffer(snapshot: DocumentSnapshot, previous: EditorBuffer): EditorBuffer {
+  const before = previous.draft();
+  const next = EditorBuffer.reloaded(snapshot, createEditorState(snapshot.text, snapshot.threads, snapshot.name), previous);
+  buffers.set(snapshot.id, next);
+  if (collaborationActivity) {
+    for (const event of recordReloadActivity(collaborationActivity, snapshot.id, before, next.draft())) rpc.send.collaborationActivity(event);
+  }
+  return next;
 }
 function showEmptyWorkspace() {
   current = { id: "", path: null, name: workspaceInfo.name, lineEnding: "\n", notice: null };
@@ -1312,8 +1322,7 @@ async function checkDisk() {
           if (buffer.dirty || buffer.hasCommentDraft || buffer.saving) return;
           const snapshot = await rpc.request.reload({ id });
           if (buffers.get(id) !== buffer) return;
-          const next = EditorBuffer.reloaded(snapshot, createEditorState(snapshot.text, snapshot.threads), buffer);
-          buffers.set(id, next);
+          const next = reloadBuffer(snapshot, buffer);
           if (current.id === id) { activateBuffer(next, false); notice("Reloaded changes made outside Sideleaf."); }
         });
       }

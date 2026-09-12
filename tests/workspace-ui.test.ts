@@ -7,6 +7,7 @@ import { EditorBuffer, refreshUntitledRecoveries } from "../src/ui/workspace.ts"
 import { makeAnchor } from "../src/document/anchors.ts";
 import { CollaborationError, evaluateApply, liveRevision } from "../src/collaboration/operations.ts";
 import type { DocumentSnapshot } from "../src/shared/contracts.ts";
+import { readFileSync } from "node:fs";
 
 function buffer(id: string, text: string) {
   const snapshot: DocumentSnapshot = { id, name: `${id}.md`, path: `/${id}.md`, text, threads: [], lineEnding: "\n", notice: null };
@@ -88,4 +89,13 @@ test("reloading a document advances its live generation and rejects the pre-relo
   assert.notEqual(after, before); assert.equal(next.generation, 8);
   await assert.rejects(() => evaluateApply(next.draft(), { operations: [{ kind: "replace", from: 0, to: 8, text: "lost" }] }, { actor: "agent", ifRevision: before, currentRevision: after }),
     (error: CollaborationError) => error.code === "CONFLICT");
+});
+
+test("explicit and automatic reloads share semantic activity publication", () => {
+  const source = readFileSync(new URL("../src/ui/app.ts", import.meta.url), "utf8");
+  const helper = source.match(/function reloadBuffer\([\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(helper, /recordReloadActivity\(collaborationActivity/);
+  assert.match(source, /previous \? reloadBuffer\(snapshot, previous\)/);
+  assert.match(source, /const next = reloadBuffer\(snapshot, buffer\)/);
+  assert.equal((source.match(/EditorBuffer\.reloaded\(/g) ?? []).length, 1);
 });

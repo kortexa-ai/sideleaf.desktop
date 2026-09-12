@@ -30,6 +30,8 @@ Sideleaf stores review metadata in a terminal HTML comment. Do not edit that blo
 
 Run \`sideleaf read FILE\` to get the visible text, threads, compatibility comments, current document revision, and semantic activity cursor as JSON. Run \`sideleaf threads FILE\` for the current threads and their semantic revisions. Use \`sideleaf focus FILE\` for a bounded range, exact passage, or one thread when the full source is unnecessary.
 
+Recovered named drafts reopen as separate untitled copies with new document IDs. Run \`sideleaf documents\` after recovery, identify the recovered copy by name and exact ID, then use \`--document ID\`; rereading the original path addresses the saved original rather than the unsaved recovered copy.
+
 Before an offset replacement or offset-anchored root thread, read the file again and pass that exact revision with \`--if-revision HASH\`. An exact unique quote/context operation can tolerate unrelated source edits. Before replying, editing or deleting a reply, resolving, reopening, or deleting a thread, run \`sideleaf threads FILE\` and pass that thread's exact \`revision\` with \`--if-thread-revision HASH\`. Add \`--if-revision\` too when the whole document must remain unchanged. Pass a clear identity such as \`--actor agent:reviewer\`. If a write exits with code 3, reread and reconsider the operation; do not blindly retry.
 
 ## Author and edit

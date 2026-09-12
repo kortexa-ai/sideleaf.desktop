@@ -4,7 +4,7 @@ import { EditorState, type Transaction } from "@codemirror/state";
 import { history, isolateHistory, undo } from "@codemirror/commands";
 import { commentField, commentHistory, setComments } from "../src/ui/comments.ts";
 import { makeAnchor } from "../src/document/anchors.ts";
-import { ActivityJournal, activityForOperation, diffDraftActivity, fileCursor, liveCursor } from "../src/collaboration/activity.ts";
+import { ActivityJournal, activityForOperation, diffDraftActivity, fileCursor, liveCursor, recordReloadActivity } from "../src/collaboration/activity.ts";
 
 const instance = "11111111-1111-4111-8111-111111111111", documentId = "22222222-2222-4222-8222-222222222222";
 
@@ -80,4 +80,30 @@ test("suggestion creation, decisions and undo restoration are semantic events", 
   assert.equal(diffDraftActivity({ text, threads: [root] }, { text, threads: [accepted] }, "human")[0]!.kind, "suggestion-accepted");
   assert.equal(diffDraftActivity({ text, threads: [accepted] }, { text, threads: [root] }, "human")[0]!.kind, "suggestion-restored");
   assert.equal(activityForOperation("suggestion-reject", "human", { threadId: "s", messageId: "s" }).kind, "suggestion-rejected");
+});
+
+test("reloaded external changes wake the journal and preserve embedded attribution", () => {
+  const instanceId = crypto.randomUUID(), documentId = crypto.randomUUID(), journal = new ActivityJournal(instanceId);
+  const cursor = journal.cursor(documentId), notifications: number[] = [];
+  journal.subscribe(() => notifications.push(notifications.length + 1));
+  const thread = { id: "t", state: "open" as const, anchor: makeAnchor("Review this", 0, 6),
+    messages: [{ id: "t", body: "Root", createdAt: "2026-09-12T18:00:00.000Z", author: "human" }] };
+  const reply = { id: "r", body: "External reply", createdAt: "2026-09-12T18:01:00.000Z", author: "agent:writer" };
+  assert.deepEqual(recordReloadActivity(journal, documentId, { text: "Review this", threads: [thread] }, { text: "Externally changed", threads: [thread] }), []);
+  assert.deepEqual(recordReloadActivity(journal, documentId, { text: "Review this", threads: [thread] },
+    { text: "Review this", threads: [{ ...thread, anchor: makeAnchor("Review this", 1, 6) }] }), []);
+  assert.equal(notifications.length, 0);
+
+  const withReply = { ...thread, messages: [...thread.messages, reply] };
+  const [event] = recordReloadActivity(journal, documentId, { text: "Review this", threads: [thread] }, { text: "Review this", threads: [withReply] });
+  assert.equal(event?.actor, "agent:writer");
+  assert.equal(event?.kind, "thread-replied");
+  assert.equal(notifications.length, 1);
+  const result = journal.scan(documentId, cursor);
+  assert.equal(result.outcome, "event");
+  if (result.outcome === "event") assert.deepEqual({ actor: result.event.actor, threadId: result.event.threadId }, { actor: "agent:writer", threadId: "t" });
+
+  const beforeEdit = { text: "Review this", threads: [withReply] };
+  const edited = { ...withReply, messages: [{ ...thread.messages[0]!, body: "Updated", updatedAt: "2026-09-12T18:02:00.000Z", updatedBy: "agent:editor" }, reply] };
+  assert.equal(recordReloadActivity(journal, documentId, beforeEdit, { text: "Review this", threads: [edited] })[0]?.actor, "agent:editor");
 });

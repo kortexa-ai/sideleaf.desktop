@@ -148,3 +148,13 @@ export function diffDraftActivity(before: import("../shared/contracts.ts").Draft
   if (before.text !== after.text) events.push({ kind: "source-applied", actor: fallbackActor, createdAt: now });
   return events;
 }
+
+/** Record review changes imported by a reload without attributing them to the
+ * local user. Embedded message and decision attribution wins over the fallback;
+ * ordinary external source edits stay quiet like ordinary editor typing. */
+export function recordReloadActivity(journal: ActivityJournal, documentId: string,
+  before: import("../shared/contracts.ts").Draft, after: import("../shared/contracts.ts").Draft): CursorActivity[] {
+  return diffDraftActivity(before, after, "external")
+    .filter((event) => event.kind !== "source-applied")
+    .map((event) => journal.record(documentId, event));
+}
