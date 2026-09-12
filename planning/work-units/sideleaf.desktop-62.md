@@ -39,3 +39,25 @@ older readers refuse the file before changing it.
   batches, compact receipts, live/offline and active/inactive buffers, autosave,
   wait events, WSL path translation, human decisions, save/reopen and undo/redo on
   macOS and Windows.
+
+## Acceptance
+
+The implementation shipped in `d549627b07f2644ba126bbb34b63e46b8165f848`.
+
+- Source validation passed 139 tests on macOS and 136 tests with three expected
+  platform skips on Windows. Native builds, packaged CLI suggestion lifecycles and
+  packaged Cottontail evaluator checks passed on both platforms. An independent
+  64-check CLI probe covered exact creation/decisions, stale and ambiguous targets,
+  atomic rollback, compact receipts and version-2 migration.
+- Actual archived version-2 Mac and Windows CLIs refused read and attempted writes
+  of version-3 metadata without changing source bytes or directory contents.
+- Native Mac and Windows/CMD/WSL checks covered dirty, inactive and untitled
+  buffers; explicit accept/reject/deletion; stale refusal; one-step native undo/redo;
+  semantic waits; autosave on/off; recovery; Save As and cold reopen. Applicable
+  saves preserved BOM, CRLF, Unicode paths and Unix mode `0640`.
+
+One initial Mac launch showed a blank window and an uncertain documents request even
+though startup diagnostics reached ready. A captured restart and two later ordinary
+cold launches were healthy without a code or build change, so no root cause or fix is
+claimed. Native IME and idle/ended-turn harness wake were not newly established;
+active-turn background completion was observed. No release was cut.

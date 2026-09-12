@@ -242,6 +242,11 @@ headless CLI keeps its contract while the versioned collaboration API is built.
   revisions for whole-body or legacy offset writes. Allow an additional global
   guard for any batch. This explicitly amends the current mandatory whole-file
   revision policy for the new API; it is not an interpretation of that policy.
+- Represent a requested source change as a compact, versioned suggestion on an
+  ordinary review thread. Creating one leaves source unchanged. Accept revalidates
+  the stored exact passage before applying source and terminal state in one undoable
+  transaction; reject changes only suggestion state. Persist proposals portably and
+  preserve existing IDs, anchors and retained history during format migration.
 - Return compact receipts and focused reads. A silent one-shot wait returns a
   relevant semantic event and exits, using a verified harness notification path
   without model polling. Cursor gaps and uncertain writes require reconciliation.
@@ -253,7 +258,9 @@ headless CLI keeps its contract while the versioned collaboration API is built.
 
 Keep the implementation free of an additional daemon, database or custom
 cryptographic protocol.
-Reader markers, richer change display and recovery-format changes remain deferred.
+Reader markers, richer change display, and recovery-ring, identifier and timestamp
+redesign remain deferred. Compatible versioned persistence needed for threads and
+suggestions is part of this collaboration contract.
 
 No built-in accounts, cloud sync service, telemetry pipeline, model runtime, collaboration
 daemon, or embedded database is required for the first product. Release checks may contact
