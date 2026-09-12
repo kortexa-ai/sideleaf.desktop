@@ -21,7 +21,7 @@ if [[ ! -x "$launcher" ]]; then echo 'Sideleaf is no longer installed in Windows
 args=("$@")
 # Translate the document operand for named commands and the bare-file shorthand.
 case ${args[0]:-} in
-  read|comments|threads|focus|apply|wait|edit|comment-add|comment-update|comment-remove|thread-add|thread-reply|thread-message-update|thread-message-delete|thread-resolve|thread-reopen|thread-delete|open|open-folder)
+  read|comments|threads|focus|apply|wait|edit|comment-add|comment-update|comment-remove|thread-add|thread-reply|thread-message-update|thread-message-delete|thread-resolve|thread-reopen|thread-delete|suggestion-add|suggestion-accept|suggestion-reject|open|open-folder)
     if (( ${#args[@]} >= 2 )) && [[ ${args[1]} != -* && ! ${args[1]} =~ ^[a-zA-Z]:[\\/] && ${args[1]} != \\\\* ]]; then args[1]=$(wslpath -aw "${args[1]}"); fi
     ;;
   ""|documents|skills|help|--help|--app|-*) ;;

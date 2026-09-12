@@ -34,6 +34,9 @@ sideleaf thread-message-delete FILE --if-thread-revision REV --actor NAME < mess
 sideleaf thread-resolve FILE --if-thread-revision REV --actor NAME < thread-id.json
 sideleaf thread-reopen FILE --if-thread-revision REV --actor NAME < thread-id.json
 sideleaf thread-delete FILE --if-thread-revision REV --actor NAME < thread-id.json
+sideleaf suggestion-add FILE --actor NAME < suggestion.json
+sideleaf suggestion-accept FILE --if-thread-revision REV --actor NAME < thread-id.json
+sideleaf suggestion-reject FILE --if-thread-revision REV --actor NAME < thread-id.json
 sideleaf open FILE [--app PATH]
 sideleaf open-folder DIRECTORY [--app PATH]
 sideleaf skills install [--user | --target NAME] [--force]
@@ -46,12 +49,13 @@ thread.json: {"from":0,"to":8,"body":"A thought"}
 reply.json: {"threadId":"thread-id","body":"A reply"}
 message.json: {"threadId":"thread-id","messageId":"message-id","body":"Revised reply"}
 thread-id.json: {"threadId":"thread-id"}
+suggestion.json: {"target":{"quote":"old text","prefix":"context"},"replacement":"new text","body":"Why this change"}
 focus.json: {"contract":"sideleaf-focus/v1","kind":"range","from":0,"to":200}
 apply.json: {"contract":"sideleaf-apply/v1","ifRevision":"REV","operations":[{"kind":"replace","from":0,"to":0,"text":"New text\\n"}]}
 
 Offsets are zero-based UTF-16 code units in logical LF source, end-exclusive.
-Apply accepts 1–64 sequential operations atomically. replace-quote and
-thread-add-quote accept target {quote,prefix?,suffix?}; the match must be unique.
+Apply accepts 1–64 sequential operations atomically. replace-quote,
+thread-add-quote and suggestion-add accept target {quote,prefix?,suffix?}; the match must be unique.
 Use read.revision as --if-revision (or apply.json ifRevision) for offset
 replacements and new threads. Unique quote/context operations do not require it.
 Existing-thread batch operations carry ifThreadRevision from
@@ -198,7 +202,8 @@ async function main() {
     output({ ok: true, skill: "sideleaf", targets }); return;
   }
   if (!["read", "comments", "threads", "documents", "focus", "apply", "wait", "edit", "comment-add", "comment-update", "comment-remove",
-    "thread-add", "thread-reply", "thread-message-update", "thread-message-delete", "thread-resolve", "thread-reopen", "thread-delete", "open", "open-folder"].includes(command)) {
+    "thread-add", "thread-reply", "thread-message-update", "thread-message-delete", "thread-resolve", "thread-reopen", "thread-delete",
+    "suggestion-add", "suggestion-accept", "suggestion-reject", "open", "open-folder"].includes(command)) {
     if (command.startsWith("-")) inputError("Unknown command. Run sideleaf --help.");
     args.unshift(command); command = "open";
   }
@@ -332,14 +337,15 @@ async function main() {
   if (threadGuard && !/^st1\.[a-f0-9]{64}$/.test(threadGuard)) inputError("Invalid --if-thread-revision; use the value from sideleaf threads.");
   const payload = await readInput(options);
 
-  const modern = command === "apply" || command.startsWith("thread-");
+  const modern = command === "apply" || command.startsWith("thread-") || command.startsWith("suggestion-");
   if (modern) {
     let envelopeValue: unknown = payload;
     if (command !== "apply") envelopeValue = { operations: [{ ...payload, kind: command }] };
     const envelope = parseApplyEnvelope(envelopeValue);
     const needsGlobal = requiresDocumentRevision(envelope);
     if (needsGlobal && !revision && !envelope.ifRevision) inputError(`${command} requires a document revision in --if-revision or the apply envelope.`);
-    if (command !== "apply" && !needsGlobal && !threadGuard) inputError(`${command} requires --if-thread-revision from sideleaf threads.`);
+    const needsThread = command !== "apply" && (command.startsWith("thread-") && command !== "thread-add" || command === "suggestion-accept" || command === "suggestion-reject");
+    if (needsThread && !threadGuard) inputError(`${command} requires --if-thread-revision from sideleaf threads.`);
     const route = async () => appCollaboration<Record<string, unknown>>({ kind: "apply", target, actor, ...(revision ? { ifRevision: revision } : {}),
       ...(threadGuard ? { ifThreadRevision: threadGuard } : {}), envelope, deadline: Date.now() + 3_500 }, override);
     let result = await route();

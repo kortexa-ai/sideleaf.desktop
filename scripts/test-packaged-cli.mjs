@@ -60,10 +60,27 @@ const batch = run(["apply", file, "--actor", "agent:batch"], { contract: "sidele
 ] });
 assert.equal(batch.operations, 2); assert.deepEqual(batch.changes.map(({ operation }) => operation), [0, 1]);
 snapshot = run(["read", file]); assert.equal(snapshot.text, "Ahead Hello 🌿 earth\n");
+const proposed = run(["suggestion-add", file, "--actor", "agent:proposal"], {
+  target: { quote: "Hello 🌿", prefix: "Ahead ", suffix: " earth" }, replacement: "Hello greener 🌿", body: "Clarify the leaf.",
+});
+assert.equal(proposed.operations, 1); assert.equal(proposed.created.threadIds.length, 1); assert.equal(proposed.text, undefined);
+thread = run(["threads", file]).threads.find((item) => item.id === proposed.created.threadIds[0]);
+assert.equal(thread.suggestion.state, "pending");
+const accepted = run(["suggestion-accept", file, "--actor", "human:packaged", "--if-thread-revision", thread.revision], { threadId: thread.id });
+assert.equal(accepted.changes.length, 1); snapshot = run(["read", file]);
+assert.equal(snapshot.text, "Ahead Hello greener 🌿 earth\n");
+assert.equal(snapshot.threads.find((item) => item.id === thread.id).suggestion.state, "accepted");
+const rejectedProposal = run(["suggestion-add", file, "--actor", "agent:proposal"], {
+  target: { quote: "Ahead" }, replacement: "Forward", body: "Try another opening.",
+});
+thread = run(["threads", file]).threads.find((item) => item.id === rejectedProposal.created.threadIds[0]);
+run(["suggestion-reject", file, "--actor", "human:packaged", "--if-thread-revision", thread.revision], { threadId: thread.id });
+snapshot = run(["read", file]); assert.equal(snapshot.text, "Ahead Hello greener 🌿 earth\n");
+assert.equal(snapshot.threads.find((item) => item.id === thread.id).suggestion.state, "rejected");
 const resync = run(["wait", file, "--after", `sf1.${"0".repeat(64)}`, "--timeout", "1"]);
 assert.equal(resync.outcome, "resync"); assert.match(resync.cursor, /^sf1\./);
 if (process.platform !== "win32") assert.equal(statSync(file).mode & 0o777, 0o640, "The CLI must preserve private file permissions.");
-const disk = readFileSync(file, "utf8"); assert.ok(disk.startsWith("\uFEFFAhead Hello 🌿 earth\r\n"));
+const disk = readFileSync(file, "utf8"); assert.ok(disk.startsWith("\uFEFFAhead Hello greener 🌿 earth\r\n"));
 writeFileSync(file + ".sideleaf.lock", "locked");
 run(["edit", file, "--actor", "agent:locked", "--if-revision", snapshot.revision], { from: 0, to: 0, text: "lost" }, 3);
 
@@ -122,4 +139,4 @@ try {
 } finally {
   if (channel.kind === "primary") await channel.close();
 }
-console.log(`Packaged Cottontail CLI passed headless help, running-instance activation/open, live read/focus/apply/wait ownership, offline focused reads/batches, pipes, input files, Unicode, BOM/CRLF, thread lifecycle/guards, legacy comments, revision and lock checks without Node/Bun on PATH: ${executable}`);
+console.log(`Packaged Cottontail CLI passed headless help, running-instance activation/open, live read/focus/apply/wait ownership, offline focused reads/batches, pipes, input files, Unicode, BOM/CRLF, thread and suggestion lifecycle/guards, legacy comments, revision and lock checks without Node/Bun on PATH: ${executable}`);

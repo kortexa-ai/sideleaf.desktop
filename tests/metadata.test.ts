@@ -11,13 +11,13 @@ const fixture = () => { const path = join(mkdtempSync(join(tmpdir(), "sideleaf-m
 test("embedded JSON escapes HTML terminators and preserves source without final newline", () => {
   const text = "Hello 🌿";
   const threads = [{ id: "a", state: "open" as const, anchor: makeAnchor(text, 0, 5), messages: [{ id: "a", body: "-->\n<!-- sideleaf:metadata\n & < >", createdAt: "today" }] }];
-  const metadata = { format: "sideleaf-comments" as const, version: 2 as const, revisions: [{ sourceHash: hash(text), threads }] };
+  const metadata = { format: "sideleaf-comments" as const, version: 3 as const, revisions: [{ sourceHash: hash(text), threads }] };
   const result = embedMetadata(text, metadata);
   assert.equal(result.match(/-->/g)?.length, 1);
   assert.deepEqual(splitMetadata(result), { text, metadata });
   assert.throws(() => splitMetadata(result.slice(0, -3)), /Malformed/);
   assert.throws(() => splitMetadata(result + "extra"), /Malformed/);
-  assert.throws(() => splitMetadata(result.replace('"version":2', '"version":3')), /unsupported/);
+  assert.throws(() => splitMetadata(result.replace('"version":3', '"version":4')), /unsupported/);
 });
 test("plain unchanged save keeps exact bytes and inode", () => {
   const path = fixture(), before = statSync(path); const file = DocumentFile.open(path);
@@ -67,12 +67,28 @@ test("v1 revisions migrate stable IDs, anchors, attribution and retained history
     { sourceHash: hash(text), comments: [comment] }, { sourceHash: hash("older"), comments: [{ ...comment, body: "Older" }] },
   ] })}\n-->\n`;
   const parsed = splitMetadata(text + block).metadata!;
-  assert.equal(parsed.version, 2); assert.equal(parsed.revisions.length, 2);
+  assert.equal(parsed.version, 3); assert.equal(parsed.revisions.length, 2);
   assert.equal(parsed.revisions[0]!.threads[0]!.id, "legacy"); assert.equal(parsed.revisions[0]!.threads[0]!.messages[0]!.id, "legacy");
   assert.equal(parsed.revisions[0]!.threads[0]!.messages[0]!.author, "human");
 });
 
-test("the next explicit unchanged save upgrades embedded v1 metadata to v2", () => {
+test("v2 thread metadata upgrades to v3 without changing IDs, anchors or retained history", () => {
+  const path = fixture(), text = "Hello 🌿", anchor = makeAnchor(text, 0, 5);
+  const revisions = [{ sourceHash: hash(Buffer.from(text)), threads: [{ id: "stable", state: "resolved", anchor,
+    messages: [{ id: "stable", body: "Root", createdAt: "2026-09-12T18:00:00.000Z", author: "agent" },
+      { id: "reply", body: "Reply", createdAt: "2026-09-12T18:01:00.000Z", author: "human" }],
+    resolvedAt: "2026-09-12T18:02:00.000Z", resolvedBy: "human" }] },
+  { sourceHash: hash(Buffer.from("Older")), threads: [{ id: "stable", state: "open", anchor: { ...anchor, state: "orphaned" },
+    messages: [{ id: "stable", body: "Older root", createdAt: "2026-09-12T17:00:00.000Z" }] }] }];
+  const v2 = { format: "sideleaf-comments", version: 2, revisions };
+  writeFileSync(path, `${text}\n\n<!-- sideleaf:metadata\n${JSON.stringify(v2)}\n-->\n`);
+  const file = DocumentFile.open(path), before = file.history(); file.save(file.snapshot());
+  const parsed = splitMetadata(readFileSync(path, "utf8")).metadata!;
+  assert.equal(parsed.version, 3); assert.deepEqual(parsed.revisions, before);
+  assert.equal(parsed.revisions[0]!.threads[0]!.messages[1]!.id, "reply");
+});
+
+test("the next explicit unchanged save upgrades embedded v1 metadata to v3", () => {
   const path = fixture(), text = "Hello 🌿", comment = { id: "legacy", body: "Old", createdAt: "today", anchor: makeAnchor(text, 0, 5) };
   const legacy = { format: "sideleaf-comments", version: 1, revisions: [{ sourceHash: hash(text), comments: [comment] }] };
   writeFileSync(path, `${text}\n\n<!-- sideleaf:metadata\n${JSON.stringify(legacy)}\n-->\n`);
@@ -80,6 +96,6 @@ test("the next explicit unchanged save upgrades embedded v1 metadata to v2", () 
   assert.equal(draft.threads[0]!.messages[0]!.author, undefined);
   file.save(draft);
   const written = readFileSync(path, "utf8");
-  assert.equal(JSON.parse(written.match(/<!-- sideleaf:metadata\n(.+)\n-->\n$/s)![1]!).version, 2);
+  assert.equal(JSON.parse(written.match(/<!-- sideleaf:metadata\n(.+)\n-->\n$/s)![1]!).version, 3);
   assert.equal(DocumentFile.open(path).snapshot().threads[0]!.id, "legacy");
 });

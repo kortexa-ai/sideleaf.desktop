@@ -335,7 +335,7 @@ export class DocumentFile {
       const unchanged = this.disk?.metadata === null && previousRevision?.sourceHash === sourceHash && JSON.stringify(previousRevision.threads) === JSON.stringify(draft.threads);
       const revision: CommentRevision = unchanged ? previousRevision : { sourceHash, threads: structuredClone(draft.threads), actor, savedAt: new Date().toISOString() };
       const revisions = [revision, ...this.revisions.filter((r) => JSON.stringify(r) !== JSON.stringify(revision))].slice(0, 3);
-      const metadata: Metadata = { format: "sideleaf-comments", version: 2, revisions };
+      const metadata: Metadata = { format: "sideleaf-comments", version: 3, revisions };
       const annotated = draft.threads.length > 0 || this.revisions.length > 0 || actor !== "local-user";
       const bytes = annotated ? encode(embedMetadata(draft.text, metadata)) : source;
       if (previousDisk ? readDisk(path).signature !== previousDisk.signature : existsSync(path)) throw new Error("The file changed during save. Your draft is still open; save a copy.");

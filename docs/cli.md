@@ -78,6 +78,15 @@ JSON
 sideleaf thread-resolve 'notes café.md' --if-thread-revision NEW_THREAD_HASH --actor agent:reviewer <<'JSON'
 {"threadId":"THREAD_ID"}
 JSON
+
+# A suggestion records a proposal without changing source:
+sideleaf suggestion-add 'notes café.md' --actor agent:reviewer <<'JSON'
+{"target":{"quote":"old wording","prefix":"Exact context "},"replacement":"clear wording","body":"This is more direct."}
+JSON
+# Accept or reject against the suggestion thread's latest semantic revision:
+sideleaf suggestion-accept 'notes café.md' --if-thread-revision SUGGESTION_HASH --actor human:reviewer <<'JSON'
+{"threadId":"SUGGESTION_THREAD_ID"}
+JSON
 ```
 
 `--input PATH` supplies the same JSON without shell redirection (useful in
@@ -91,7 +100,9 @@ operation. CLI writes retain actor attribution in embedded revision metadata,
 including text-only edits. Plain GUI documents remain plain until annotated.
 Offsets are zero-based, end-exclusive UTF-16 code units in logical-LF source.
 Metadata is excluded. Edits cannot split surrogate pairs. Actor names provide
-attribution, without authentication.
+attribution, without authentication. A suggestion is an ordinary review thread
+with a versioned `suggestion` object, so its discussion and semantic revision use
+the same read and guard contract.
 
 `thread-message-update` and `thread-message-delete` accept `threadId` and
 `messageId`; delete refuses the root message. `thread-reopen` and `thread-delete`
@@ -102,6 +113,18 @@ the same operation objects in a 1–64 operation batch. Offset replacements and 
 additions require a document revision; exact quote/context operations can proceed
 across unrelated source edits. Existing-thread operations carry their semantic guard
 as `ifThreadRevision` in the operation. Optional `ifRevision` guards any complete batch.
+
+`suggestion-add` uses an exact nonempty quote plus optional prefix/suffix context
+and records the original, proposed replacement and root discussion message without
+changing source. The selector context is retained up to 256 UTF-16 code units on
+each side, separately from the compact anchor context. `suggestion-accept` and
+`suggestion-reject` require the thread semantic revision. Accept rechecks that the
+pending suggestion is attached, uniquely locates its stored selector and matches
+the exact original immediately before replacing it and recording the terminal
+decision in one transaction. An empty replacement is an intentional deletion.
+Reject records the decision without changing source. Missing, changed, orphaned,
+ambiguous or already-decided suggestions refuse without a partial write. The thread
+can remain open for discussion after either decision.
 
 Legacy `comment-add`, `comment-update`, and `comment-remove` remain available for
 root-message clients. Updating a root preserves replies and retained history.
@@ -174,7 +197,7 @@ save-in-progress, closing, stale document or thread revision, timeout and uncert
 transport outcomes reject without leaving a queued write. Each replacement is limited
 to 8,000 logical-LF characters and a batch to 64 operations.
 
-`replace-quote` and `thread-add-quote` resolve an exact nonempty `quote` with optional
+`replace-quote`, `thread-add-quote` and `suggestion-add` resolve an exact nonempty `quote` with optional
 exact `prefix` and `suffix` context. A missing or ambiguous match refuses the complete
 batch. Matching counts overlaps and selectors cannot split a Unicode surrogate pair.
 Receipt `changes` use the input coordinates for each sequential operation; `created`
@@ -210,8 +233,8 @@ wait. Optional `--actor NAME` excludes events from that actor; `--thread ID` and
 `--mention TEXT` restrict matches, and filters combine. It emits one bounded event,
 `timeout`, `app-closed`, or `resync`. Closing only the target document returns a
 `document-closed` resync. Source keystrokes do not wake semantic waits; committed
-agent source changes and thread create/reply/edit/delete/resolve/reopen activity do,
-as do local thread actions and their undo/redo.
+agent source changes and thread or suggestion create/reply/edit/delete/resolve/reopen/
+accept/reject activity do, as do local thread actions and their undo/redo.
 
 Live `sc1` cursors belong to one app instance and document journal. Restart, document
 closure, a future cursor, or an event gap requires resync. Offline `sf1` cursors bind

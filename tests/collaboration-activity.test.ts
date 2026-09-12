@@ -69,3 +69,15 @@ test("one undo of a thread reply produces one local semantic deletion event", ()
   assert.deepEqual(events.map(({ kind, actor, threadId, messageId }) => ({ kind, actor, threadId, messageId })),
     [{ kind: "message-deleted", actor: "local", threadId: "t", messageId: "r" }]);
 });
+
+test("suggestion creation, decisions and undo restoration are semantic events", () => {
+  const text = "Review this", anchor = makeAnchor(text, 0, 6), root = { id: "s", state: "open" as const, anchor,
+    messages: [{ id: "s", body: "Change it", createdAt: "2026-09-12T18:00:00.000Z", author: "agent" }],
+    suggestion: { version: 1 as const, state: "pending" as const, original: anchor.quote, replacement: "Inspect" } };
+  assert.equal(diffDraftActivity({ text, threads: [] }, { text, threads: [root] }, "human")[0]!.kind, "suggestion-created");
+  const accepted = { ...root, suggestion: { ...root.suggestion, state: "accepted" as const,
+    decidedAt: "2026-09-12T18:01:00.000Z", decidedBy: "human" } };
+  assert.equal(diffDraftActivity({ text, threads: [root] }, { text, threads: [accepted] }, "human")[0]!.kind, "suggestion-accepted");
+  assert.equal(diffDraftActivity({ text, threads: [accepted] }, { text, threads: [root] }, "human")[0]!.kind, "suggestion-restored");
+  assert.equal(activityForOperation("suggestion-reject", "human", { threadId: "s", messageId: "s" }).kind, "suggestion-rejected");
+});

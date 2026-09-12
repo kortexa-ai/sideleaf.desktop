@@ -7,7 +7,7 @@ import { MAX_DOCUMENT_BYTES, validateDraft, type Comment, type Draft, type Pendi
 const MAX_SCRATCH_BYTES = 8 * MAX_DOCUMENT_BYTES;
 type ScratchEnvelope = {
   format: "sideleaf-scratch";
-  version: 2;
+  version: 3;
   savedAt: string;
   draft: Draft;
 };
@@ -25,7 +25,7 @@ export class ScratchStore {
     const value: unknown = JSON.parse(readFileSync(this.path, "utf8"));
     if (!value || typeof value !== "object") throw new Error("The untitled recovery record is invalid.");
     const envelope = value as Partial<ScratchEnvelope>;
-    if (envelope.format !== "sideleaf-scratch" || ![1, 2].includes(envelope.version as number) ||
+    if (envelope.format !== "sideleaf-scratch" || ![1, 2, 3].includes(envelope.version as number) ||
       typeof envelope.savedAt !== "string" || envelope.savedAt.length > 40 || !Number.isFinite(Date.parse(envelope.savedAt))) {
       throw new Error("The untitled recovery record has an unsupported format.");
     }
@@ -38,7 +38,7 @@ export class ScratchStore {
     validateDraft(draft);
     const envelope: ScratchEnvelope = {
       format: "sideleaf-scratch",
-      version: 2,
+      version: 3,
       savedAt: new Date().toISOString(),
       draft: structuredClone(draft),
     };
@@ -91,7 +91,7 @@ export class RecoveryStore {
     validateDraft(record.draft);
     validatePending(record.draft, record.pending);
     const path = this.path(record.id);
-    const bytes = Buffer.from(JSON.stringify({ format: "sideleaf-recovery", version: 2, ...record }));
+    const bytes = Buffer.from(JSON.stringify({ format: "sideleaf-recovery", version: 3, ...record }));
     if (bytes.length > MAX_SCRATCH_BYTES) throw new Error("The recovery record is too large.");
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     atomicWrite(path, bytes, 0o600);
@@ -105,7 +105,7 @@ export class RecoveryStore {
         const path = join(this.directory, name), stat = lstatSync(path);
         if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_SCRATCH_BYTES) throw new Error("Invalid recovery file.");
         const value = JSON.parse(readFileSync(path, "utf8"));
-        if (value.format !== "sideleaf-recovery" || ![1, 2].includes(value.version) || `${value.id}.json` !== name ||
+        if (value.format !== "sideleaf-recovery" || ![1, 2, 3].includes(value.version) || `${value.id}.json` !== name ||
           !(value.originalPath === null || typeof value.originalPath === "string" && value.originalPath.length <= 32_768) ||
           !(value.revision === null || typeof value.revision === "string" && /^[a-f0-9]{64}$/.test(value.revision))) throw new Error("Invalid recovery record.");
         const draft = value.version === 1 ? migrateDraft(value.draft) : value.draft;

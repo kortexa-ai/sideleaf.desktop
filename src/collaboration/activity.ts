@@ -3,7 +3,8 @@ export const FILE_CURSOR_PREFIX = "sf1";
 export const MAX_ACTIVITY_EVENTS = 256;
 
 export type ActivityKind = "thread-created" | "thread-replied" | "message-edited" | "message-deleted"
-  | "thread-resolved" | "thread-reopened" | "thread-deleted" | "source-applied";
+  | "thread-resolved" | "thread-reopened" | "thread-deleted" | "source-applied"
+  | "suggestion-created" | "suggestion-accepted" | "suggestion-rejected" | "suggestion-restored";
 export type ActivityEvent = {
   kind: ActivityKind;
   actor: string;
@@ -104,7 +105,8 @@ export function activityForOperation(kind: string, actor: string, ids: { threadI
     "thread-add": "thread-created", "thread-add-quote": "thread-created", "thread-reply": "thread-replied",
     "thread-message-update": "message-edited", "thread-message-delete": "message-deleted",
     "thread-resolve": "thread-resolved", "thread-reopen": "thread-reopened", "thread-delete": "thread-deleted",
-    replace: "source-applied", "replace-quote": "source-applied",
+    replace: "source-applied", "replace-quote": "source-applied", "suggestion-add": "suggestion-created",
+    "suggestion-accept": "suggestion-accepted", "suggestion-reject": "suggestion-rejected",
   };
   const visibleRanges = ranges?.filter(({ from, to }) => from < to);
   return { kind: mapped[kind]!, actor, ...ids, ...(visibleRanges?.length ? { ranges: visibleRanges } : {}) };
@@ -118,8 +120,16 @@ export function diffDraftActivity(before: import("../shared/contracts.ts").Draft
     const old = prior.get(thread.id);
     if (!old) {
       const root = thread.messages[0]!;
-      events.push({ kind: "thread-created", actor: root.author ?? fallbackActor, threadId: thread.id, messageId: root.id, body: root.body, createdAt: root.createdAt });
+      events.push({ kind: thread.suggestion ? "suggestion-created" : "thread-created", actor: root.author ?? fallbackActor,
+        threadId: thread.id, messageId: root.id, body: root.body, createdAt: root.createdAt });
       continue;
+    }
+    if (JSON.stringify(old.suggestion) !== JSON.stringify(thread.suggestion)) {
+      const root = thread.messages[0]!, state = thread.suggestion?.state;
+      const kind: ActivityKind = state === "accepted" ? "suggestion-accepted" : state === "rejected" ? "suggestion-rejected"
+        : state === "pending" ? (old.suggestion ? "suggestion-restored" : "suggestion-created") : "suggestion-restored";
+      events.push({ kind, actor: thread.suggestion?.decidedBy ?? root.author ?? fallbackActor, threadId: thread.id,
+        messageId: root.id, body: root.body, createdAt: thread.suggestion?.decidedAt ?? now });
     }
     if (old.state !== thread.state) events.push({ kind: thread.state === "resolved" ? "thread-resolved" : "thread-reopened",
       actor: thread.resolvedBy ?? fallbackActor, threadId: thread.id, createdAt: thread.resolvedAt ?? now });

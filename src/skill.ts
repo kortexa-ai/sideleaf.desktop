@@ -70,9 +70,19 @@ JSON
 
 The other explicit thread commands are \`thread-message-update\`, \`thread-message-delete\`, \`thread-reopen\`, and \`thread-delete\`. Deleting a thread removes its full discussion and should be deliberate. Legacy \`comments\`, \`comment-add\`, and \`comment-update\` address root messages; \`comment-remove\` refuses a thread that already has replies so it cannot erase discussion accidentally.
 
+Create a review suggestion when you want a human decision before changing source:
+
+\`\`\`sh
+sideleaf suggestion-add FILE --actor agent:reviewer <<'JSON'
+{"target":{"quote":"old wording","prefix":"Exact context "},"replacement":"clear wording","body":"This is more direct."}
+JSON
+\`\`\`
+
+The command leaves source unchanged. Focus the returned thread ID, then start one quiet, scoped wait for the human decision and inspect its event. Use \`suggestion-accept\` or \`suggestion-reject\` with the exact \`--if-thread-revision\` only when the user has explicitly delegated that decision. Accept rechecks the stored exact quote/context and applies replacement plus terminal state atomically; an empty replacement intentionally deletes the passage. Reject changes only the suggestion state. Missing, changed, orphaned, ambiguous, stale or already-decided suggestions refuse without a partial write. Keep using direct replacements for changes that are already authorized.
+
 ## Batch and wait
 
-Use \`sideleaf apply FILE --actor agent:reviewer\` with a \`sideleaf-apply/v1\` JSON envelope to commit 1–64 sequential operations atomically. Put the starting document revision in \`ifRevision\` whenever the batch uses offset-addressed \`replace\` or \`thread-add\`; it may also guard any complete batch. Put \`ifThreadRevision\` on each operation that changes an existing thread. Quote-addressed \`replace-quote\` and \`thread-add-quote\` operations accept an exact \`quote\` plus optional exact \`prefix\` and \`suffix\`, can survive unrelated source edits, and refuse a missing or ambiguous match.
+Use \`sideleaf apply FILE --actor agent:reviewer\` with a \`sideleaf-apply/v1\` JSON envelope to commit 1–64 sequential operations atomically. Put the starting document revision in \`ifRevision\` whenever the batch uses offset-addressed \`replace\` or \`thread-add\`; it may also guard any complete batch. Put \`ifThreadRevision\` on each operation that changes an existing thread. Quote-addressed \`replace-quote\`, \`thread-add-quote\` and \`suggestion-add\` operations accept an exact \`quote\` plus optional exact \`prefix\` and \`suffix\`, can survive unrelated source edits, and refuse a missing or ambiguous match. Suggestion decisions are existing-thread operations and require \`ifThreadRevision\`.
 
 Every read, focus and apply returns a cursor. \`sideleaf wait FILE --after CURSOR\` remains silent until one semantic event, timeout, app close, or resync. Add \`--actor NAME\` to exclude your own activity, and combine \`--thread ID\` or \`--mention TEXT\` for a narrower wake. Start one wait with the harness's supported background completion/notification facility; do not spend model turns on timer or status polling. If the harness cannot resume an active turn when that process completes, state that limit instead of inventing a daemon or claiming idle/ended-turn wakeup. Always reread or refocus after resync.
 

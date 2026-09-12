@@ -1,10 +1,10 @@
 import { makeAnchor } from "../document/anchors.ts";
-import { MAX_COMMENTS, validateDraft, type CollaborationTarget, type Draft, type ReviewThread } from "../shared/contracts.ts";
+import { MAX_COMMENTS, MAX_REPLACEMENT_CHARACTERS, validateDraft, type CollaborationTarget, type Draft, type ReviewThread } from "../shared/contracts.ts";
 
 export const COLLABORATION_CONTRACT = "sideleaf-collaboration/v1" as const;
 export const APPLY_CONTRACT = "sideleaf-apply/v1" as const;
 export const FOCUS_CONTRACT = "sideleaf-focus/v1" as const;
-export const FOUNDATION_REPLACE_CHARACTERS = 8_000;
+export const FOUNDATION_REPLACE_CHARACTERS = MAX_REPLACEMENT_CHARACTERS;
 export const MAX_APPLY_OPERATIONS = 64;
 
 export type DocumentTarget = CollaborationTarget;
@@ -18,7 +18,10 @@ export type ThreadOperation =
   | { kind: "thread-message-update"; threadId: string; messageId: string; body: string; ifThreadRevision?: string }
   | { kind: "thread-message-delete"; threadId: string; messageId: string; ifThreadRevision?: string }
   | { kind: "thread-resolve" | "thread-reopen" | "thread-delete"; threadId: string; ifThreadRevision?: string };
-export type ApplyOperation = ReplaceOperation | QuoteReplaceOperation | ThreadOperation;
+export type SuggestionOperation =
+  | { kind: "suggestion-add"; target: PassageTarget; replacement: string; body: string }
+  | { kind: "suggestion-accept" | "suggestion-reject"; threadId: string; ifThreadRevision?: string };
+export type ApplyOperation = ReplaceOperation | QuoteReplaceOperation | ThreadOperation | SuggestionOperation;
 export type ApplyEnvelope = { contract?: typeof APPLY_CONTRACT; ifRevision?: string; operations: ApplyOperation[] };
 export type AppliedChange = { operation: number; from: number; to: number; inserted: number };
 export type AppliedEdit = { operation: number; from: number; to: number; text: string };
@@ -108,15 +111,20 @@ function passageTarget(value: unknown): PassageTarget {
 function parseOperation(candidate: unknown): ApplyOperation {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw new CollaborationError("Invalid operation.", "INVALID");
   const operation = candidate as Record<string, unknown>, kind = operation.kind;
+  if (["replace", "replace-quote", "thread-add", "thread-add-quote", "suggestion-add"].includes(kind as string) && operation.ifThreadRevision !== undefined) {
+    throw new CollaborationError("This operation does not accept a thread revision guard.", "INVALID");
+  }
   if (kind === "replace") return { kind, from: integer(operation.from), to: integer(operation.to), text: replacementText(operation.text) };
   if (kind === "replace-quote") return { kind, target: passageTarget(operation.target), text: replacementText(operation.text) };
   if (kind === "thread-add") return { kind, from: integer(operation.from), to: integer(operation.to), body: body(operation.body) };
   if (kind === "thread-add-quote") return { kind, target: passageTarget(operation.target), body: body(operation.body) };
+  if (kind === "suggestion-add") return { kind, target: passageTarget(operation.target), replacement: replacementText(operation.replacement), body: body(operation.body) };
   const ifThreadRevision = revision(operation.ifThreadRevision, "thread revision");
   if (kind === "thread-reply") return { kind, threadId: identifier(operation.threadId, "thread ID"), body: body(operation.body), ...(ifThreadRevision ? { ifThreadRevision } : {}) };
   if (kind === "thread-message-update") return { kind, threadId: identifier(operation.threadId, "thread ID"), messageId: identifier(operation.messageId, "message ID"), body: body(operation.body), ...(ifThreadRevision ? { ifThreadRevision } : {}) };
   if (kind === "thread-message-delete") return { kind, threadId: identifier(operation.threadId, "thread ID"), messageId: identifier(operation.messageId, "message ID"), ...(ifThreadRevision ? { ifThreadRevision } : {}) };
   if (kind === "thread-resolve" || kind === "thread-reopen" || kind === "thread-delete") return { kind, threadId: identifier(operation.threadId, "thread ID"), ...(ifThreadRevision ? { ifThreadRevision } : {}) };
+  if (kind === "suggestion-accept" || kind === "suggestion-reject") return { kind, threadId: identifier(operation.threadId, "thread ID"), ...(ifThreadRevision ? { ifThreadRevision } : {}) };
   throw new CollaborationError("Unknown collaboration operation.", "INVALID");
 }
 
@@ -183,7 +191,11 @@ export function focusDraft(draft: Draft, requestValue: unknown): TextFocus | { k
 function semanticValue(thread: ReviewThread) {
   return { id: thread.id, state: thread.state, resolvedAt: thread.resolvedAt ?? null, resolvedBy: thread.resolvedBy ?? null,
     messages: thread.messages.map((message) => ({ id: message.id, body: message.body, createdAt: message.createdAt, author: message.author ?? null,
-      updatedAt: message.updatedAt ?? null, updatedBy: message.updatedBy ?? null })) };
+      updatedAt: message.updatedAt ?? null, updatedBy: message.updatedBy ?? null })), suggestion: thread.suggestion ? {
+      version: thread.suggestion.version, state: thread.suggestion.state, original: thread.suggestion.original,
+      replacement: thread.suggestion.replacement, prefix: thread.suggestion.prefix ?? null, suffix: thread.suggestion.suffix ?? null,
+      decidedAt: thread.suggestion.decidedAt ?? null, decidedBy: thread.suggestion.decidedBy ?? null,
+    } : null };
 }
 export function threadSemanticValue(thread: ReviewThread): string { return JSON.stringify(semanticValue(thread)); }
 export async function threadRevision(thread: ReviewThread): Promise<string> {
@@ -191,6 +203,22 @@ export async function threadRevision(thread: ReviewThread): Promise<string> {
   return `st1.${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 function addUnique(target: string[], value: string) { if (!target.includes(value)) target.push(value); }
+
+function applyTextReplacement(draft: Draft, from: number, to: number, replacement: string) {
+  const text = draft.text.slice(0, from) + replacement + draft.text.slice(to);
+  const delta = replacement.length - (to - from);
+  draft.threads = draft.threads.map((thread) => {
+    const anchor = thread.anchor;
+    if (anchor.state === "orphaned") return thread;
+    if ((from < anchor.to && to > anchor.from) || (from === to && from > anchor.from && from < anchor.to)) {
+      return { ...thread, anchor: { ...anchor, state: "orphaned" as const } };
+    }
+    const nextFrom = anchor.from + (to <= anchor.from ? delta : 0);
+    const nextTo = anchor.to + (to < anchor.to || to === anchor.to && from < to ? delta : 0);
+    return { ...thread, anchor: makeAnchor(text, nextFrom, nextTo) };
+  });
+  draft.text = text;
+}
 
 /** Evaluate the same guarded batch before either a disk save or editor dispatch. */
 export async function evaluateApply(draft: Draft, envelopeValue: unknown, guards: ApplyGuards): Promise<{ draft: Draft; change: AppliedChange | null; summary: ApplySummary }> {
@@ -218,17 +246,7 @@ export async function evaluateApply(draft: Draft, envelopeValue: unknown, guards
     else if (operation.kind === "thread-add-quote") operation = { kind: "thread-add", ...resolvePassage(next.text, operation.target), body: operation.body };
     if (operation.kind === "replace") {
       if (operation.to < operation.from || operation.to > next.text.length || splitSurrogate(next.text, operation.from) || splitSurrogate(next.text, operation.to)) throw new CollaborationError("The replacement range is outside the document or splits a Unicode character.", "INVALID");
-      const text = next.text.slice(0, operation.from) + operation.text + next.text.slice(operation.to);
-      const delta = operation.text.length - (operation.to - operation.from);
-      next.threads = next.threads.map((thread) => {
-        const anchor = thread.anchor;
-        if (anchor.state === "orphaned") return thread;
-        if ((operation.from < anchor.to && operation.to > anchor.from) || (operation.from === operation.to && operation.from > anchor.from && operation.from < anchor.to)) return { ...thread, anchor: { ...anchor, state: "orphaned" as const } };
-        const from = anchor.from + (operation.to <= anchor.from ? delta : 0);
-        const to = anchor.to + (operation.to < anchor.to || operation.to === anchor.to && operation.from < operation.to ? delta : 0);
-        return { ...thread, anchor: makeAnchor(text, from, to) };
-      });
-      next.text = text;
+      applyTextReplacement(next, operation.from, operation.to, operation.text);
       summary.changes.push({ operation: operationIndex, from: operation.from, to: operation.to, inserted: operation.text.length });
       summary.edits.push({ operation: operationIndex, from: operation.from, to: operation.to, text: operation.text });
       summary.activities.push({ operation: operationIndex, kind: originalOperation.kind });
@@ -243,6 +261,18 @@ export async function evaluateApply(draft: Draft, envelopeValue: unknown, guards
       summary.created.threadIds.push(id); summary.created.messageIds.push(id);
       summary.activities.push({ operation: operationIndex, kind: originalOperation.kind, threadId: id, messageId: id, body: operation.body }); continue;
     }
+    if (operation.kind === "suggestion-add") {
+      if (next.threads.length >= MAX_COMMENTS) throw new CollaborationError("A document can contain at most 1,000 review threads.", "INVALID");
+      const target = resolvePassage(next.text, operation.target), id = crypto.randomUUID();
+      next.threads.push({ id, anchor: makeAnchor(next.text, target.from, target.to), state: "open",
+        messages: [{ id, body: operation.body, createdAt: now, author: guards.actor }], suggestion: {
+          version: 1, state: "pending", original: operation.target.quote, replacement: operation.replacement,
+          ...(operation.target.prefix === undefined ? {} : { prefix: operation.target.prefix }),
+          ...(operation.target.suffix === undefined ? {} : { suffix: operation.target.suffix }),
+        } });
+      summary.created.threadIds.push(id); summary.created.messageIds.push(id);
+      summary.activities.push({ operation: operationIndex, kind: operation.kind, threadId: id, messageId: id, body: operation.body }); continue;
+    }
     const original = originalThreads.get(operation.threadId);
     if (!original) throw new CollaborationError("Thread ID was not found.", "NOT_FOUND");
     const supplied = operation.ifThreadRevision ?? (envelope.operations.length === 1 ? guards.ifThreadRevision : undefined);
@@ -252,7 +282,28 @@ export async function evaluateApply(draft: Draft, envelopeValue: unknown, guards
     const index = next.threads.findIndex((thread) => thread.id === operation.threadId);
     if (index < 0) throw new CollaborationError("Thread ID was not found after an earlier batch operation.", "NOT_FOUND");
     const thread = next.threads[index]!; addUnique(summary.changed.threadIds, thread.id);
-    if (operation.kind === "thread-delete") { next.threads.splice(index, 1); summary.activities.push({ operation: operationIndex, kind: operation.kind, threadId: thread.id }); }
+    if (operation.kind === "suggestion-accept" || operation.kind === "suggestion-reject") {
+      const suggestion = thread.suggestion;
+      if (!suggestion) throw new CollaborationError("This thread does not contain a suggestion.", "INVALID");
+      if (suggestion.state !== "pending") throw new CollaborationError(`This suggestion is already ${suggestion.state}.`, "INVALID");
+      if (operation.kind === "suggestion-accept") {
+        if (thread.anchor.state !== "attached") throw new CollaborationError("The suggested passage is no longer attached. Review the source before accepting.", "CONFLICT");
+        const target = resolvePassage(next.text, { quote: suggestion.original,
+          ...(suggestion.prefix === undefined ? {} : { prefix: suggestion.prefix }),
+          ...(suggestion.suffix === undefined ? {} : { suffix: suggestion.suffix }) });
+        if (target.from !== thread.anchor.from || target.to !== thread.anchor.to || next.text.slice(target.from, target.to) !== suggestion.original) {
+          throw new CollaborationError("The suggested passage no longer matches its anchored source. Review the source before accepting.", "CONFLICT");
+        }
+        suggestion.state = "accepted"; suggestion.decidedAt = now; suggestion.decidedBy = guards.actor;
+        applyTextReplacement(next, target.from, target.to, suggestion.replacement);
+        summary.changes.push({ operation: operationIndex, from: target.from, to: target.to, inserted: suggestion.replacement.length });
+        summary.edits.push({ operation: operationIndex, from: target.from, to: target.to, text: suggestion.replacement });
+      } else {
+        suggestion.state = "rejected"; suggestion.decidedAt = now; suggestion.decidedBy = guards.actor;
+      }
+      summary.activities.push({ operation: operationIndex, kind: operation.kind, threadId: thread.id, messageId: thread.messages[0]!.id, body: thread.messages[0]!.body });
+    }
+    else if (operation.kind === "thread-delete") { next.threads.splice(index, 1); summary.activities.push({ operation: operationIndex, kind: operation.kind, threadId: thread.id }); }
     else if (operation.kind === "thread-reply") {
       if (thread.messages.length >= MAX_COMMENTS) throw new CollaborationError("A review thread can contain at most 1,000 messages.", "INVALID");
       const id = crypto.randomUUID(); thread.messages.push({ id, body: operation.body, createdAt: now, author: guards.actor }); summary.created.messageIds.push(id);

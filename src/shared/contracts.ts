@@ -1,5 +1,6 @@
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_COMMENTS = 1000;
+export const MAX_REPLACEMENT_CHARACTERS = 8_000;
 // Even fully escaped JSON stays well below the runtime's 8 MiB CString limit.
 export const SAVE_CHUNK_CHARACTERS = 256_000;
 export type SaveChunk = { transferId: string; index: number; total: number; text: string };
@@ -15,6 +16,16 @@ export type Anchor = {
 /** The v1 on-disk shape and the compatibility view returned by old CLI verbs. */
 export type Comment = { id: string; body: string; createdAt: string; author?: string; updatedAt?: string; updatedBy?: string; anchor: Anchor };
 export type ThreadMessage = { id: string; body: string; createdAt: string; author?: string; updatedAt?: string; updatedBy?: string };
+export type ReviewSuggestion = {
+  version: 1;
+  state: "pending" | "accepted" | "rejected";
+  original: string;
+  replacement: string;
+  prefix?: string;
+  suffix?: string;
+  decidedAt?: string;
+  decidedBy?: string;
+};
 export type ReviewThread = {
   id: string;
   anchor: Anchor;
@@ -22,6 +33,7 @@ export type ReviewThread = {
   resolvedAt?: string;
   resolvedBy?: string;
   messages: ThreadMessage[];
+  suggestion?: ReviewSuggestion;
 };
 export type Draft = { text: string; threads: ReviewThread[] };
 export type DocumentMetadata = {
@@ -148,6 +160,34 @@ export function validateDraft(value: unknown): asserts value is Draft {
       !["attached", "orphaned"].includes(anchor.state)) throw new Error("Invalid thread anchor.");
     if (anchor.state === "attached" && (anchor.to > draft.text.length || draft.text.slice(anchor.from, anchor.to) !== anchor.quote)) {
       throw new Error("A thread anchor no longer matches its text.");
+    }
+    const suggestion = thread.suggestion;
+    if (suggestion !== undefined) {
+      const allowed = new Set(["version", "state", "original", "replacement", "prefix", "suffix", "decidedAt", "decidedBy"]);
+      const complete = (text: string) => {
+        for (let index = 0; index < text.length; index++) {
+          const code = text.charCodeAt(index);
+          if (code >= 0xd800 && code <= 0xdbff) {
+            const next = text.charCodeAt(++index);
+            if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+          } else if (code >= 0xdc00 && code <= 0xdfff) return false;
+        }
+        return true;
+      };
+      const validText = (text: unknown, maximum: number, empty: boolean) => typeof text === "string" &&
+        (empty || text.length > 0) && text.length <= maximum && !text.includes("\r") && !text.includes("\u0000") && complete(text);
+      if (!suggestion || typeof suggestion !== "object" || Object.keys(suggestion).some((key) => !allowed.has(key)) ||
+        suggestion.version !== 1 || !["pending", "accepted", "rejected"].includes(suggestion.state) ||
+        !validText(suggestion.original, 8192, false) || suggestion.original !== anchor.quote ||
+        !validText(suggestion.replacement, MAX_REPLACEMENT_CHARACTERS, true) ||
+        suggestion.prefix !== undefined && !validText(suggestion.prefix, 256, true) ||
+        suggestion.suffix !== undefined && !validText(suggestion.suffix, 256, true)) throw new Error("Invalid review suggestion.");
+      if (suggestion.state === "pending" && (suggestion.decidedAt !== undefined || suggestion.decidedBy !== undefined)) {
+        throw new Error("Invalid pending suggestion state.");
+      }
+      if (suggestion.state !== "pending" && (typeof suggestion.decidedAt !== "string" || suggestion.decidedAt.length > 40 ||
+        !Number.isFinite(Date.parse(suggestion.decidedAt)) || typeof suggestion.decidedBy !== "string" ||
+        !suggestion.decidedBy.trim() || suggestion.decidedBy.length > 200)) throw new Error("Invalid suggestion decision attribution.");
     }
   }
 }

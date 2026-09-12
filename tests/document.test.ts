@@ -215,6 +215,15 @@ test("bridge validation rejects forged anchors", () => {
   ] }] }), /Invalid thread message/);
 });
 
+test("bridge validation rejects malformed suggestion state and attribution", () => {
+  const text = "Replace this", anchor = makeAnchor(text, 0, 7);
+  const root = { id: "s", state: "open" as const, anchor, messages: [{ id: "s", body: "Proposal", createdAt: "today" }] };
+  assert.throws(() => validateDraft({ text, threads: [{ ...root, suggestion: { version: 1, state: "pending", original: "Replace", replacement: "Improve", decidedBy: "human" } as any }] }), /pending suggestion/);
+  assert.throws(() => validateDraft({ text, threads: [{ ...root, suggestion: { version: 1, state: "accepted", original: "Replace", replacement: "Improve" } as any }] }), /decision attribution/);
+  assert.throws(() => validateDraft({ text, threads: [{ ...root, suggestion: { version: 1, state: "pending", original: "Replace", replacement: "Improve", extra: true } as any }] }), /review suggestion/);
+  assert.throws(() => validateDraft({ text, threads: [{ ...root, suggestion: { version: 1, state: "pending", original: "wrong", replacement: "Improve" } as any }] }), /review suggestion/);
+});
+
 test("opening a symlink saves its resolved target without replacing the link", { skip: process.platform === "win32" }, () => {
   const { path, folder } = fixture(); const link = join(folder, "link.md"); symlinkSync(path, link);
   DocumentFile.open(link).save({ text: "Updated", threads: [] });

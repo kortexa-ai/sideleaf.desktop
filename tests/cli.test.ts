@@ -88,6 +88,41 @@ test("thread CLI lifecycle uses semantic guards and keeps legacy root edits safe
   assert.equal(cli(["threads", path]).data.threads.length, 0);
 });
 
+test("suggestion CLI creates exact proposals and guards terminal decisions", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "sideleaf-cli-suggestion-")), "review café.txt");
+  writeFileSync(path, "Intro\nKeep this 🌿 sentence.\nEnd\n");
+  const created = cli(["suggestion-add", path, "--actor", "agent:proposal"], {
+    target: { quote: "Keep this 🌿 sentence.", prefix: "Intro\n", suffix: "\nEnd" },
+    replacement: "Use this clearer 🌿 sentence.\nWith detail.", body: "This is easier to scan.",
+  });
+  assert.equal(created.status, 0, JSON.stringify(created.data));
+  assert.equal(created.data.saved, true); assert.equal(created.data.operations, 1);
+  assert.equal(created.data.created.threadIds.length, 1); assert.equal(created.data.text, undefined);
+  let viewed = cli(["threads", path]); const proposed = viewed.data.threads[0];
+  assert.deepEqual(proposed.suggestion, { version: 1, state: "pending", original: "Keep this 🌿 sentence.",
+    replacement: "Use this clearer 🌿 sentence.\nWith detail.", prefix: "Intro\n", suffix: "\nEnd" });
+
+  let revision = cli(["read", path]).data.revision;
+  assert.equal(cli(["edit", path, "--if-revision", revision, "--actor", "human:typing"], { from: 0, to: 0, text: "Note\n" }).status, 0);
+  const stale = cli(["suggestion-accept", path, "--if-thread-revision", `st1.${"0".repeat(64)}`, "--actor", "human:reviewer"], { threadId: proposed.id });
+  assert.equal(stale.status, 3); assert.equal(stale.data.reason, "CONFLICT");
+  const accepted = cli(["suggestion-accept", path, "--if-thread-revision", proposed.revision, "--actor", "human:reviewer"], { threadId: proposed.id });
+  assert.equal(accepted.status, 0, JSON.stringify(accepted.data)); assert.equal(accepted.data.changes.length, 1);
+  viewed = cli(["threads", path]);
+  assert.equal(viewed.data.threads[0].suggestion.state, "accepted"); assert.equal(viewed.data.threads[0].suggestion.decidedBy, "human:reviewer");
+  assert.equal(cli(["read", path]).data.text, "Note\nIntro\nUse this clearer 🌿 sentence.\nWith detail.\nEnd\n");
+
+  const rejectedCreation = cli(["suggestion-add", path, "--actor", "agent:proposal"], {
+    target: { quote: "End" }, replacement: "Finish", body: "Alternative ending.",
+  });
+  assert.equal(rejectedCreation.status, 0); viewed = cli(["threads", path]);
+  const pending = viewed.data.threads.find((thread: any) => thread.suggestion?.state === "pending");
+  const rejected = cli(["suggestion-reject", path, "--if-thread-revision", pending.revision, "--actor", "human:reviewer"], { threadId: pending.id });
+  assert.equal(rejected.status, 0); viewed = cli(["threads", path]);
+  assert.equal(viewed.data.threads.find((thread: any) => thread.id === pending.id).suggestion.state, "rejected");
+  assert.match(readFileSync(path, "utf8"), /"version":3/);
+});
+
 test("open-folder requires a directory and file-open keeps its file contract", () => {
   const folder = mkdtempSync(join(tmpdir(), "sideleaf-cli-folder-")), path = join(folder, "a.md"); writeFileSync(path, "a");
   assert.equal(cli(["open-folder", path]).status, 2);

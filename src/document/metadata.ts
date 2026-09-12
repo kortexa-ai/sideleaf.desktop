@@ -3,9 +3,10 @@ import { MAX_DOCUMENT_BYTES, validateDraft, type Comment, type ReviewThread } fr
 
 export type ThreadRevision = { sourceHash: string; threads: ReviewThread[]; actor?: string; savedAt?: string };
 export type CommentRevision = ThreadRevision;
-export type Metadata = { format: "sideleaf-comments"; version: 2; revisions: ThreadRevision[] };
+export type Metadata = { format: "sideleaf-comments"; version: 3; revisions: ThreadRevision[] };
 type LegacyRevision = { sourceHash: string; comments: Comment[]; actor?: string; savedAt?: string };
 type LegacyMetadata = { format: "sideleaf-comments"; version: 1; revisions: LegacyRevision[] };
+type ThreadMetadata = { format: "sideleaf-comments"; version: 2; revisions: ThreadRevision[] };
 export const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const marker = "<!-- sideleaf:metadata";
 const prefix = `\n\n${marker}\n`;
@@ -26,12 +27,12 @@ function validateRevision(revision: ThreadRevision) {
 }
 
 export function parseMetadata(bytes: Uint8Array | null, legacy = false): Metadata {
-  if (bytes === null) return { format: "sideleaf-comments", version: 2, revisions: [] };
+  if (bytes === null) return { format: "sideleaf-comments", version: 3, revisions: [] };
   if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("Sideleaf metadata exceeds 10 MiB. Nothing was changed.");
-  let data: Metadata | LegacyMetadata;
+  let data: Metadata | ThreadMetadata | LegacyMetadata;
   try { data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
   catch { throw new Error("Sideleaf metadata is not valid JSON. It will not be overwritten."); }
-  if (data?.format !== "sideleaf-comments" || ![1, 2].includes(data.version) || !Array.isArray(data.revisions) || data.revisions.length > (legacy ? 2 : 3) || !data.revisions.length) {
+  if (data?.format !== "sideleaf-comments" || ![1, 2, 3].includes(data.version) || !Array.isArray(data.revisions) || data.revisions.length > (legacy ? 2 : 3) || !data.revisions.length) {
     throw new Error("Sideleaf metadata uses an unsupported format. It will not be overwritten.");
   }
   const revisions: ThreadRevision[] = data.version === 1
@@ -41,7 +42,7 @@ export function parseMetadata(bytes: Uint8Array | null, legacy = false): Metadat
     })
     : data.revisions;
   for (const revision of revisions) validateRevision(revision);
-  return { format: "sideleaf-comments", version: 2, revisions };
+  return { format: "sideleaf-comments", version: 3, revisions };
 }
 
 // The exact terminal block is reserved. Its two leading newlines belong to the

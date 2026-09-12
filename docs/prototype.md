@@ -27,7 +27,7 @@ two-second poll detects external writes. Reload creates a history boundary. Savi
 preserves undo history. Thread operations and anchor changes share the text
 editor's history; they do not create a separate conflicting undo stack.
 
-Embedded metadata uses `sideleaf-comments`, version 2. The terminal envelope is
+Embedded metadata uses `sideleaf-comments`, version 3. The terminal envelope is
 exactly two newlines, `<!-- sideleaf:metadata`, a newline, one JSON object, a newline,
 `-->`, and a final newline. All envelope separators use the source file's LF/CRLF
 style. The two leading newlines belong to the envelope, preserving source that has
@@ -39,15 +39,19 @@ retained revisions contains SHA-256 of exact source bytes (including BOM and ori
 line endings), complete review threads, and optional actor/save timestamp. A thread
 has one stable ID, an anchor, open/resolved state, resolution attribution, and ordered
 messages with stable IDs and edit attribution. The root message deliberately shares
-the thread ID. These are review recovery revisions, not full historical text. The
+the thread ID. A thread may carry one version-1 suggestion containing its
+pending/accepted/rejected state, exact original and replacement, full selector
+context, and terminal decision attribution. These are review recovery revisions,
+not full historical text. The
 CLI's write precondition hash covers the complete on-disk document and any legacy
 sidecar. New files without threads/history have no envelope; unchanged plain saves
 preserve the file itself.
 
 Embedded version-1 metadata migrates in memory to one open thread per comment,
 preserving the comment ID as both thread and root-message ID, its anchor, attribution,
-and retained history. Unattributed legacy comments remain unattributed. The next
-explicit save writes version 2, which older readers reject before changing the file.
+and retained history. Version-2 thread metadata retains its stable IDs, anchors,
+messages and history. Unattributed legacy comments remain unattributed. The next
+explicit save writes version 3, which older readers reject before changing the file.
 
 Agent collaboration uses bounded focused reads and atomic batches over the same draft
 model. A batch contains at most 64 sequential source or thread operations. Offset and
@@ -55,6 +59,12 @@ quote-addressed source changes compose into one CodeMirror transaction, so selec
 anchors, highlights and undo map through the complete batch. Exact quote selectors may
 carry prefix/suffix context and must resolve to one complete UTF-16 range. Existing
 thread operations compare semantic guards with the batch-start thread value.
+Suggestions use the same evaluator. Creation records a unique exact quote and up to
+256 UTF-16 code units of selector context without changing source. Accept revalidates
+the pending state, attached anchor, stored selector and exact original immediately
+before applying the replacement and terminal state in one transaction. Empty
+replacements are deletions. Reject records only terminal state. Missing, changed,
+orphaned and ambiguous targets refuse the complete batch.
 
 Each live buffer has an in-memory semantic activity journal of at most 256 events and
 a cursor scoped to the app instance and document. The cursor is captured with a read,

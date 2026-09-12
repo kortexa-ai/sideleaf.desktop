@@ -20,7 +20,7 @@ import { FolderTree } from "./folder-tree.ts";
 import { APP_VERSION } from "../shared/version.ts";
 import { documentViewMode, isPlainText, type ViewMode } from "../shared/document-type.ts";
 import { documentExtensions, documentMode } from "./document-mode.ts";
-import { CollaborationError, evaluateApply, focusDraft, liveRevision, threadRevision, threadSemanticValue, type ThreadOperation } from "../collaboration/operations.ts";
+import { CollaborationError, evaluateApply, focusDraft, liveRevision, threadRevision, threadSemanticValue, type SuggestionOperation, type ThreadOperation } from "../collaboration/operations.ts";
 import { ActivityJournal, activityForOperation, diffDraftActivity } from "../collaboration/activity.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -675,7 +675,8 @@ async function collaborationApply(payload: { instanceId: string; target: Collabo
   }
   const journal = collaborationJournal(payload.instanceId), activity = evaluated.summary.activities.map((item) => {
     const event = journal.record(buffer.metadata.id, activityForOperation(item.kind, payload.actor,
-      { threadId: item.threadId, messageId: item.messageId, body: item.body }, item.kind.startsWith("replace") && byOperation.has(item.operation) ? [byOperation.get(item.operation)!] : undefined));
+      { threadId: item.threadId, messageId: item.messageId, body: item.body },
+      (item.kind.startsWith("replace") || item.kind === "suggestion-accept") && byOperation.has(item.operation) ? [byOperation.get(item.operation)!] : undefined));
     rpc.send.collaborationActivity(event); return event;
   });
   refreshOpenDocuments();
@@ -1029,7 +1030,7 @@ function beginThreadComposer(thread: ReviewThread, value: { kind: "reply"; body:
   buffer.composerComposing = false; buffer.composerRenderPending = false;
   buffer.recoveryGeneration = -1; showComments(true); renderComments(); updateDirty(true);
 }
-async function applyLocalThreadOperation(operation: ThreadOperation): Promise<void> {
+async function applyLocalThreadOperation(operation: ThreadOperation | SuggestionOperation): Promise<void> {
   if (busy) throw new Error("Sideleaf is busy. Try again when the current action finishes.");
   const buffer = captureActive(); if (!buffer) throw new Error("This document is no longer open.");
   if (buffer.composerComposing || view.composing) throw new Error("Finish entering your current character before changing this thread.");
@@ -1043,7 +1044,8 @@ async function applyLocalThreadOperation(operation: ThreadOperation): Promise<vo
   if (buffers.get(buffer.metadata.id) !== buffer || current.id !== buffer.metadata.id || !buffer.guardedBy(guard) || busy) {
     throw new Error("The document changed while the review action was being checked. Review the latest thread and try again.");
   }
-  view.dispatch({ effects: setComments.of(evaluated.draft.threads), annotations: isolateHistory.of("full"), userEvent: "input" });
+  const { changes } = composeAgentChanges(view.state.doc.length, evaluated.summary.edits);
+  view.dispatch({ ...(changes.empty ? {} : { changes }), effects: setComments.of(evaluated.draft.threads), annotations: isolateHistory.of("full"), userEvent: "input" });
   buffer.recoveryGeneration = -1;
   lastScratchGeneration = -1; updateDirty(true);
 }
@@ -1131,11 +1133,39 @@ function renderComments() {
   for (const thread of visible) {
     const card = document.createElement("section"); card.className = "comment-card"; card.dataset.state = thread.state;
     const label = document.createElement("span"); label.className = "comment-label";
-    label.textContent = `${thread.state.toUpperCase()} · ${thread.anchor.state === "attached" ? "ON THIS PASSAGE" : "UNANCHORED"}`;
+    const anchorLabel = thread.suggestion?.state === "accepted" && thread.anchor.state === "orphaned"
+      ? "ORIGINAL PASSAGE"
+      : thread.anchor.state === "attached" ? "ON THIS PASSAGE" : "UNANCHORED";
+    label.textContent = `${thread.state.toUpperCase()} · ${anchorLabel}`;
     const quote = document.createElement("button"); quote.className = "comment-quote"; quote.textContent = thread.anchor.quote;
     quote.disabled = thread.anchor.state === "orphaned";
     quote.onclick = () => { view.dispatch({ selection: { anchor: thread.anchor.from, head: thread.anchor.to }, scrollIntoView: true }); setMode("split"); view.focus(); };
     card.append(label, quote);
+    if (thread.suggestion) {
+      const suggestion = thread.suggestion, proposal = document.createElement("section");
+      proposal.className = "review-suggestion"; proposal.dataset.state = suggestion.state;
+      const heading = document.createElement("strong"); heading.textContent = `SUGGESTION · ${suggestion.state.toUpperCase()}`;
+      const originalLabel = document.createElement("span"); originalLabel.textContent = "Original text";
+      const original = document.createElement("pre"); original.textContent = suggestion.original;
+      const replacementLabel = document.createElement("span"); replacementLabel.textContent = suggestion.replacement ? "Proposed text" : "Proposed change";
+      const replacement = document.createElement("pre"); replacement.textContent = suggestion.replacement || "Delete the selected text";
+      proposal.append(heading, originalLabel, original, replacementLabel, replacement);
+      if (suggestion.state === "pending") {
+        const decisions = document.createElement("div"); decisions.className = "thread-actions suggestion-actions";
+        const reject = document.createElement("button"); reject.textContent = "Reject suggestion";
+        reject.onclick = () => { void applyLocalThreadOperation({ kind: "suggestion-reject", threadId: thread.id })
+          .then(() => notice("Suggestion rejected. The document text was not changed.")).catch((error) => notice(error.message)); };
+        const accept = document.createElement("button"); accept.className = "primary"; accept.textContent = suggestion.replacement ? "Accept suggestion" : "Accept deletion";
+        accept.onclick = () => { void applyLocalThreadOperation({ kind: "suggestion-accept", threadId: thread.id })
+          .then(() => notice(suggestion.replacement ? "Suggestion accepted." : "Deletion accepted.")).catch((error) => notice(error.message)); };
+        decisions.append(reject, accept); proposal.append(decisions);
+      } else {
+        const decision = document.createElement("p"); decision.className = "suggestion-decision";
+        decision.textContent = `${suggestion.state === "accepted" ? "Accepted" : "Rejected"} by ${suggestion.decidedBy} · ${suggestion.decidedAt}`;
+        proposal.append(decision);
+      }
+      card.append(proposal);
+    }
     for (const [messageIndex, message] of thread.messages.entries()) {
       const container = document.createElement("article"); container.className = "thread-message";
       const header = document.createElement("header"), author = document.createElement("strong"), timestamp = document.createElement("span");

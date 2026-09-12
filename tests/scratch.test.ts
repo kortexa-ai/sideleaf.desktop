@@ -8,6 +8,7 @@ import { DocumentFile } from "../src/document/files.ts";
 import { ScratchStore } from "../src/document/scratch.ts";
 import { RecoveryStore } from "../src/document/scratch.ts";
 import { randomUUID } from "node:crypto";
+import type { ReviewSuggestion } from "../src/shared/contracts.ts";
 
 const fixture = () => {
   const folder = mkdtempSync(join(tmpdir(), "sideleaf-scratch-"));
@@ -105,4 +106,22 @@ test("recovery preserves an unfinished composer after its target disappears", ()
     composer: { kind: "reply", threadId: "removed", body: "Do not lose this reply", baseSemantic: "removed snapshot" },
   } });
   assert.equal(store.load().records[0]!.pending!.composer!.body, "Do not lose this reply");
+});
+
+test("scratch and recovery v3 round-trip pending and terminal suggestions", () => {
+  const { folder, path } = fixture(), text = "Replace this text and reject that";
+  const proposal = (id: string, from: number, to: number, suggestion: ReviewSuggestion) => ({ id, state: "open" as const,
+    anchor: makeAnchor(text, from, to), messages: [{ id, body: "A proposal", createdAt: "2026-09-12T18:00:00.000Z", author: "agent" }], suggestion });
+  const draft = { text, threads: [
+    proposal("pending", 0, 7, { version: 1 as const, state: "pending" as const, original: "Replace", replacement: "Improve" }),
+    proposal("accepted", 8, 12, { version: 1 as const, state: "accepted" as const, original: "this", replacement: "the",
+      decidedAt: "2026-09-12T18:01:00.000Z", decidedBy: "human:acceptor" }),
+    proposal("rejected", 29, 33, { version: 1 as const, state: "rejected" as const, original: "that", replacement: "this",
+      decidedAt: "2026-09-12T18:02:00.000Z", decidedBy: "human:rejector" }),
+  ] };
+  const scratch = new ScratchStore(path); scratch.save(draft);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).version, 3); assert.deepEqual(scratch.load(), draft);
+  const recovery = new RecoveryStore(join(folder, "recovery")), id = randomUUID(); recovery.save({ id, originalPath: null, revision: null, draft });
+  assert.equal(JSON.parse(readFileSync(join(recovery.directory, `${id}.json`), "utf8")).version, 3);
+  assert.deepEqual(recovery.load().records[0]!.draft, draft);
 });

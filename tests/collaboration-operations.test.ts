@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EditorState, type Transaction } from "@codemirror/state";
-import { history, isolateHistory, undo } from "@codemirror/commands";
+import { history, isolateHistory, redo, undo } from "@codemirror/commands";
 import { commentField, commentHistory, setComments } from "../src/ui/comments.ts";
 import { makeAnchor } from "../src/document/anchors.ts";
 import { CollaborationError, evaluateApply, focusDraft, liveRevision, parseApplyEnvelope, threadRevision } from "../src/collaboration/operations.ts";
@@ -128,4 +128,91 @@ test("thread add rejects invalid anchors, capacity, and inapplicable guards as i
     anchor: makeAnchor(text, 0, 1), messages: [{ id: `thread-${index}`, body: "Review", createdAt: "today" }] }));
   await assert.rejects(() => evaluateApply({ text, threads }, { operations: [{ kind: "thread-add", from: 0, to: 1, body: "One too many" }] },
     { actor: "agent", currentRevision: revision, ifRevision: revision }), (error: CollaborationError) => error.code === "INVALID");
+});
+
+test("suggestions retain their exact selector and accept once as a guarded source change", async () => {
+  const context = `${"surrounding ".repeat(8)}context: `, original = "old 🌿\nline", replacement = "new leaf\nline";
+  const text = `Lead. ${context}${original}. Tail.`;
+  const created = await evaluateApply({ text, threads: [] }, { operations: [{ kind: "suggestion-add",
+    target: { quote: original, prefix: context, suffix: ". Tail." }, replacement, body: "Use clearer wording" }] },
+  { actor: "agent:review", currentRevision: "g" });
+  assert.equal(created.draft.text, text); assert.equal(created.summary.changes.length, 0);
+  const thread = created.draft.threads[0]!;
+  assert.deepEqual(thread.suggestion, { version: 1, state: "pending", original, replacement, prefix: context, suffix: ". Tail." });
+  assert.equal(thread.messages[0]!.author, "agent:review");
+  const semantic = await threadRevision(thread);
+
+  const shifted = await evaluateApply(created.draft, { operations: [{ kind: "replace-quote", target: { quote: "Lead." }, text: "A longer lead." }] },
+    { actor: "human", currentRevision: "new" });
+  assert.equal(await threadRevision(shifted.draft.threads[0]!), semantic, "anchor movement is not semantic suggestion state");
+  const accepted = await evaluateApply(shifted.draft, { operations: [{ kind: "suggestion-accept", threadId: thread.id, ifThreadRevision: semantic }] },
+    { actor: "human", currentRevision: "newer" });
+  assert.match(accepted.draft.text, /new leaf\nline/); assert.equal(accepted.draft.threads[0]!.suggestion!.state, "accepted");
+  assert.equal(accepted.draft.threads[0]!.suggestion!.decidedBy, "human"); assert.equal(accepted.draft.threads[0]!.anchor.state, "orphaned");
+  assert.deepEqual(accepted.summary.changes, [{ operation: 0, from: shifted.draft.threads[0]!.anchor.from,
+    to: shifted.draft.threads[0]!.anchor.to, inserted: replacement.length }]);
+  const acceptedSemantic = await threadRevision(accepted.draft.threads[0]!);
+  await assert.rejects(() => evaluateApply(accepted.draft, { operations: [{ kind: "suggestion-accept", threadId: thread.id, ifThreadRevision: acceptedSemantic }] },
+    { actor: "human", currentRevision: "latest" }), (error: CollaborationError) => error.code === "INVALID");
+});
+
+test("suggestion semantic guards cover replacement and stored selector context", async () => {
+  const text = "Prefix old wording suffix";
+  const created = await evaluateApply({ text, threads: [] }, { operations: [{ kind: "suggestion-add",
+    target: { quote: "old wording", prefix: "Prefix ", suffix: " suffix" }, replacement: "new wording", body: "Proposal" }] },
+  { actor: "agent", currentRevision: "g" });
+  const thread = created.draft.threads[0]!, stale = await threadRevision(thread);
+  for (const mutate of [
+    (draft: typeof created.draft) => { draft.threads[0]!.suggestion!.replacement = "different wording"; },
+    (draft: typeof created.draft) => { draft.threads[0]!.suggestion!.prefix = "refix "; },
+  ]) {
+    const changed = structuredClone(created.draft); mutate(changed);
+    await assert.rejects(() => evaluateApply(changed, { operations: [{ kind: "suggestion-accept", threadId: thread.id, ifThreadRevision: stale }] },
+      { actor: "human", currentRevision: "g2" }), (error: CollaborationError) => error.code === "CONFLICT");
+  }
+});
+
+test("suggestion decisions reject stale targets atomically and support rejection and deletion", async () => {
+  const text = "Unique target and tail";
+  const proposal = await evaluateApply({ text, threads: [] }, { operations: [{ kind: "suggestion-add", target: { quote: "target" }, replacement: "", body: "Delete it" }] },
+    { actor: "agent", currentRevision: "g" });
+  const thread = proposal.draft.threads[0]!, semantic = await threadRevision(thread);
+  const ambiguous = structuredClone(proposal.draft); ambiguous.text += " target";
+  await assert.rejects(() => evaluateApply(ambiguous, { operations: [
+    { kind: "replace-quote", target: { quote: "tail" }, text: "ending" },
+    { kind: "suggestion-accept", threadId: thread.id, ifThreadRevision: semantic },
+  ] }, { actor: "human", currentRevision: "g2" }), (error: CollaborationError) => error.code === "CONFLICT");
+  assert.equal(ambiguous.text, `${text} target`); assert.equal(ambiguous.threads[0]!.suggestion!.state, "pending");
+
+  const orphaned = structuredClone(proposal.draft); orphaned.threads[0]!.anchor.state = "orphaned";
+  await assert.rejects(() => evaluateApply(orphaned, { operations: [{ kind: "suggestion-accept", threadId: thread.id, ifThreadRevision: semantic }] },
+    { actor: "human", currentRevision: "g3" }), /no longer attached/);
+  const rejected = await evaluateApply(proposal.draft, { operations: [{ kind: "suggestion-reject", threadId: thread.id, ifThreadRevision: semantic }] },
+    { actor: "human", currentRevision: "g4" });
+  assert.equal(rejected.draft.text, text); assert.equal(rejected.draft.threads[0]!.suggestion!.state, "rejected");
+
+  const accepted = await evaluateApply(proposal.draft, { operations: [
+    { kind: "thread-reply", threadId: thread.id, ifThreadRevision: semantic, body: "Proceed" },
+    { kind: "suggestion-accept", threadId: thread.id, ifThreadRevision: semantic },
+  ] }, { actor: "human", currentRevision: "g5" });
+  assert.equal(accepted.draft.text, "Unique  and tail"); assert.equal(accepted.draft.threads[0]!.messages.length, 2);
+  assert.throws(() => parseApplyEnvelope({ operations: [{ kind: "suggestion-add", target: { quote: "target" }, replacement: "x", body: "why", ifThreadRevision: "st1.bad" }] }), /does not accept/);
+});
+
+test("suggestion acceptance is one editor transaction and one undo step", async () => {
+  const text = "Keep old words here";
+  const created = await evaluateApply({ text, threads: [] }, { operations: [{ kind: "suggestion-add", target: { quote: "old words" }, replacement: "new phrase", body: "Proposal" }] },
+    { actor: "agent", currentRevision: "g" });
+  const thread = created.draft.threads[0]!;
+  const accepted = await evaluateApply(created.draft, { operations: [{ kind: "suggestion-accept", threadId: thread.id, ifThreadRevision: await threadRevision(thread) }] },
+    { actor: "human", currentRevision: "g2" });
+  const edit = accepted.summary.edits[0]!;
+  let state = EditorState.create({ doc: text, extensions: [history(), commentField, commentHistory] });
+  state = state.update({ effects: setComments.of(created.draft.threads), annotations: isolateHistory.of("full") }).state;
+  state = state.update({ selection: { anchor: text.length }, changes: { from: edit.from, to: edit.to, insert: edit.text },
+    effects: setComments.of(accepted.draft.threads), annotations: isolateHistory.of("full"), userEvent: "input" }).state;
+  assert.equal(state.doc.toString(), "Keep new phrase here"); assert.equal(state.field(commentField)[0]!.suggestion!.state, "accepted");
+  const target = { get state() { return state; }, dispatch: (transaction: Transaction) => { state = transaction.state; } };
+  assert.equal(undo(target), true); assert.equal(state.doc.toString(), text); assert.equal(state.field(commentField)[0]!.suggestion!.state, "pending");
+  assert.equal(redo(target), true); assert.equal(state.doc.toString(), "Keep new phrase here"); assert.equal(state.field(commentField)[0]!.suggestion!.state, "accepted");
 });
