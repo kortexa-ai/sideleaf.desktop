@@ -22,9 +22,9 @@ args=("$@")
 # Translate the document operand for named commands and the bare-file shorthand.
 case ${args[0]:-} in
   read|comments|apply|wait|edit|comment-add|comment-update|comment-remove|open|open-folder)
-    if (( ${#args[@]} >= 2 )) && [[ ! ${args[1]} =~ ^[a-zA-Z]:[\\/] && ${args[1]} != \\\\* ]]; then args[1]=$(wslpath -aw "${args[1]}"); fi
+    if (( ${#args[@]} >= 2 )) && [[ ${args[1]} != -* && ! ${args[1]} =~ ^[a-zA-Z]:[\\/] && ${args[1]} != \\\\* ]]; then args[1]=$(wslpath -aw "${args[1]}"); fi
     ;;
-  ""|skills|help|--help|--app|-*) ;;
+  ""|documents|skills|help|--help|--app|-*) ;;
   *)
     if [[ ! ${args[0]} =~ ^[a-zA-Z]:[\\/] && ${args[0]} != \\\\* ]]; then args[0]=$(wslpath -aw "${args[0]}"); fi
     ;;
