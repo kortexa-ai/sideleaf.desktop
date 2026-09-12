@@ -8,6 +8,8 @@ type ChannelLibrary = Library<{
   sideleaf_process_state: { args: [FFIType.u32, FFIType.u64]; returns: FFIType.i32 };
   sideleaf_current_process_start_ms: { args: []; returns: FFIType.u64 };
   sideleaf_file_key: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32]; returns: FFIType.i32 };
+  sideleaf_acquire_owner: { args: [FFIType.ptr, FFIType.ptr]; returns: FFIType.i32 };
+  sideleaf_release_owner: { args: [FFIType.u64]; returns: FFIType.i32 };
 }>;
 
 let loaded: ChannelLibrary | null = null;
@@ -27,6 +29,8 @@ function library(): ChannelLibrary {
     sideleaf_process_state: { args: [FFIType.u32, FFIType.u64], returns: FFIType.i32 },
     sideleaf_current_process_start_ms: { args: [], returns: FFIType.u64 },
     sideleaf_file_key: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+    sideleaf_acquire_owner: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+    sideleaf_release_owner: { args: [FFIType.u64], returns: FFIType.i32 },
   });
   return loaded;
 }
@@ -67,4 +71,19 @@ export function windowsFileKey(path: string): string | null {
   if (result === 0) return null;
   if (result < 0 || result > output.byteLength) throw new Error("Could not read the Windows file change identity.");
   return output.subarray(0, result).toString("ascii");
+}
+
+export function acquireWindowsOwnerFile(path: string): bigint | null {
+  const output = Buffer.alloc(8);
+  const result = library().symbols.sideleaf_acquire_owner(wide(path), output);
+  if (result === 40) return null;
+  if (result !== 0) throw new Error(`Could not acquire Sideleaf's private Windows owner file (adapter status ${result}).`);
+  const handle = output.readBigUInt64LE();
+  if (handle === 0n) throw new Error("The Windows owner adapter returned an invalid handle.");
+  return handle;
+}
+
+export function releaseWindowsOwnerFile(handle: bigint): void {
+  const result = library().symbols.sideleaf_release_owner(handle);
+  if (result !== 0) throw new Error(`Could not release Sideleaf's private Windows owner file (adapter status ${result}).`);
 }

@@ -21,6 +21,8 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import type { ApplyEnvelope } from "./operations.ts";
 import type { CollaborationTarget as DocumentTarget } from "../shared/contracts.ts";
 import {
+  acquireWindowsOwnerFile,
+  releaseWindowsOwnerFile,
   secureWindowsChannelDirectory,
   verifyWindowsChannelPath,
   windowsChannelExecutable,
@@ -161,7 +163,11 @@ function atomicPrivateWrite(path: string, contents: string) {
     closeSync(fd);
     fd = undefined;
     renameSync(temp, path);
-    assertPrivateFile(path);
+    try { assertPrivateFile(path); }
+    catch (error) {
+      try { unlinkSync(path); } catch { /* Do not hide the ACL verification failure. */ }
+      throw error;
+    }
   } finally {
     if (fd !== undefined) closeSync(fd);
     if (existsSync(temp)) unlinkSync(temp);
@@ -397,33 +403,10 @@ async function closeServer(server: Server | null): Promise<void> {
 type OwnerLease = { owned: boolean; close(): Promise<void> };
 
 async function acquireWindowsOwner(path: string): Promise<OwnerLease> {
-  return new Promise<OwnerLease>((accept, reject) => {
-    const child = spawn(windowsChannelExecutable(), ["owner", path], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
-    let ready = false, stderr = "", stdout = "", closed: Promise<void> | null = null;
-    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { if (stderr.length < 8_192) stderr += chunk; });
-    child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-      if (ready) return;
-      stdout += chunk;
-      if (stdout === "owned\n") {
-        ready = true;
-        accept({
-          owned: true,
-          close: () => closed ??= new Promise<void>((done) => {
-            if (child.exitCode !== null) { done(); return; }
-            child.once("close", () => done()); child.stdin.end();
-          }),
-        });
-      } else if (stdout.length > 16 || !"owned\n".startsWith(stdout)) {
-        child.kill(); reject(new Error("The Windows Sideleaf owner adapter returned an invalid result."));
-      }
-    });
-    child.once("error", reject);
-    child.once("close", (status) => {
-      if (ready) return;
-      if (status === 40) accept({ owned: false, async close() {} });
-      else reject(new Error(stderr.trim() || `The Windows Sideleaf owner adapter exited with status ${status}.`));
-    });
-  });
+  const handle = acquireWindowsOwnerFile(path);
+  if (handle === null) return { owned: false, async close() {} };
+  let closed = false;
+  return { owned: true, async close() { if (!closed) { closed = true; releaseWindowsOwnerFile(handle); } } };
 }
 
 async function acquireOwner(paths: ChannelPaths): Promise<OwnerLease> {

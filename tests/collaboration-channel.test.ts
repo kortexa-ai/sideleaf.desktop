@@ -46,7 +46,14 @@ test("one primary channel receives exact Unicode open commands and a second app 
   assert.deepEqual(received, [{ kind: "open", path }, { kind: "activate" }]);
 
   const paths = appChannelPaths(root);
-  if (process.platform !== "win32") {
+  if (process.platform === "win32") {
+    assert.equal(existsSync(paths.owner), true);
+    await (started as AppChannel).close();
+    assert.equal(existsSync(paths.owner), false);
+    const reacquired = await startAppChannel(root, async () => {});
+    assert.equal(reacquired.kind, "primary");
+    channels.push(reacquired as AppChannel);
+  } else {
     assert.equal(statSync(paths.directory).mode & 0o777, 0o700);
     assert.equal(statSync(paths.discovery).mode & 0o777, 0o600);
     const record = JSON.parse(readFileSync(paths.discovery, "utf8"));

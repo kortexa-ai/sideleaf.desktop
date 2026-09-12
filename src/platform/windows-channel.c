@@ -54,8 +54,7 @@ static BOOL acl_is_private(PSID owner, PACL acl, PSECURITY_DESCRIPTOR descriptor
         for (DWORD i = 0; i < info.AceCount; ++i) {
             ACCESS_ALLOWED_ACE *ace = NULL;
             if (!GetAce(acl, i, (void **)&ace) || ace->Header.AceType != ACCESS_ALLOWED_ACE_TYPE ||
-                !EqualSid((PSID)&ace->SidStart, current) ||
-                (!((ace->Mask & GENERIC_ALL) == GENERIC_ALL) && !((ace->Mask & FILE_ALL_ACCESS) == FILE_ALL_ACCESS))) {
+                !EqualSid((PSID)&ace->SidStart, current)) {
                 valid = FALSE; break;
             }
             if (!(ace->Header.AceFlags & INHERIT_ONLY_ACE)) effective = TRUE;
@@ -140,6 +139,10 @@ __declspec(dllexport) int sideleaf_process_state(DWORD pid, uint64_t expected_st
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (!process) return GetLastError() == ERROR_INVALID_PARAMETER ? 10 : 12;
     uint64_t actual_start_ms = read_process_start_ms(process);
+    if (actual_start_ms && actual_start_ms != expected_start_ms) {
+        CloseHandle(process);
+        return 11;
+    }
     PSID current = process_user_sid(GetCurrentProcess());
     PSID owner = process_user_sid(process);
     int result = 12;
@@ -207,7 +210,6 @@ static BOOL write_all(HANDLE output, const BYTE *bytes, DWORD size) {
 
 typedef struct {
     HANDLE pipe;
-    HANDLE reader_thread;
 } PipeBridge;
 
 static DWORD WINAPI copy_input(LPVOID value) {
@@ -217,11 +219,10 @@ static DWORD WINAPI copy_input(LPVOID value) {
         if (!write_all(bridge->pipe, buffer, read)) break;
     }
     // The JavaScript parent keeps stdin open through a normal receipt. EOF
-    // therefore means cancellation or parent exit; interrupt the reader so a
-    // long wait cannot leave this bridge orphaned.
-    CancelIoEx(bridge->pipe, NULL);
-    CancelSynchronousIo(bridge->reader_thread);
-    return 0;
+    // therefore means cancellation or parent exit. This process is solely a
+    // byte bridge, so exiting here also cancels a main-thread pipe read without
+    // a race between cancellation and the start of that read.
+    ExitProcess(0);
 }
 
 static int connect_pipe(const WCHAR *name, DWORD expected_pid, uint64_t expected_start_ms) {
@@ -235,24 +236,23 @@ static int connect_pipe(const WCHAR *name, DWORD expected_pid, uint64_t expected
     if (!GetNamedPipeServerProcessId(pipe, &server_pid) || server_pid != expected_pid || sideleaf_process_state(server_pid, expected_start_ms) != 0) {
         CloseHandle(pipe); SetLastError(ERROR_ACCESS_DENIED); return fail(31, L"The Sideleaf pipe server identity did not match the endpoint record");
     }
-    PipeBridge bridge = { pipe, NULL };
-    if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &bridge.reader_thread,
-        THREAD_TERMINATE, FALSE, 0)) { CloseHandle(pipe); return fail(32, L"Could not track the Sideleaf pipe reader"); }
+    PipeBridge bridge = { pipe };
     HANDLE thread = CreateThread(NULL, 0, copy_input, &bridge, 0, NULL);
-    if (!thread) { CloseHandle(bridge.reader_thread); CloseHandle(pipe); return fail(32, L"Could not start the Sideleaf pipe bridge"); }
+    if (!thread) { CloseHandle(pipe); return fail(32, L"Could not start the Sideleaf pipe bridge"); }
     CloseHandle(thread);
     BYTE buffer[64 * 1024]; DWORD read = 0;
     while (ReadFile(pipe, buffer, sizeof(buffer), &read, NULL) && read) {
         if (!write_all(GetStdHandle(STD_OUTPUT_HANDLE), buffer, read)) { CloseHandle(pipe); return fail(33, L"Could not return the Sideleaf response"); }
     }
     DWORD error = GetLastError();
-    CloseHandle(bridge.reader_thread);
     CloseHandle(pipe);
     if (error != ERROR_BROKEN_PIPE && error != ERROR_NO_DATA) { SetLastError(error); return fail(34, L"The Sideleaf pipe closed unexpectedly"); }
     return 0;
 }
 
-static int own_file(const WCHAR *path) {
+__declspec(dllexport) int sideleaf_acquire_owner(const WCHAR *path, uint64_t *owner_handle) {
+    if (!owner_handle) return 41;
+    *owner_handle = 0;
     HANDLE file = CreateFileW(path, GENERIC_READ | GENERIC_WRITE | DELETE, 0, NULL, OPEN_ALWAYS,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, NULL);
     if (file == INVALID_HANDLE_VALUE) {
@@ -261,12 +261,13 @@ static int own_file(const WCHAR *path) {
         return fail(41, L"Could not acquire the private Sideleaf owner file");
     }
     if (private_handle_acl(file) != 0) { CloseHandle(file); return 42; }
-    static const char ready[] = "owned\n";
-    if (!write_all(GetStdHandle(STD_OUTPUT_HANDLE), (const BYTE *)ready, sizeof(ready) - 1)) { CloseHandle(file); return 43; }
-    BYTE buffer[64]; DWORD read = 0;
-    while (ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &read, NULL) && read) { /* Hold until the app closes stdin. */ }
-    CloseHandle(file);
+    *owner_handle = (uint64_t)(uintptr_t)file;
     return 0;
+}
+
+__declspec(dllexport) int sideleaf_release_owner(uint64_t owner_handle) {
+    if (!owner_handle) return 0;
+    return CloseHandle((HANDLE)(uintptr_t)owner_handle) ? 0 : 1;
 }
 
 int wmain(void) {
@@ -277,9 +278,19 @@ int wmain(void) {
     if (lstrcmpW(args[1], L"secure-directory") == 0 && count == 3) result = sideleaf_secure_directory(args[2]);
     else if (lstrcmpW(args[1], L"verify-directory") == 0 && count == 3) result = private_acl(args[2], TRUE, TRUE);
     else if (lstrcmpW(args[1], L"verify-file") == 0 && count == 3) result = private_acl(args[2], FALSE, FALSE);
+    else if (lstrcmpW(args[1], L"file-key") == 0 && count == 3) {
+        char output[160];
+        result = sideleaf_file_key(args[2], output, sizeof(output));
+        if (result > 0) {
+            BOOL written = write_all(GetStdHandle(STD_OUTPUT_HANDLE), (const BYTE *)output, (DWORD)result) &&
+                write_all(GetStdHandle(STD_OUTPUT_HANDLE), (const BYTE *)"\n", 1);
+            result = written ? 0 : 50;
+        } else {
+            result = result == 0 ? 10 : 50;
+        }
+    }
     else if (lstrcmpW(args[1], L"process") == 0 && count == 4) result = sideleaf_process_state(wcstoul(args[2], NULL, 10), _wcstoui64(args[3], NULL, 10));
     else if (lstrcmpW(args[1], L"connect") == 0 && count == 5) result = connect_pipe(args[2], wcstoul(args[3], NULL, 10), _wcstoui64(args[4], NULL, 10));
-    else if (lstrcmpW(args[1], L"owner") == 0 && count == 3) result = own_file(args[2]);
     LocalFree(args);
     return result;
 }
