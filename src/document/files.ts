@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, fstatSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync, linkSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync, linkSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
 import { relocateComment } from "./anchors.ts";
@@ -32,11 +32,8 @@ const metadataPath = (path: string) => `${path}.sideleaf.json`;
 export class DocumentLock {
   readonly lockPath: string;
   private released = false;
-  private readonly identity: string;
-  constructor(readonly path: string, private readonly fd: number) {
+  constructor(readonly path: string, private readonly fd: number, private readonly contents: string) {
     this.lockPath = `${path}.sideleaf.lock`;
-    const stat = fstatSync(fd);
-    this.identity = `${stat.dev}:${stat.ino}`;
   }
   assert(path: string) {
     if (this.released || path !== this.path) throw new Error("The document lock does not cover this path.");
@@ -46,8 +43,7 @@ export class DocumentLock {
     this.released = true;
     closeSync(this.fd);
     try {
-      const stat = lstatSync(this.lockPath);
-      if (`${stat.dev}:${stat.ino}` === this.identity) unlinkSync(this.lockPath);
+      if (readFileSync(this.lockPath, "utf8") === this.contents) unlinkSync(this.lockPath);
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
 }
@@ -61,8 +57,9 @@ function tryDocumentLock(path: string): DocumentLock | null {
     throw error;
   }
   try {
-    writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
-    return new DocumentLock(path, fd);
+    const contents = JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString(), nonce: randomUUID() });
+    writeFileSync(fd, contents);
+    return new DocumentLock(path, fd, contents);
   } catch (error) { closeSync(fd); try { unlinkSync(lockPath); } catch { /* Preserve the original error. */ } throw error; }
 }
 
