@@ -563,13 +563,24 @@ function composerTextarea(threadId: string): HTMLTextAreaElement | null {
   return [...document.querySelectorAll<HTMLTextAreaElement>("textarea[data-composer]")]
     .find((textarea) => textarea.dataset.composer === threadId) ?? null;
 }
+function focusComposer(buffer: EditorBuffer, selection = buffer.composerSelection): boolean {
+  if (!buffer.composer || element("comments-panel").inert) return false;
+  const textarea = composerTextarea(buffer.composer.threadId);
+  if (!textarea) return false;
+  textarea.focus({ preventScroll: true });
+  if (selection) textarea.setSelectionRange(selection.start, selection.end);
+  buffer.composerFocused = document.activeElement === textarea;
+  return buffer.composerFocused;
+}
 function captureComposer(buffer = buffers.get(current?.id)): void {
   if (!buffer?.composer) return;
   const textarea = composerTextarea(buffer.composer.threadId);
   if (!textarea) return;
   buffer.composer.body = textarea.value;
   buffer.composerSelection = { start: textarea.selectionStart, end: textarea.selectionEnd };
-  buffer.composerFocused = document.activeElement === textarea;
+  // Making the panel inert temporarily clears DOM focus. Preserve the user's
+  // composer focus intent until the blocking operation re-enables the panel.
+  if (!element("comments-panel").inert) buffer.composerFocused = document.activeElement === textarea;
 }
 function captureActive(): EditorBuffer | undefined {
   const buffer = buffers.get(current?.id);
@@ -876,6 +887,8 @@ async function run(operation: () => Promise<void>, blockInput = true) {
     if (blockInput) {
       view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(!current.id)) });
       element("comments-panel").inert = false;
+      const buffer = buffers.get(current.id);
+      if (buffer?.composerFocused) focusComposer(buffer);
     }
     updateDirty(); updateSelection();
     if (pendingQuit) { pendingQuit = false; queueMicrotask(() => { void perform("quit"); }); }
@@ -1115,12 +1128,7 @@ function renderComments() {
     const unavailable = document.createElement("section"); unavailable.className = "comment-card"; renderComposer(null, unavailable); list.prepend(unavailable);
   }
   if (restoreComposerFocus && buffer?.composer) {
-    const textarea = composerTextarea(buffer.composer.threadId);
-    if (textarea) {
-      textarea.focus({ preventScroll: true });
-      if (restoreComposerSelection) textarea.setSelectionRange(restoreComposerSelection.start, restoreComposerSelection.end);
-      buffer.composerFocused = document.activeElement === textarea;
-    }
+    focusComposer(buffer, restoreComposerSelection);
   }
 }
 function applyDocumentType() {
