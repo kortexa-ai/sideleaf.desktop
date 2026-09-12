@@ -46,6 +46,8 @@ test("async mutations cannot commit after editor state or generation changes", (
   a.composer = { kind: "reply", threadId: "missing", body: "first", baseSemantic: "old" };
   const third = a.guard(); a.composer.body = "newer human text";
   assert.equal(a.guardedBy(third), false);
+  const fourth = a.guard(); a.composerComposing = true;
+  assert.equal(a.guardedBy(fourth), false);
 });
 test("a recovery completion cannot mark newer composer text as durable", () => {
   const a = buffer("a", "Alpha");

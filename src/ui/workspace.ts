@@ -14,6 +14,8 @@ export class EditorBuffer {
   composer: ThreadComposer | null = null;
   composerSelection: { start: number; end: number } | null = null;
   composerFocused = false;
+  composerComposing = false;
+  composerRenderPending = false;
   editorTop = 0;
   editorLeft = 0;
   previewTop = 0;
@@ -51,9 +53,10 @@ export class EditorBuffer {
     if (serialized !== this.recoveryPayload()) { this.recoveryGeneration = -1; return false; }
     this.recoveryJSON = serialized; this.recoveryGeneration = generation; return true;
   }
-  guard() { return { state: this.state, generation: this.generation, pending: JSON.stringify(this.pendingReview()) }; }
-  guardedBy(guard: { state: EditorState; generation: number; pending: string }) {
-    return this.state === guard.state && this.generation === guard.generation && JSON.stringify(this.pendingReview()) === guard.pending;
+  guard() { return { state: this.state, generation: this.generation, pending: JSON.stringify(this.pendingReview()), composerComposing: this.composerComposing }; }
+  guardedBy(guard: { state: EditorState; generation: number; pending: string; composerComposing: boolean }) {
+    return this.state === guard.state && this.generation === guard.generation && JSON.stringify(this.pendingReview()) === guard.pending
+      && this.composerComposing === guard.composerComposing;
   }
   get dirty() { return !this.state.doc.eq(this.savedDoc) || this.commentsJSON() !== this.savedComments; }
   get hasCommentDraft() { return !!this.pendingAnchor && !!this.commentBody.trim() || !!this.composer?.body.trim(); }

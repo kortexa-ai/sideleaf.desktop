@@ -559,9 +559,13 @@ function createEditorState(text: string, threads: Draft["threads"] = [], name = 
 }
 
 function commentsJSON() { return JSON.stringify(view.state.field(commentField)); }
+function composerTextarea(threadId: string): HTMLTextAreaElement | null {
+  return [...document.querySelectorAll<HTMLTextAreaElement>("textarea[data-composer]")]
+    .find((textarea) => textarea.dataset.composer === threadId) ?? null;
+}
 function captureComposer(buffer = buffers.get(current?.id)): void {
   if (!buffer?.composer) return;
-  const textarea = document.querySelector<HTMLTextAreaElement>(`textarea[data-composer="${buffer.composer.threadId}"]`);
+  const textarea = composerTextarea(buffer.composer.threadId);
   if (!textarea) return;
   buffer.composer.body = textarea.value;
   buffer.composerSelection = { start: textarea.selectionStart, end: textarea.selectionEnd };
@@ -620,14 +624,17 @@ function collaborationReadChunk(transferId: string, index: number): string {
 async function collaborationApply(payload: { instanceId: string; target: CollaborationTarget; actor: string; ifRevision?: string; ifThreadRevision?: string; envelope: unknown; deadline: number }): Promise<LiveApplyResult> {
   if (Date.now() > payload.deadline) throw new CollaborationError("The apply request expired before the editor could evaluate it. Reread before retrying.", "UNCERTAIN", true);
   const buffer = collaborationBuffer(payload.target), active = current.id === buffer.metadata.id;
-  if (busy || buffer.saving || (active && view.composing)) throw new CollaborationError("Sideleaf is busy with this document. Retry after the current edit or save finishes.", "BUSY", true);
+  if (busy || buffer.saving || buffer.composerComposing || (active && view.composing)) throw new CollaborationError("Sideleaf is busy with this document. Retry after the current edit or save finishes.", "BUSY", true);
   const guard = buffer.guard();
   const revision = liveRevision(payload.instanceId, buffer.metadata.id, buffer.generation);
   const evaluated = await evaluateApply(buffer.draft(), payload.envelope, { actor: payload.actor, currentRevision: revision,
     ifRevision: payload.ifRevision, ifThreadRevision: payload.ifThreadRevision });
   const activeNow = current.id === buffer.metadata.id;
   if (Date.now() > payload.deadline) throw new CollaborationError("The apply request expired before commit. Reread before retrying.", "UNCERTAIN", true);
-  if (buffers.get(buffer.metadata.id) !== buffer || !buffer.guardedBy(guard) || busy || buffer.saving || activeNow && view.composing) {
+  if (buffer.composerComposing || activeNow && view.composing) {
+    throw new CollaborationError("Sideleaf is busy with this document. Retry after the current edit finishes.", "BUSY", true);
+  }
+  if (buffers.get(buffer.metadata.id) !== buffer || !buffer.guardedBy(guard) || busy || buffer.saving) {
     throw new CollaborationError("The document changed while the operation was being checked. Reread before retrying.", "CONFLICT");
   }
   const operation = parseApplyEnvelope(payload.envelope).operations[0];
@@ -684,7 +691,8 @@ function activateBuffer(buffer: EditorBuffer, capture = true) {
     view.scrollDOM.scrollTop = scroll.top; view.scrollDOM.scrollLeft = scroll.left;
     element("preview").parentElement!.scrollTop = scroll.preview;
   });
-  view.focus(); void folderTree.reveal(current.path);
+  if (!buffer.composerFocused) view.focus();
+  void folderTree.reveal(current.path);
 }
 function applyDocument(snapshot: DocumentSnapshot, recovered = false, previous?: EditorBuffer) {
   const state = createEditorState(snapshot.text, snapshot.threads, snapshot.name);
@@ -854,7 +862,7 @@ async function canLeaveAll(keepUntitled = false): Promise<boolean> {
 }
 async function run(operation: () => Promise<void>, blockInput = true) {
   if (busy || !current) return;
-  if (view.composing) { notice("Finish entering your current character before opening or saving a file."); return; }
+  if (view.composing || buffers.get(current.id)?.composerComposing) { notice("Finish entering your current character before opening or saving a file."); return; }
   busy = true;
   if (blockInput) {
     view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) });
@@ -968,18 +976,21 @@ function beginThreadComposer(thread: ReviewThread, value: { kind: "reply"; body:
   }
   buffer.composer = { ...value, threadId: thread.id, baseSemantic: threadSemanticValue(thread) };
   buffer.composerFocused = true; buffer.composerSelection = { start: value.body.length, end: value.body.length };
+  buffer.composerComposing = false; buffer.composerRenderPending = false;
   buffer.recoveryGeneration = -1; showComments(true); renderComments(); updateDirty(true);
 }
 async function applyLocalThreadOperation(operation: ThreadOperation): Promise<void> {
   if (busy) throw new Error("Sideleaf is busy. Try again when the current action finishes.");
   const buffer = captureActive(); if (!buffer) throw new Error("This document is no longer open.");
+  if (buffer.composerComposing || view.composing) throw new Error("Finish entering your current character before changing this thread.");
   const guard = buffer.guard();
   const draft = buffer.draft();
   const thread = "threadId" in operation ? draft.threads.find((candidate) => candidate.id === operation.threadId) : undefined;
   if ("threadId" in operation && !thread) throw new Error("This thread is no longer available.");
   const evaluated = await evaluateApply(draft, { operations: [operation] }, { actor: localAuthor, currentRevision: "ui", ifRevision: "ui",
     ...(thread ? { ifThreadRevision: await threadRevision(thread) } : {}) });
-  if (buffers.get(buffer.metadata.id) !== buffer || current.id !== buffer.metadata.id || !buffer.guardedBy(guard) || busy || view.composing) {
+  if (buffer.composerComposing || view.composing) throw new Error("Finish entering your current character before changing this thread.");
+  if (buffers.get(buffer.metadata.id) !== buffer || current.id !== buffer.metadata.id || !buffer.guardedBy(guard) || busy) {
     throw new Error("The document changed while the review action was being checked. Review the latest thread and try again.");
   }
   view.dispatch({ effects: setComments.of(evaluated.draft.threads), annotations: isolateHistory.of("full"), userEvent: "input" });
@@ -1002,7 +1013,10 @@ async function confirmDeleteThread(threadId: string, expectedSemantic: string): 
 }
 function renderComments() {
   const buffer = buffers.get(current?.id);
+  if (buffer?.composerComposing) { buffer.composerRenderPending = true; return; }
   captureComposer(buffer);
+  const restoreComposerFocus = !!buffer?.composerFocused;
+  const restoreComposerSelection = buffer?.composerSelection ? { ...buffer.composerSelection } : null;
   const threads = view.state.field(commentField);
   const counts = { open: threads.filter((thread) => thread.state === "open").length, resolved: threads.filter((thread) => thread.state === "resolved").length, all: threads.length };
   element("comment-count").textContent = String(counts.open);
@@ -1025,8 +1039,18 @@ function renderComments() {
     const changed = !!target && threadSemanticValue(thread) !== composer.baseSemantic;
     const label = document.createElement("label"); label.textContent = !target ? "This thread or message is no longer available. Copy or cancel your saved draft." : composer.kind === "reply" ? "Reply" : "Edit message";
     const textarea = document.createElement("textarea"); textarea.maxLength = 20_000; textarea.value = composer.body; textarea.dataset.composer = composer.threadId;
+    textarea.setAttribute("aria-label", label.textContent);
     textarea.readOnly = !target;
     textarea.addEventListener("input", () => { composer.body = textarea.value; buffer.recoveryGeneration = -1; lastScratchGeneration = -1; submit.disabled = changed || !textarea.value.trim(); updateDirty(true); });
+    textarea.addEventListener("compositionstart", () => { buffer.composerComposing = true; buffer.composerFocused = true; });
+    textarea.addEventListener("compositionend", () => {
+      buffer.composerComposing = false; composer.body = textarea.value;
+      buffer.composerSelection = { start: textarea.selectionStart, end: textarea.selectionEnd };
+      buffer.recoveryGeneration = -1; lastScratchGeneration = -1;
+      const deferred = buffer.composerRenderPending; buffer.composerRenderPending = false;
+      if (deferred) renderComments();
+      updateDirty(true);
+    });
     wrapper.append(label, textarea);
     if (changed) {
       const warning = document.createElement("p"); warning.className = "composer-conflict";
@@ -1034,7 +1058,7 @@ function renderComments() {
     }
     const actions = document.createElement("div"); actions.className = "thread-actions";
     const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "Cancel";
-    cancel.onclick = () => { buffer.composer = null; buffer.composerFocused = false; buffer.recoveryGeneration = -1; renderComments(); updateDirty(true); };
+    cancel.onclick = () => { buffer.composer = null; buffer.composerFocused = false; buffer.composerComposing = false; buffer.composerRenderPending = false; buffer.recoveryGeneration = -1; renderComments(); updateDirty(true); };
     actions.append(cancel);
     if (changed) {
       const reconcile = document.createElement("button"); reconcile.type = "button"; reconcile.textContent = "Use latest thread";
@@ -1049,7 +1073,7 @@ function renderComments() {
         const operation: ThreadOperation = composer.kind === "reply"
           ? { kind: "thread-reply", threadId: thread!.id, body: composer.body.trim() }
           : { kind: "thread-message-update", threadId: thread!.id, messageId: composer.messageId!, body: composer.body.trim() };
-        void applyLocalThreadOperation(operation).then(() => { buffer.composer = null; buffer.composerFocused = false; buffer.recoveryGeneration = -1; renderComments(); updateDirty(true); }).catch((error) => notice(error.message));
+        void applyLocalThreadOperation(operation).then(() => { buffer.composer = null; buffer.composerFocused = false; buffer.composerComposing = false; buffer.composerRenderPending = false; buffer.recoveryGeneration = -1; renderComments(); updateDirty(true); }).catch((error) => notice(error.message));
       };
     }
     wrapper.append(actions); parent.append(wrapper);
@@ -1090,11 +1114,14 @@ function renderComments() {
   if (buffer?.composer && !threads.some((thread) => thread.id === buffer.composer!.threadId)) {
     const unavailable = document.createElement("section"); unavailable.className = "comment-card"; renderComposer(null, unavailable); list.prepend(unavailable);
   }
-  if (buffer?.composerFocused) requestAnimationFrame(() => {
-    const textarea = document.querySelector<HTMLTextAreaElement>(`textarea[data-composer="${buffer.composer?.threadId ?? ""}"]`);
-    if (!textarea) return; textarea.focus({ preventScroll: true });
-    if (buffer.composerSelection) textarea.setSelectionRange(buffer.composerSelection.start, buffer.composerSelection.end);
-  });
+  if (restoreComposerFocus && buffer?.composer) {
+    const textarea = composerTextarea(buffer.composer.threadId);
+    if (textarea) {
+      textarea.focus({ preventScroll: true });
+      if (restoreComposerSelection) textarea.setSelectionRange(restoreComposerSelection.start, restoreComposerSelection.end);
+      buffer.composerFocused = document.activeElement === textarea;
+    }
+  }
 }
 function applyDocumentType() {
   const plain = isPlainText(current.name);
@@ -1190,7 +1217,7 @@ setInterval(() => {
   })();
 }, 5000);
 async function checkDisk() {
-  if (busy || checking || !current || view.composing) return;
+  if (busy || checking || !current || view.composing || buffers.get(current.id)?.composerComposing) return;
   captureActive(); checking = true;
   try {
     for (const buffer of buffers.values()) {
