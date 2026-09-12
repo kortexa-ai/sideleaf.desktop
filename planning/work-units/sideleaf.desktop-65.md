@@ -17,8 +17,9 @@ Issue: <https://github.com/kortexa-ai/sideleaf.desktop/issues/65>
 
 ## User-facing highlights
 
-- Portable review threads and guarded suggestions retain stable IDs, authors,
-  decisions, anchors, history and unfinished drafts inside Markdown or text files.
+- Saved review threads and guarded suggestions retain stable IDs, authors,
+  decisions, anchors and history inside Markdown or text files. Unfinished reply
+  and edit composers remain in private local recovery until submitted.
 - The command-line tool delivers opens to the running app and targets exact live
   active, inactive or untitled editor buffers without bypassing ownership.
 - Atomic guarded batches, bounded focus reads and quiet semantic waits support a
