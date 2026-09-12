@@ -289,7 +289,7 @@ static int connect_pipe(const WCHAR *name, DWORD expected_pid, uint64_t expected
 __declspec(dllexport) int sideleaf_acquire_owner(const WCHAR *path, uint64_t *owner_handle) {
     if (!owner_handle) return 41;
     *owner_handle = 0;
-    HANDLE file = CreateFileW(path, GENERIC_READ | GENERIC_WRITE | DELETE, 0, NULL, OPEN_ALWAYS,
+    HANDLE file = CreateFileW(path, GENERIC_READ | GENERIC_WRITE | DELETE | WRITE_DAC | WRITE_OWNER, 0, NULL, OPEN_ALWAYS,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, NULL);
     if (file == INVALID_HANDLE_VALUE) {
         DWORD error = GetLastError();
