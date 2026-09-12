@@ -1,11 +1,14 @@
 #define WIN32_LEAN_AND_MEAN
+#ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0602
+#endif
 #include <windows.h>
 #include <aclapi.h>
 #include <shellapi.h>
 #include <sddl.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 // This adapter keeps the JavaScript protocol on node:net while supplying the
 // Windows identity checks that a named-pipe stream does not expose. It never
@@ -45,14 +48,21 @@ static BOOL acl_is_private(PSID owner, PACL acl, PSECURITY_DESCRIPTOR descriptor
     BOOL valid = owner && EqualSid(owner, current) && acl && IsValidAcl(acl) &&
         GetSecurityDescriptorControl(descriptor, &control, &revision) &&
         (!protect || (control & SE_DACL_PROTECTED)) &&
-        GetAclInformation(acl, &info, sizeof(info), AclSizeInformation) && info.AceCount == 1;
+        GetAclInformation(acl, &info, sizeof(info), AclSizeInformation) && info.AceCount >= 1;
+    BOOL effective = FALSE, inherited_children = FALSE;
     if (valid) {
-        ACCESS_ALLOWED_ACE *ace = NULL;
-        valid = GetAce(acl, 0, (void **)&ace) && ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE &&
-            EqualSid((PSID)&ace->SidStart, current) &&
-            (((ace->Mask & GENERIC_ALL) == GENERIC_ALL) || ((ace->Mask & FILE_ALL_ACCESS) == FILE_ALL_ACCESS));
+        for (DWORD i = 0; i < info.AceCount; ++i) {
+            ACCESS_ALLOWED_ACE *ace = NULL;
+            if (!GetAce(acl, i, (void **)&ace) || ace->Header.AceType != ACCESS_ALLOWED_ACE_TYPE ||
+                !EqualSid((PSID)&ace->SidStart, current) ||
+                (!((ace->Mask & GENERIC_ALL) == GENERIC_ALL) && !((ace->Mask & FILE_ALL_ACCESS) == FILE_ALL_ACCESS))) {
+                valid = FALSE; break;
+            }
+            if (!(ace->Header.AceFlags & INHERIT_ONLY_ACE)) effective = TRUE;
+            if ((ace->Header.AceFlags & (CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE)) == (CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE)) inherited_children = TRUE;
+        }
     }
-    return valid;
+    return valid && effective && (!protect || inherited_children);
 }
 
 static int private_acl(const WCHAR *path, BOOL require_directory, BOOL protect) {
@@ -160,12 +170,19 @@ __declspec(dllexport) int sideleaf_file_key(const WCHAR *path, char *output, DWO
     }
     FILE_BASIC_INFO basic = {0}; FILE_STANDARD_INFO standard = {0}; FILE_ID_INFO identity = {0};
     if (!GetFileInformationByHandleEx(file, FileBasicInfo, &basic, sizeof(basic)) ||
-        !GetFileInformationByHandleEx(file, FileStandardInfo, &standard, sizeof(standard)) ||
-        !GetFileInformationByHandleEx(file, FileIdInfo, &identity, sizeof(identity))) {
+        !GetFileInformationByHandleEx(file, FileStandardInfo, &standard, sizeof(standard))) {
         CloseHandle(file); return -1;
     }
+    if (!GetFileInformationByHandleEx(file, FileIdInfo, &identity, sizeof(identity))) {
+        BY_HANDLE_FILE_INFORMATION fallback = {0};
+        if (!GetFileInformationByHandle(file, &fallback)) { CloseHandle(file); return -1; }
+        identity.VolumeSerialNumber = fallback.dwVolumeSerialNumber;
+        memcpy(identity.FileId.Identifier, &fallback.nFileIndexLow, sizeof(fallback.nFileIndexLow));
+        memcpy(identity.FileId.Identifier + sizeof(fallback.nFileIndexLow), &fallback.nFileIndexHigh, sizeof(fallback.nFileIndexHigh));
+    }
     CloseHandle(file);
-    int used = snprintf(output, capacity, "%llx:%llx:", (unsigned long long)basic.ChangeTime.QuadPart,
+    int used = snprintf(output, capacity, "%llx:%llx:%llx:", (unsigned long long)basic.ChangeTime.QuadPart,
+        (unsigned long long)basic.LastWriteTime.QuadPart,
         (unsigned long long)identity.VolumeSerialNumber);
     if (used < 0 || (DWORD)used >= capacity) return -1;
     for (DWORD i = 0; i < sizeof(identity.FileId.Identifier); ++i) {
