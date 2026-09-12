@@ -22,6 +22,14 @@ general batch surfaces assigned to later work units.
   the bearer value or document path, then checks the endpoint greeting. Abandoned
   sockets in the app's private namespace are removed only after the new app owns the
   single-instance lock.
+- Windows keeps discovery, the bearer value, owner identity and document traffic in a
+  current-user-only directory. A small native bridge verifies the connected named-pipe
+  server's PID, exact process creation time and user SID before forwarding any of that
+  private material. If another local identity somehow learns the random pipe name, the
+  runtime's default pipe ACL permits a read-only connection that receives only the
+  nonsecret protocol greeting; it cannot create the first instance, open read/write,
+  authenticate or receive document data. Unauthenticated connections time out after
+  four seconds.
 - Local requests have bounded frames, deadlines and UUIDs. Small completed requests
   are deduplicated during that app session. Large reads use ordered bounded response
   chunks. A lost result after authenticated command delivery is reported as uncertain
@@ -45,17 +53,28 @@ hung endpoint behavior, uncertain completion, request deduplication, large live 
 active/inactive targeting, legacy mutation refusal, Unicode ranges, one editor undo,
 selection and comment mapping, and the installed WSL wrapper's operand routing.
 
-Native macOS acceptance must additionally exercise the packaged CLI without Bun or
-Node on PATH, unsaved active and inactive reads, live apply with autosave off and on,
-actual undo/redo, stale revisions, quiet wait completion, app close/cancellation,
-concurrent open/write handoff, paths with spaces and Unicode, and access rejection from
-a second local account.
+Native acceptance completed at
+`8b38dfafc7f4c0e417382fa4f0896b69761c571a` on both platforms:
 
-Native Windows acceptance is pending because Scrappy is unavailable. When it returns,
-use the exact candidate SHA and rebuild with Windows Bun, then test the visible app from
-CMD and the installed WSL wrapper against both Windows-drive and WSL-native documents.
-Cover spaces/Unicode, relative and aliased paths, inactive/untitled buffers, autosave,
-undo/redo, concurrent open/write/close, stale PID and endpoint identity, hung renderer,
-Ctrl+C cancellation, request reconciliation, and named-pipe access/impersonation from
-a second local account. The Windows named-pipe transport remains provisional until
-that OS-user boundary is proven or replaced with a small native adapter.
+- macOS and Windows built with the pinned native toolchain. Their packaged CLIs ran
+  without Bun or Node on `PATH`; the final suites passed 107/107 on macOS and
+  104/104 with three platform skips on Windows.
+- Visible desktop checks covered dirty active, inactive and untitled buffers;
+  autosave off and on; stale revisions; legacy-mutation refusal; one-step native
+  undo/redo; dirty open and close prompts; Unicode paths; exact BOM/CRLF and mode
+  preservation; lock release; quiet timeout; and app-close wake-up.
+- Native CMD and the production-equivalent WSL wrapper reached the same running
+  Windows app. Windows-drive and WSL-native documents resolved to their live buffers
+  by path and document ID. WSL foreground termination cancelled an established
+  request promptly without leaving the bridge to wait for its deadline.
+- The Windows helper verifies the connected pipe's server PID, exact process creation
+  time and user SID before sending a bearer value or document data. A native test under
+  the distinct `NT AUTHORITY\LOCAL SERVICE` SID proved that another local identity
+  cannot list the private channel directory, read its endpoint record, squat the live
+  pipe's first instance or open the pipe for read/write. It could receive only the
+  public greeting over a read-only connection. The temporary task, output permission,
+  server and fixtures were removed after the check.
+
+Independent Fable review passed the final Windows transport and document-lock deltas.
+The foundation does not claim semantic activity wakes, which remain assigned to the
+next collaboration work unit.

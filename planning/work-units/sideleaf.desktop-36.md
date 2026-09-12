@@ -43,6 +43,15 @@ the renderer handles it.
   folder launch markers and headless help.
 - The packaged CLI repeats help and running-channel checks with Node and Bun removed
   from the child PATH.
-- Native macOS and Windows builds must exercise cold launch, running delivery,
-  activation, dirty-buffer cancellation and dev/stable selection. Windows acceptance
-  also covers CMD and the installed WSL wrapper.
+- Native macOS and Windows acceptance completed against code commit
+  `8b38dfafc7f4c0e417382fa4f0896b69761c571a`. Both platforms built with the pinned
+  toolchain, and their packaged CLIs ran with Bun and Node absent from `PATH`.
+- The visible macOS app passed cold Unicode/spaces file launch, running-instance
+  delivery, no-argument activation and dirty Save/Cancel/Discard behavior.
+- The visible Windows app passed cold no-argument and exact Unicode/spaces file launch
+  through `--app`, then delivered a duplicate open to the running instance without
+  changing the live document ID or opening a second buffer. Native CMD and the
+  production-equivalent WSL wrapper also passed running delivery, dirty-buffer
+  lifecycle behavior and Windows-drive/WSL-native path translation.
+- Focused tests keep dev and stable channel roots isolated. No release was cut as part
+  of this work unit.
