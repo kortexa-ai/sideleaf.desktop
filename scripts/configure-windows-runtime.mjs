@@ -71,7 +71,7 @@ execFileSync(zig, ["cc", "-target", "x86_64-windows-gnu", "-lc", "-c", "-Os", "-
 execFileSync(zig, ["cc", "-target", "x86_64-windows-gnu", "-nostdlib", "-s", "-Wl,--entry,sideleafStart", "-Wl,--subsystem,windows", object, resource, "-lkernel32", "-luser32", "-lshell32", "-o", candidate], { stdio: "inherit" });
 const cliObject = join(output, "sideleaf-cli.obj");
 execFileSync(zig, ["cc", "-target", "x86_64-windows-gnu", "-lc", "-c", "-Os", "-Wall", "-Wextra", "-fno-stack-protector", "src/platform/cli-launcher.c", "-o", cliObject], { stdio: "inherit" });
-execFileSync(zig, ["cc", "-target", "x86_64-windows-gnu", "-nostdlib", "-s", "-Wl,--entry,sideleafCliStart", "-Wl,--subsystem,console", cliObject, resource, "-lkernel32", "-o", join(bin, "sideleaf.exe")], { stdio: "inherit" });
+execFileSync(zig, ["cc", "-target", "x86_64-windows-gnu", "-nostdlib", "-s", "-Wl,--entry,sideleafCliStart", "-Wl,--subsystem,console", cliObject, resource, "-lkernel32", "-lshell32", "-o", join(bin, "sideleaf.exe")], { stdio: "inherit" });
 const native = join(buildDir, name, "Resources/app/native");
 await mkdir(native, { recursive: true });
 execFileSync(zig, ["cc", "-target", "x86_64-windows-gnu", "-shared", "-Os", "-Wall", "-Wextra", "src/platform/windows-identity.c", "-lole32", "-lshell32", "-luser32", "-luuid", "-o", join(native, "sideleaf-identity.dll")], { stdio: "inherit" });
