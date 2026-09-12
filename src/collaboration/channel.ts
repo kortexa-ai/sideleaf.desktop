@@ -24,6 +24,7 @@ import {
   acquireWindowsOwnerFile,
   releaseWindowsOwnerFile,
   secureWindowsChannelDirectory,
+  secureWindowsChannelFile,
   verifyWindowsChannelPath,
   windowsChannelExecutable,
   windowsCurrentProcessStartMs,
@@ -162,6 +163,7 @@ function atomicPrivateWrite(path: string, contents: string) {
     fsyncSync(fd);
     closeSync(fd);
     fd = undefined;
+    if (process.platform === "win32") secureWindowsChannelFile(temp);
     renameSync(temp, path);
     try { assertPrivateFile(path); }
     catch (error) {

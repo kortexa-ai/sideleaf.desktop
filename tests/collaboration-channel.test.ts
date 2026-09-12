@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import { afterEach, test } from "node:test";
+import { secureWindowsChannelFile } from "../src/platform/windows-channel.ts";
 import {
   appChannelPaths,
   APP_CHANNEL_CONTRACT,
@@ -28,6 +29,11 @@ function userData(): string {
   const directory = mkdtempSync(join(tmpdir(), "sideleaf-channel-test-"));
   directories.push(directory);
   return directory;
+}
+
+function secureTestRecord(path: string) {
+  if (process.platform === "win32") secureWindowsChannelFile(path);
+  else chmodSync(path, 0o600);
 }
 
 test("one primary channel receives exact Unicode open commands and a second app hands off", async () => {
@@ -176,7 +182,7 @@ test("a dead app record does not block a cold launch even when its socket is gon
   const endpoint = process.platform === "win32" ? `\\\\.\\pipe\\sideleaf-${paths.key}-${crypto.randomUUID()}` : join(paths.socketDirectory, `${paths.key}-${crypto.randomUUID()}.sock`);
   writeFileSync(paths.discovery, `${JSON.stringify({ contract: APP_CHANNEL_CONTRACT, protocol: APP_CHANNEL_PROTOCOL, instanceId: crypto.randomUUID(), token: crypto.randomUUID(), pid: 999_999_999,
     startedAt: new Date().toISOString(), processStartedAtMs: 1, endpoint })}\n`, { mode: 0o600 });
-  if (process.platform !== "win32") chmodSync(paths.discovery, 0o600);
+  secureTestRecord(paths.discovery);
   assert.deepEqual(await deliverAppCommand(root, { kind: "activate" }), { delivered: false, requestId: null });
 });
 
@@ -193,6 +199,7 @@ test("Windows rejects a reused live PID before connecting to a recorded pipe", a
   await new Promise<void>((accept, reject) => { server.once("error", reject); server.listen(endpoint, accept); });
   record.endpoint = endpoint; record.processStartedAtMs++;
   writeFileSync(paths.discovery, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+  secureTestRecord(paths.discovery);
   try {
     assert.deepEqual(await deliverAppCommand(root, { kind: "activate" }), { delivered: false, requestId: null });
     assert.deepEqual(received, []);

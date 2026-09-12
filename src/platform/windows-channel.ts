@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 
 type ChannelLibrary = Library<{
   sideleaf_secure_directory: { args: [FFIType.ptr]; returns: FFIType.i32 };
+  sideleaf_secure_file: { args: [FFIType.ptr]; returns: FFIType.i32 };
   sideleaf_verify_path: { args: [FFIType.ptr, FFIType.i32, FFIType.i32]; returns: FFIType.i32 };
   sideleaf_process_state: { args: [FFIType.u32, FFIType.u64]; returns: FFIType.i32 };
   sideleaf_current_process_start_ms: { args: []; returns: FFIType.u64 };
@@ -25,6 +26,7 @@ function nativeArtifact(name: string): string {
 function library(): ChannelLibrary {
   loaded ??= dlopen(nativeArtifact("sideleaf-channel.dll"), {
     sideleaf_secure_directory: { args: [FFIType.ptr], returns: FFIType.i32 },
+    sideleaf_secure_file: { args: [FFIType.ptr], returns: FFIType.i32 },
     sideleaf_verify_path: { args: [FFIType.ptr, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
     sideleaf_process_state: { args: [FFIType.u32, FFIType.u64], returns: FFIType.i32 },
     sideleaf_current_process_start_ms: { args: [], returns: FFIType.u64 },
@@ -44,6 +46,11 @@ export function windowsChannelExecutable(): string {
 export function secureWindowsChannelDirectory(path: string): void {
   const result = library().symbols.sideleaf_secure_directory(wide(path));
   if (result !== 0) throw new Error(`Could not establish a private Windows Sideleaf channel directory (adapter status ${result}).`);
+}
+
+export function secureWindowsChannelFile(path: string): void {
+  const result = library().symbols.sideleaf_secure_file(wide(path));
+  if (result !== 0) throw new Error(`Could not establish a private Windows Sideleaf channel file (adapter status ${result}).`);
 }
 
 export function verifyWindowsChannelPath(path: string, directory: boolean, protectedAcl: boolean): void {

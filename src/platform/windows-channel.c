@@ -94,6 +94,17 @@ static int private_handle_acl(HANDLE file) {
     return 0;
 }
 
+static DWORD current_user_acl(PSID current, DWORD inheritance, PACL *acl) {
+    EXPLICIT_ACCESSW access = {0};
+    access.grfAccessPermissions = GENERIC_ALL;
+    access.grfAccessMode = SET_ACCESS;
+    access.grfInheritance = inheritance;
+    access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    access.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    access.Trustee.ptstrName = (LPWSTR)current;
+    return SetEntriesInAclW(1, &access, NULL, acl);
+}
+
 __declspec(dllexport) int sideleaf_secure_directory(const WCHAR *path) {
     DWORD attributes = GetFileAttributesW(path);
     if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
@@ -101,15 +112,8 @@ __declspec(dllexport) int sideleaf_secure_directory(const WCHAR *path) {
     }
     PSID current = process_user_sid(GetCurrentProcess());
     if (!current) return fail(21, L"Could not read the current Windows user identity");
-    EXPLICIT_ACCESSW access = {0};
-    access.grfAccessPermissions = GENERIC_ALL;
-    access.grfAccessMode = SET_ACCESS;
-    access.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
-    access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
-    access.Trustee.TrusteeType = TRUSTEE_IS_USER;
-    access.Trustee.ptstrName = (LPWSTR)current;
     PACL acl = NULL;
-    DWORD status = SetEntriesInAclW(1, &access, NULL, &acl);
+    DWORD status = current_user_acl(current, SUB_CONTAINERS_AND_OBJECTS_INHERIT, &acl);
     if (status == ERROR_SUCCESS) status = SetNamedSecurityInfoW((LPWSTR)path, SE_FILE_OBJECT,
         OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
         current, NULL, acl, NULL);
@@ -117,6 +121,38 @@ __declspec(dllexport) int sideleaf_secure_directory(const WCHAR *path) {
     LocalFree(current);
     if (status != ERROR_SUCCESS) { SetLastError(status); return fail(22, L"Could not make the Sideleaf channel private"); }
     return private_acl(path, TRUE, TRUE);
+}
+
+__declspec(dllexport) int sideleaf_secure_file(const WCHAR *path) {
+    DWORD attributes = GetFileAttributesW(path);
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))) {
+        return fail(20, L"The Sideleaf channel file is unsafe");
+    }
+    PSID current = process_user_sid(GetCurrentProcess());
+    if (!current) return fail(21, L"Could not read the current Windows user identity");
+    PACL acl = NULL;
+    DWORD status = current_user_acl(current, NO_INHERITANCE, &acl);
+    if (status == ERROR_SUCCESS) status = SetNamedSecurityInfoW((LPWSTR)path, SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        current, NULL, acl, NULL);
+    if (acl) LocalFree(acl);
+    LocalFree(current);
+    if (status != ERROR_SUCCESS) { SetLastError(status); return fail(22, L"Could not make the Sideleaf channel file private"); }
+    return private_acl(path, FALSE, FALSE);
+}
+
+static int secure_handle(HANDLE file) {
+    PSID current = process_user_sid(GetCurrentProcess());
+    if (!current) return fail(21, L"Could not read the current Windows user identity");
+    PACL acl = NULL;
+    DWORD status = current_user_acl(current, NO_INHERITANCE, &acl);
+    if (status == ERROR_SUCCESS) status = SetSecurityInfo(file, SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        current, NULL, acl, NULL);
+    if (acl) LocalFree(acl);
+    LocalFree(current);
+    if (status != ERROR_SUCCESS) { SetLastError(status); return fail(22, L"Could not make the Sideleaf owner file private"); }
+    return private_handle_acl(file);
 }
 
 static uint64_t read_process_start_ms(HANDLE process) {
@@ -260,7 +296,7 @@ __declspec(dllexport) int sideleaf_acquire_owner(const WCHAR *path, uint64_t *ow
         if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION || error == ERROR_ACCESS_DENIED) return 40;
         return fail(41, L"Could not acquire the private Sideleaf owner file");
     }
-    if (private_handle_acl(file) != 0) { CloseHandle(file); return 42; }
+    if (secure_handle(file) != 0) { CloseHandle(file); return 42; }
     *owner_handle = (uint64_t)(uintptr_t)file;
     return 0;
 }
