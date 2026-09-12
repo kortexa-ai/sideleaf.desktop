@@ -1,4 +1,4 @@
-import { pathFromLaunch, setFileActivationReceiver, takeInitialFileActivation } from "./platform/file-open.ts";
+import { launchRequestFromLaunch, setFileActivationReceiver, takeInitialFileActivation } from "./platform/file-open.ts";
 import events from "electrobun/main/events";
 import { BrowserWindow } from "electrobun/main/browser-window";
 import { BrowserView } from "electrobun/main/browser-view";
@@ -18,6 +18,7 @@ import { documentMetadata, type Command, type RecoveredDocument, type SideleafRP
 import { APP_VERSION } from "./shared/version.ts";
 import { customShortcutAccelerator, saveAsAccelerator } from "./ui/shortcuts.ts";
 import { UpdateChecker } from "./updates.ts";
+import { startAppChannel, type AppCommand } from "./collaboration/channel.ts";
 
 import { migrateIdentityData, windowsIdentity } from "./platform/identity.ts";
 
@@ -40,7 +41,14 @@ function diagnostic(event: string, message: string) {
   try { appendFileSync(startupLog, `${JSON.stringify(record)}\n`); } catch { /* Keep the app usable if its log directory is read-only. */ }
 }
 diagnostic("host-started", `Sideleaf ${APP_VERSION}`);
-const launchPath = pathFromLaunch(process.argv, process.env.SIDELEAF_OPEN_PATH) ?? takeInitialFileActivation();
+const activatedPath = takeInitialFileActivation();
+const launchRequest = launchRequestFromLaunch(process.argv, process.env.SIDELEAF_OPEN_PATH, process.env.SIDELEAF_OPEN_KIND) ??
+  (activatedPath ? { kind: "open" as const, path: activatedPath } : null);
+const earlyAppCommands: AppCommand[] = [];
+let appCommandReceiver = (command: AppCommand) => { earlyAppCommands.push(command); };
+const appChannel = await startAppChannel(Utils.paths.userData, (command) => appCommandReceiver(command), { secondaryCommand: launchRequest ?? { kind: "activate" } });
+if (appChannel.kind === "delivered") process.exit(0);
+const launchPath = launchRequest?.path ?? null;
 let hasInitialPath = launchPath !== null;
 const workspace = new DocumentWorkspace((workspaceId) => { if (rendererReady) rpc.send.foldersChanged({ workspaceId }); });
 if (launchPath) workspace.open(launchPath); else workspace.newDocument();
@@ -49,7 +57,7 @@ const recovery = new RecoveryStore(join(Utils.paths.userData, "document-recovery
 let initialDelivered = false;
 let recoveredScratch = false;
 let recoveryError: string | null = null;
-let pendingOpenPath: string | null = null;
+const pendingOpenPaths: string[] = [];
 let rendererReady = false;
 let approvedClose = false;
 let dialogOpen = false;
@@ -66,15 +74,16 @@ function mutateWorkspace<T>(operation: () => T): T {
 
 // When the app is already open, let the renderer run the same dirty-document
 // flow as File → Open before the host consumes the pending path.
-setFileActivationReceiver((path) => {
+function receiveExternalOpen(path: string) {
   if (!initialDelivered) {
     try { workspace.open(path); hasInitialPath = true; }
     catch (error) { recoveryError = `Sideleaf could not open the selected file: ${(error as Error).message}`; diagnostic("file-activation-failed", (error as Error).message); }
     return;
   }
-  pendingOpenPath = path;
+  pendingOpenPaths.push(path);
   if (rendererReady) rpc.send.command("openExternal");
-});
+}
+setFileActivationReceiver(receiveExternalOpen);
 
 const rpc = BrowserView.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
@@ -161,11 +170,17 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         const result = mutateWorkspace(() => workspace.closeDocument(id)); workspace.root?.notify(); return result;
       },
       openPending: () => {
-        if (!pendingOpenPath) return null;
-        const path = pendingOpenPath; pendingOpenPath = null;
-        return mutateWorkspace(() => workspace.open(path));
+        const path = pendingOpenPaths.shift();
+        if (!path) return null;
+        const result = mutateWorkspace(() => workspace.open(path));
+        if (pendingOpenPaths.length && rendererReady) queueMicrotask(() => rpc.send.command("openExternal"));
+        return result;
       },
-      cancelPendingOpen: () => { pendingOpenPath = null; return true; },
+      cancelPendingOpen: () => {
+        pendingOpenPaths.shift();
+        if (pendingOpenPaths.length && rendererReady) queueMicrotask(() => rpc.send.command("openExternal"));
+        return true;
+      },
       newDocument: () => mutateWorkspace(() => workspace.newDocument()),
       stageSave: (part) => { workspace.get(part?.id).transfer.append(part); return true; },
       save: async (payload) => {
@@ -226,7 +241,12 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         }
         return handleWindowAction(appWindow, action, windowsChrome);
       },
-      finishClose: ({ quit }) => { approvedClose = true; if (quit) Utils.quit(); else appWindow.close(); return true; },
+      finishClose: async ({ quit }) => {
+        approvedClose = true;
+        await appChannel.close();
+        if (quit) Utils.quit(); else appWindow.close();
+        return true;
+      },
     },
     messages: {
       cancelSave: ({ transferId }) => { if (typeof transferId === "string") for (const session of workspace.sessions.values()) session.transfer.clear(transferId); },
@@ -241,7 +261,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
           try { diagnostic("mac-spellcheck", String(appWindow.setSpellCheck(true))); }
           catch (error) { diagnostic("mac-spellcheck", (error as Error).message); }
         }
-        if (pendingOpenPath) rpc.send.command("openExternal");
+        if (pendingOpenPaths.length) rpc.send.command("openExternal");
         if (!updateChecksStarted) {
           updateChecksStarted = true;
           setTimeout(() => { void updates.check(); }, 15_000);
@@ -266,6 +286,12 @@ appWindow = new BrowserWindow({
   rpc,
 });
 windowsChrome = configureWindowsChrome?.(appWindow);
+appCommandReceiver = (command) => {
+  if (appWindow.isMinimized()) appWindow.unminimize();
+  appWindow.show();
+  if (command.kind !== "activate") receiveExternalOpen(command.path);
+};
+for (const command of earlyAppCommands.splice(0)) appCommandReceiver(command);
 
 function updateTitle() { appWindow.setTitle(`${workspace.dirty ? "● " : ""}${workspace.activeId ? workspace.get(workspace.activeId).file.name : workspace.info().name} — Sideleaf`); }
 updateTitle();

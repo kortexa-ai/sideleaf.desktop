@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { resolve, join, dirname } from "node:path";
+import { resolve, join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -7,9 +7,12 @@ import { DocumentFile } from "./document/files.ts";
 import { makeAnchor } from "./document/anchors.ts";
 import { MAX_DOCUMENT_BYTES } from "./shared/contracts.ts";
 import { installSideleafSkills, parseSkillInstallArgs } from "./skill.ts";
+import { deliverAppCommand, sideleafUserData, type AppCommand } from "./collaboration/channel.ts";
 
 const help = `sideleaf — local Markdown and comments (JSON output)
 
+sideleaf [--app PATH]
+sideleaf FILE [--app PATH]
 sideleaf read FILE
 sideleaf comments FILE
 sideleaf edit FILE --if-revision HASH --actor NAME < edit.json
@@ -34,6 +37,7 @@ Skill targets: agents, claude, codex, omp, hermes, pi. The default installs
 ~/.agents/skills/sideleaf/SKILL.md. --user installs all supported user targets.
 In WSL, skills install into the WSL home. --force explicitly replaces a locally
 modified Sideleaf skill; without it, the existing file is left unchanged.
+With no arguments, Sideleaf starts or activates. FILE is shorthand for open FILE.
 `;
 // ASCII JSON survives legacy PowerShell code pages without corrupting Unicode.
 function json(value: unknown) { return JSON.stringify(value).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`); }
@@ -42,17 +46,80 @@ function inputError(message: string): never { throw Object.assign(new Error(mess
 function integer(value: unknown): number { if (!Number.isSafeInteger(value) || (value as number) < 0) inputError("Offsets must be nonnegative UTF-16 integers."); return value as number; }
 function body(value: unknown): string { if (typeof value !== "string" || !value.trim() || value.length > 20_000) inputError("Comment body must contain 1–20,000 characters."); return value; }
 
+function appChannelRoot(override?: string): string {
+  if (!override) return sideleafUserData("stable");
+  const app = resolve(override);
+  let versionPath: string;
+  if (process.platform === "darwin") versionPath = join(app, "Contents", "Resources", "version.json");
+  else versionPath = join(dirname(app), "..", "Resources", "version.json");
+  let version: { identifier?: unknown; channel?: unknown };
+  try { version = JSON.parse(readFileSync(versionPath, "utf8")); }
+  catch { inputError("The selected Sideleaf app does not contain readable version metadata."); }
+  if (version.identifier !== "ai.kortexa.sideleaf" || typeof version.channel !== "string" || !/^[a-zA-Z0-9._-]{1,64}$/.test(version.channel)) {
+    inputError("The selected app is not a compatible Sideleaf build.");
+  }
+  if (process.platform === "win32") {
+    const identifierRoot = resolve(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "ai.kortexa.sideleaf");
+    const installedRoot = resolve(dirname(app), "..", "..");
+    if (dirname(installedRoot).toLowerCase() === identifierRoot.toLowerCase()) return sideleafUserData(basename(installedRoot));
+  }
+  return sideleafUserData(version.channel);
+}
+
+async function openDesktop(command: AppCommand, override?: string): Promise<"running" | "launched"> {
+  const wsl = process.platform === "linux" && !!process.env.WSL_DISTRO_NAME;
+  if (!wsl) {
+    const delivered = await deliverAppCommand(appChannelRoot(override), command);
+    if (delivered.delivered) return "running";
+  }
+  if (process.platform === "darwin") {
+    const target = override ? ["-a", resolve(override)] : ["-b", "ai.kortexa.sideleaf"];
+    if (command.kind === "open") target.push(command.path);
+    else if (command.kind === "open-folder") target.push("--env", `SIDELEAF_OPEN_PATH=${command.path}`, "--env", "SIDELEAF_OPEN_KIND=folder");
+    execFileSync("/usr/bin/open", target);
+    return "launched";
+  }
+  let app = override;
+  if (!app && wsl) inputError("Use --app with the installed Windows bin/launcher.exe path (in /mnt/c/...) for desktop opening from WSL.");
+  app ??= join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "ai.kortexa.sideleaf", "stable", "app", "bin", "launcher.exe");
+  if (!existsSync(app)) inputError("Sideleaf launcher was not found. Use --app PATH.");
+  const marker = command.kind === "open-folder" ? "--sideleaf-open-folder" : "--sideleaf-open";
+  const launchArguments = command.kind === "activate" ? [] : [marker, command.path];
+  if (wsl) {
+    const nativeApp = execFileSync("wslpath", ["-w", resolve(app)], { encoding: "utf8" }).trim();
+    const nativeFolder = execFileSync("wslpath", ["-w", dirname(resolve(app))], { encoding: "utf8" }).trim();
+    const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+    const environment = command.kind === "activate" ? "" : `$env:SIDELEAF_OPEN_PATH = ${literal(command.path)}; $env:SIDELEAF_OPEN_KIND = ${literal(command.kind === "open-folder" ? "folder" : "file")}; `;
+    const argumentsLiteral = launchArguments.map(literal).join(", ");
+    const script = `$ErrorActionPreference = 'Stop'; ${environment}Start-Process -FilePath ${literal(nativeApp)} -WorkingDirectory ${literal(nativeFolder)}${argumentsLiteral ? ` -ArgumentList @(${argumentsLiteral})` : ""}`;
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { stdio: "ignore" });
+  } else {
+    const environment = command.kind === "activate" ? process.env : { ...process.env, SIDELEAF_OPEN_PATH: command.path, SIDELEAF_OPEN_KIND: command.kind === "open-folder" ? "folder" : "file" };
+    const child = spawn(resolve(app), launchArguments, { detached: true, stdio: "ignore", cwd: dirname(resolve(app)), env: environment });
+    await new Promise<void>((accept, reject) => { child.once("spawn", accept); child.once("error", reject); }); child.unref();
+  }
+  return "launched";
+}
+
 async function main() {
   const args = process.argv.slice(2);
-  if (!args.length || args[0] === "--help" || args[0] === "help") { process.stdout.write(help); return; }
-  const command = args.shift()!;
+  if (!args.length) { output({ ok: true, delivery: await openDesktop({ kind: "activate" }) }); return; }
+  if (args[0] === "--help" || args[0] === "help") { process.stdout.write(help); return; }
+  if (args[0] === "--app") {
+    if (args.length !== 2 || !args[1]) inputError("Use sideleaf --app PATH to activate a specific Sideleaf build.");
+    output({ ok: true, delivery: await openDesktop({ kind: "activate" }, args[1]) }); return;
+  }
+  let command = args.shift()!;
   if (command === "skills") {
     if (args[0] === "--help" || args[0] === "help") { process.stdout.write(help); return; }
     const options = parseSkillInstallArgs(args);
     const targets = installSideleafSkills({ home: options.home ?? process.env.SIDELEAF_SKILLS_HOME, ...options });
     output({ ok: true, skill: "sideleaf", targets }); return;
   }
-  if (!["read", "comments", "edit", "comment-add", "comment-update", "comment-remove", "open", "open-folder"].includes(command)) inputError("Unknown command. Run sideleaf --help.");
+  if (!["read", "comments", "edit", "comment-add", "comment-update", "comment-remove", "open", "open-folder"].includes(command)) {
+    if (command.startsWith("-")) inputError("Unknown command. Run sideleaf --help.");
+    args.unshift(command); command = "open";
+  }
   const filename = args.shift();
   if (!filename || filename.startsWith("--")) inputError("A document path is required.");
   const options = new Map<string, string>();
@@ -68,29 +135,9 @@ async function main() {
     if (!existsSync(path)) inputError("The path does not exist.");
     if (command === "open-folder" ? !statSync(path).isDirectory() : !statSync(path).isFile()) inputError(command === "open-folder" ? "A folder path is required." : "A file path is required. Use open-folder for a directory.");
     const override = options.get("--app");
-    if (process.platform === "darwin") {
-      execFileSync("/usr/bin/open", ["-n", ...(override ? ["-a", resolve(override)] : ["-b", "ai.kortexa.sideleaf"]), "--env", `SIDELEAF_OPEN_PATH=${path}`]);
-    } else {
-      const wsl = process.platform === "linux" && !!process.env.WSL_DISTRO_NAME;
-      if (wsl) path = execFileSync("wslpath", ["-w", path], { encoding: "utf8" }).trim();
-      let app = override;
-      if (!app && wsl) inputError("Use --app with the installed Windows bin/launcher.exe path (in /mnt/c/...) for desktop opening from WSL.");
-      app ??= join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "ai.kortexa.sideleaf", "stable", "app", "bin", "launcher.exe");
-      if (!existsSync(app)) inputError("Sideleaf launcher was not found. Use --app PATH.");
-      if (wsl) {
-        const nativeApp = execFileSync("wslpath", ["-w", resolve(app)], { encoding: "utf8" }).trim();
-        const nativeFolder = execFileSync("wslpath", ["-w", dirname(resolve(app))], { encoding: "utf8" }).trim();
-        const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
-        // Start in a native Windows process so the app outlives WSL interop's
-        // short-lived command and receives the requested file in its environment.
-        const script = `$ErrorActionPreference = 'Stop'; $env:SIDELEAF_OPEN_PATH = ${literal(path)}; Start-Process -FilePath ${literal(nativeApp)} -WorkingDirectory ${literal(nativeFolder)}`;
-        execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { stdio: "ignore" });
-      } else {
-        const child = spawn(resolve(app), ["--sideleaf-open", path], { detached: true, stdio: "ignore", cwd: dirname(resolve(app)), env: { ...process.env, SIDELEAF_OPEN_PATH: path } });
-        await new Promise<void>((accept, reject) => { child.once("spawn", accept); child.once("error", reject); }); child.unref();
-      }
-    }
-    output({ ok: true, path }); return;
+    if (process.platform === "linux" && !!process.env.WSL_DISTRO_NAME) path = execFileSync("wslpath", ["-w", path], { encoding: "utf8" }).trim();
+    const action: AppCommand = command === "open-folder" ? { kind: "open-folder", path } : { kind: "open", path };
+    output({ ok: true, path, delivery: await openDesktop(action, override) }); return;
   }
   const file = DocumentFile.open(path);
   const draft = file.snapshot();

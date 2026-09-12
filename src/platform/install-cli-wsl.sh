@@ -19,14 +19,18 @@ trap 'rm -f "$temp"' EXIT
 launcher=$(wslpath -u "$windows_command")
 if [[ ! -x "$launcher" ]]; then echo 'Sideleaf is no longer installed in Windows. Reinstall Sideleaf or remove /usr/local/bin/sideleaf.' >&2; exit 1; fi
 args=("$@")
-# Arguments after the command are untouched except explicit filesystem paths.
-if (( ${#args[@]} >= 2 )); then
-  case ${args[0]} in read|comments|edit|comment-add|comment-update|comment-remove|open)
-    if [[ ! ${args[1]} =~ ^[a-zA-Z]:[\\/] && ${args[1]} != \\\\* ]]; then args[1]=$(wslpath -aw "${args[1]}"); fi
+# Translate the document operand for named commands and the bare-file shorthand.
+case ${args[0]:-} in
+  read|comments|edit|comment-add|comment-update|comment-remove|open|open-folder)
+    if (( ${#args[@]} >= 2 )) && [[ ! ${args[1]} =~ ^[a-zA-Z]:[\\/] && ${args[1]} != \\\\* ]]; then args[1]=$(wslpath -aw "${args[1]}"); fi
     ;;
-  esac
-fi
-for ((i=2; i<${#args[@]}; i++)); do
+  ""|skills|help|--help|--app|-*) ;;
+  *)
+    if [[ ! ${args[0]} =~ ^[a-zA-Z]:[\\/] && ${args[0]} != \\\\* ]]; then args[0]=$(wslpath -aw "${args[0]}"); fi
+    ;;
+esac
+# Other arguments are untouched except explicit filesystem options.
+for ((i=0; i<${#args[@]}; i++)); do
   case ${args[i]} in --input|--app)
     ((++i))
     if (( i<${#args[@]} )) && [[ ! ${args[i]} =~ ^[a-zA-Z]:[\\/] && ${args[i]} != \\\\* ]]; then args[i]=$(wslpath -aw "${args[i]}"); fi

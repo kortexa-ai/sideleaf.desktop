@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DocumentFile } from "../src/document/files.ts";
+import { sideleafUserData, startAppChannel } from "../src/collaboration/channel.ts";
 const cli = (args: string[], input?: object) => {
   const result = spawnSync(process.execPath, [resolve("src/cli.ts"), ...args], { input: input ? JSON.stringify(input) : undefined, encoding: "utf8" });
   return { status: result.status, data: JSON.parse(result.stdout || result.stderr) };
@@ -41,4 +42,39 @@ test("open-folder requires a directory and file-open keeps its file contract", (
   assert.equal(cli(["open", folder]).status, 2);
   assert.match(cli(["open", folder]).data.error, /open-folder/);
   assert.equal(cli(["open-folder", join(folder, "missing")]).status, 2);
+});
+
+test("no arguments activate the running app, a bare file opens it, and help stays headless", async () => {
+  const home = mkdtempSync(join(tmpdir(), "sideleaf-cli-launch-"));
+  const environment = { ...process.env, HOME: home, ...(process.platform === "win32" ? { LOCALAPPDATA: join(home, "AppData", "Local") } : {}) };
+  const userData = sideleafUserData("stable", process.platform, environment);
+  const received: unknown[] = [];
+  const channel = await startAppChannel(userData, (command) => { received.push(command); });
+  assert.equal(channel.kind, "primary");
+  const run = (args: string[]) => new Promise<{ status: number | null; stdout: string; stderr: string }>((accept) => {
+    const child = spawn(process.execPath, [resolve("src/cli.ts"), ...args], { env: environment, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "", stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (status) => accept({ status, stdout, stderr }));
+  });
+  try {
+    const activation = await run([]);
+    assert.equal(activation.status, 0, activation.stderr);
+    assert.equal(JSON.parse(activation.stdout).delivery, "running");
+    const path = join(home, "a café 文 🌿.md"); writeFileSync(path, "hello");
+    const opened = await run([path]);
+    assert.equal(opened.status, 0, opened.stderr);
+    assert.deepEqual(JSON.parse(opened.stdout), { ok: true, path, delivery: "running" });
+    assert.deepEqual(received, [{ kind: "activate" }, { kind: "open", path }]);
+
+    const helpHome = join(home, "unused-help-home");
+    const helpResult = spawnSync(process.execPath, [resolve("src/cli.ts"), "--help"], { encoding: "utf8", env: { ...environment, HOME: helpHome } });
+    assert.equal(helpResult.status, 0, helpResult.stderr);
+    assert.match(helpResult.stdout, /FILE is shorthand for open FILE/);
+    assert.equal(existsSync(join(helpHome, "Library", "Application Support", "ai.kortexa.sideleaf")), false);
+  } finally {
+    if (channel.kind === "primary") await channel.close();
+    rmSync(home, { recursive: true, force: true });
+  }
 });

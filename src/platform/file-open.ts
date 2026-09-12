@@ -3,6 +3,7 @@ import { extname } from "node:path";
 import { isPlainText } from "../shared/document-type.ts";
 
 export const MARKDOWN_EXTENSIONS = ["md", "markdown", "mdown"] as const;
+export type LaunchRequest = { kind: "open" | "open-folder"; path: string };
 const markdownSuffixes = new Set(MARKDOWN_EXTENSIONS.map((extension) => `.${extension}`));
 const earlyFileActivations: string[] = [];
 let fileActivationReceiver: ((path: string) => void) | undefined;
@@ -35,10 +36,17 @@ export function pathFromFileActivation(value: unknown): string | null {
 }
 
 export function pathFromLaunch(argv: readonly string[], environmentPath?: string): string | null {
-  if (environmentPath) return environmentPath;
-  const marker = argv.indexOf("--sideleaf-open");
-  const path = marker >= 0 ? argv[marker + 1] : undefined;
-  return path || null;
+  return launchRequestFromLaunch(argv, environmentPath)?.path ?? null;
+}
+
+export function launchRequestFromLaunch(argv: readonly string[], environmentPath?: string, environmentKind?: string): LaunchRequest | null {
+  if (environmentPath) return { kind: environmentKind === "folder" ? "open-folder" : "open", path: environmentPath };
+  for (const [marker, kind] of [["--sideleaf-open", "open"], ["--sideleaf-open-folder", "open-folder"]] as const) {
+    const index = argv.indexOf(marker);
+    const path = index >= 0 ? argv[index + 1] : undefined;
+    if (path) return { kind, path };
+  }
+  return null;
 }
 
 export function takeInitialFileActivation(): string | null {

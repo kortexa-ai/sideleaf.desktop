@@ -38,8 +38,9 @@ void WINAPI sideleafStart(void) {
     int argumentCount = 0;
     LPWSTR *parsedArguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
     if (!parsedArguments) fail();
-    if (argumentCount == 3 && lstrcmpW(parsedArguments[1], L"--sideleaf-open") == 0) {
+    if (argumentCount == 3 && (lstrcmpW(parsedArguments[1], L"--sideleaf-open") == 0 || lstrcmpW(parsedArguments[1], L"--sideleaf-open-folder") == 0)) {
         if (!SetEnvironmentVariableW(L"SIDELEAF_OPEN_PATH", parsedArguments[2])) fail();
+        if (!SetEnvironmentVariableW(L"SIDELEAF_OPEN_KIND", lstrcmpW(parsedArguments[1], L"--sideleaf-open-folder") == 0 ? L"folder" : L"file")) fail();
     }
     LocalFree(parsedArguments);
 

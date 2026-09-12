@@ -97,8 +97,11 @@ retain their draft and show a conflict. An abandoned `.sideleaf.lock` is not sto
 check its recorded PID and ensure all writers stopped before manually removing it.
 Uncooperative editors can still race the final filesystem rename.
 
-`sideleaf open FILE` opens a new desktop instance. macOS uses the canonical bundle
-identifier; `--app /path/Sideleaf.app` selects a particular build. On Windows use
+`sideleaf` starts Sideleaf or activates its existing window. `sideleaf FILE` is
+shorthand for `sideleaf open FILE`; both open the requested document in the existing
+window when Sideleaf is running. macOS uses the canonical bundle identifier and a
+Launch Services file operand; `--app /path/Sideleaf.app` selects a particular build.
+On Windows use
 `--app 'C:\path\to\Sideleaf\bin\launcher.exe'` if automatic discovery fails.
 Paths with spaces/Unicode are passed as arguments, never evaluated as shell code.
 In WSL, the wrapper translates relative paths, `/mnt/...` paths and native Linux
@@ -109,8 +112,10 @@ This requires WSL interoperability and Windows access to the current distro.
 `sideleaf open-folder DIRECTORY` opens a folder workspace with the sidebar visible.
 It accepts the same `--app` override and Windows/WSL path handling as `open`.
 The command requires a directory; `open` continues to require a file. Files in
-the folder load only when selected in the desktop tree. CLI single-instance
-delivery remains separate work; these commands currently launch a new instance.
+the folder load only when selected in the desktop tree. Running-instance opens use
+the same Save, Cancel and Discard flow as File → Open, so a pending request does not
+overwrite a dirty buffer. A live app channel that does not answer produces an error
+instead of starting a second instance.
 
 The installed desktop app also registers `md`, `markdown`, and `mdown` as
 editable Markdown document types, and `txt` as plain text. Finder's Open With menu and Windows Default

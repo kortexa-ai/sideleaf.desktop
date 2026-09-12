@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import config from "../electrobun.config.ts";
-import { MARKDOWN_EXTENSIONS, isMarkdownPath, pathFromFileActivation, pathFromLaunch } from "../src/platform/file-open.ts";
+import { MARKDOWN_EXTENSIONS, isMarkdownPath, launchRequestFromLaunch, pathFromFileActivation, pathFromLaunch } from "../src/platform/file-open.ts";
 
 test("macOS advertises Markdown and plain-text documents", () => {
   assert.deepEqual(config.app.fileAssociations, [{
@@ -17,7 +17,7 @@ test("macOS advertises Markdown and plain-text documents", () => {
   assert.match(postBuild, /CFBundleDocumentTypes:1:LSItemContentTypes:0 string public\.plain-text/);
   assert.match(postBuild, /UTImportedTypeDeclarations:0:UTTypeConformsTo:0 string public\.plain-text/);
   const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-  assert.match(main, /^import \{ pathFromLaunch, setFileActivationReceiver, takeInitialFileActivation \} from "\.\/platform\/file-open\.ts";/);
+  assert.match(main, /^import \{ launchRequestFromLaunch, setFileActivationReceiver, takeInitialFileActivation \} from "\.\/platform\/file-open\.ts";/);
 });
 
 test("file activation accepts local Markdown and text URLs and preserves their path", () => {
@@ -32,6 +32,8 @@ test("file activation accepts local Markdown and text URLs and preserves their p
 test("explicit launch paths retain argument boundaries and prefer the native launcher environment", () => {
   assert.equal(pathFromLaunch(["sideleaf", "--sideleaf-open", "/tmp/a leaf.md"]), "/tmp/a leaf.md");
   assert.equal(pathFromLaunch(["sideleaf", "--sideleaf-open"], "C:\\Notes\\leaf.md"), "C:\\Notes\\leaf.md");
+  assert.deepEqual(launchRequestFromLaunch(["sideleaf", "--sideleaf-open-folder", "/tmp/leaf folder"]), { kind: "open-folder", path: "/tmp/leaf folder" });
+  assert.deepEqual(launchRequestFromLaunch(["sideleaf"], "C:\\Notes", "folder"), { kind: "open-folder", path: "C:\\Notes" });
   assert.equal(pathFromLaunch(["sideleaf"]), null);
 });
 
