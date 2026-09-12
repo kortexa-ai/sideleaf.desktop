@@ -244,6 +244,32 @@ static BOOL write_all(HANDLE output, const BYTE *bytes, DWORD size) {
     return TRUE;
 }
 
+static BOOL pipe_io(HANDLE pipe, BOOL writing, BYTE *bytes, DWORD size, DWORD *transferred) {
+    OVERLAPPED operation = {0};
+    operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!operation.hEvent) return FALSE;
+    BOOL started = writing
+        ? WriteFile(pipe, bytes, size, transferred, &operation)
+        : ReadFile(pipe, bytes, size, transferred, &operation);
+    if (!started && GetLastError() == ERROR_IO_PENDING) {
+        started = WaitForSingleObject(operation.hEvent, INFINITE) == WAIT_OBJECT_0 &&
+            GetOverlappedResult(pipe, &operation, transferred, FALSE);
+    }
+    DWORD error = started ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(operation.hEvent);
+    if (!started) SetLastError(error);
+    return started;
+}
+
+static BOOL write_pipe_all(HANDLE pipe, BYTE *bytes, DWORD size) {
+    while (size) {
+        DWORD written = 0;
+        if (!pipe_io(pipe, TRUE, bytes, size, &written) || !written) return FALSE;
+        bytes += written; size -= written;
+    }
+    return TRUE;
+}
+
 typedef struct {
     HANDLE pipe;
 } PipeBridge;
@@ -252,7 +278,7 @@ static DWORD WINAPI copy_input(LPVOID value) {
     PipeBridge *bridge = (PipeBridge *)value;
     BYTE buffer[64 * 1024]; DWORD read = 0;
     while (ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &read, NULL) && read) {
-        if (!write_all(bridge->pipe, buffer, read)) break;
+        if (!write_pipe_all(bridge->pipe, buffer, read)) break;
     }
     // The JavaScript parent keeps stdin open through a normal receipt. EOF
     // therefore means cancellation or parent exit. This process is solely a
@@ -266,7 +292,7 @@ static int connect_pipe(const WCHAR *name, DWORD expected_pid, uint64_t expected
     if (process_state) { SetLastError(process_state == 10 ? ERROR_FILE_NOT_FOUND : ERROR_ACCESS_DENIED); return fail(process_state, L"The recorded Sideleaf process identity is stale or unverified"); }
     if (!WaitNamedPipeW(name, 4000) && GetLastError() != ERROR_SEM_TIMEOUT) return fail(30, L"The Sideleaf pipe is unavailable");
     HANDLE pipe = CreateFileW(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
-        SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, NULL);
+        FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, NULL);
     if (pipe == INVALID_HANDLE_VALUE) return fail(30, L"Could not connect to the Sideleaf pipe");
     ULONG server_pid = 0;
     if (!GetNamedPipeServerProcessId(pipe, &server_pid) || server_pid != expected_pid || sideleaf_process_state(server_pid, expected_start_ms) != 0) {
@@ -277,7 +303,7 @@ static int connect_pipe(const WCHAR *name, DWORD expected_pid, uint64_t expected
     if (!thread) { CloseHandle(pipe); return fail(32, L"Could not start the Sideleaf pipe bridge"); }
     CloseHandle(thread);
     BYTE buffer[64 * 1024]; DWORD read = 0;
-    while (ReadFile(pipe, buffer, sizeof(buffer), &read, NULL) && read) {
+    while (pipe_io(pipe, FALSE, buffer, sizeof(buffer), &read) && read) {
         if (!write_all(GetStdHandle(STD_OUTPUT_HANDLE), buffer, read)) { CloseHandle(pipe); return fail(33, L"Could not return the Sideleaf response"); }
     }
     DWORD error = GetLastError();
