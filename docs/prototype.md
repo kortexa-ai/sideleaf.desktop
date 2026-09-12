@@ -49,6 +49,22 @@ preserving the comment ID as both thread and root-message ID, its anchor, attrib
 and retained history. Unattributed legacy comments remain unattributed. The next
 explicit save writes version 2, which older readers reject before changing the file.
 
+Agent collaboration uses bounded focused reads and atomic batches over the same draft
+model. A batch contains at most 64 sequential source or thread operations. Offset and
+quote-addressed source changes compose into one CodeMirror transaction, so selection,
+anchors, highlights and undo map through the complete batch. Exact quote selectors may
+carry prefix/suffix context and must resolve to one complete UTF-16 range. Existing
+thread operations compare semantic guards with the batch-start thread value.
+
+Each live buffer has an in-memory semantic activity journal of at most 256 events and
+a cursor scoped to the app instance and document. The cursor is captured with a read,
+focus or commit, before any asynchronous transfer. Thread actions, their undo/redo and
+agent source applies record events; ordinary source keystrokes do not. A gap, restart,
+document close or unavailable retained cursor produces resync. Closing a buffer drops
+its journal and wakes its waiters. Saved-file cursors use the complete disk revision;
+offline waits poll stat identity before rereading and recheck live ownership during
+the bounded wait.
+
 Legacy sidecars remain readable, including the two-revision interrupted-save
 recovery case. Saving embeds the selected comment set plus both retained revisions
 in one atomic replacement. Only after exact readback succeeds is the sidecar renamed

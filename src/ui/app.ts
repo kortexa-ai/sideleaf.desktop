@@ -1,13 +1,13 @@
 import "./bootstrap.ts";
 import { Electroview } from "electrobun/view";
 import { basicSetup } from "codemirror";
-import { Compartment, EditorState, type Text } from "@codemirror/state";
+import { Compartment, EditorState, type StateEffect, type Text } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { redo, undo, isolateHistory } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
-import { commentField, commentHistory, setComments } from "./comments.ts";
+import { agentHighlightField, commentField, commentHistory, composeAgentChanges, setAgentHighlights, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown, setHardBreaks } from "./markdown.ts";
 import { customShortcutAction, customShortcutLabel, layoutShortcutAction, layoutShortcutLabel } from "./shortcuts.ts";
 import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } from "./theme.ts";
@@ -20,7 +20,8 @@ import { FolderTree } from "./folder-tree.ts";
 import { APP_VERSION } from "../shared/version.ts";
 import { documentViewMode, isPlainText, type ViewMode } from "../shared/document-type.ts";
 import { documentExtensions, documentMode } from "./document-mode.ts";
-import { CollaborationError, evaluateApply, liveRevision, parseApplyEnvelope, threadRevision, threadSemanticValue, type ThreadOperation } from "../collaboration/operations.ts";
+import { CollaborationError, evaluateApply, focusDraft, liveRevision, threadRevision, threadSemanticValue, type ThreadOperation } from "../collaboration/operations.ts";
+import { ActivityJournal, activityForOperation, diffDraftActivity } from "../collaboration/activity.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
@@ -49,6 +50,7 @@ function writeSetting(setting: Setting, value: boolean) {
   try { localStorage.setItem(settingKeys[setting], String(value)); } catch { /* Keep the in-memory preference usable. */ }
 }
 const buffers = new Map<string, EditorBuffer>();
+function dropBuffer(id: string) { buffers.delete(id); collaborationActivity?.drop(id); rpc?.send.collaborationClosed({ documentId: id }); }
 let workspaceInfo: WorkspaceInfo = { id: "", root: null, name: "Sideleaf", explicit: false, activeId: null };
 let folderVisible = false;
 let pendingQuit = false;
@@ -65,6 +67,7 @@ let pendingAnchor: Anchor | null = null;
 let pendingGeneration = 0;
 let generation = 0;
 let localAuthor = "Local user";
+let collaborationActivity: ActivityJournal | null = null;
 let threadFilter: "open" | "resolved" | "all" = "open";
 let previewDirty = true;
 let lastScratchJSON: string | null = null;
@@ -124,6 +127,7 @@ const rpc = Electroview.defineRPC<SideleafRPC>({
     collaborationDocuments: ({ instanceId }) => collaborationDocuments(instanceId),
     collaborationReadStart: ({ instanceId, target }) => collaborationReadStart(instanceId, target),
     collaborationReadChunk: ({ transferId, index }) => collaborationReadChunk(transferId, index),
+    collaborationFocus: ({ instanceId, target, request }) => collaborationFocus(instanceId, target, request),
     collaborationApply: async (payload): Promise<LiveApplyResponse> => {
       try { return { ok: true, result: await collaborationApply(payload) }; }
       catch (error) {
@@ -499,7 +503,7 @@ async function fileAction(target: { key: string } | { id: string }, action: "ren
     if (action === "trash") {
       if (!(await canLeave(buffer))) return;
       const next = await rpc.request.trashDocument({ id: buffer.metadata.id }, userDialog);
-      if (next.document?.id !== buffer.metadata.id) buffers.delete(buffer.metadata.id);
+      if (next.document?.id !== buffer.metadata.id) dropBuffer(buffer.metadata.id);
       applyOpenResult(next); void folderTree.refresh(); return;
     }
     const dialog = element<HTMLDialogElement>("rename-dialog"), input = element<HTMLInputElement>("rename-name");
@@ -525,10 +529,13 @@ function createEditorState(text: string, threads: Draft["threads"] = [], name = 
   return EditorState.create({
     doc: text,
     extensions: [
-      basicSetup, documentMode.of(documentExtensions(name)), syntaxHighlighting(sideleafHighlight), commentField.init(() => threads), commentHistory, wordCountField,
+      basicSetup, documentMode.of(documentExtensions(name)), syntaxHighlighting(sideleafHighlight), commentField.init(() => threads), commentHistory, agentHighlightField, wordCountField,
       readonly.of(EditorState.readOnly.of(false)), wrapping.of(settings.wrapLines ? EditorView.lineWrapping : []),
       keymap.of([{ key: "Mod-b", run: () => formatSelection("**") }, { key: "Mod-i", run: () => formatSelection("*") }]),
       EditorView.updateListener.of((update) => {
+        if (update.startState.field(commentField) !== update.state.field(commentField) && !update.transactions.some((transaction) => transaction.isUserEvent("input.agent"))) {
+          recordHumanThreadChanges(update.startState.field(commentField), update.state.field(commentField));
+        }
         if (update.docChanged || update.transactions.some((t) => t.effects.some((e) => e.is(setComments)))) {
           generation++;
           updateDirty();
@@ -616,11 +623,19 @@ function collaborationDocuments(instanceId: string): LiveDocumentInfo[] {
 function collaborationReadStart(instanceId: string, target: CollaborationTarget): LiveReadStart {
   const buffer = collaborationBuffer(target);
   const serialized = JSON.stringify(buffer.draft());
+  const cursor = collaborationJournal(instanceId).cursor(buffer.metadata.id);
   const transferId = crypto.randomUUID(), total = Math.max(1, Math.ceil(serialized.length / SAVE_CHUNK_CHARACTERS));
   if (collaborationReads.size >= 4) collaborationReads.delete(collaborationReads.keys().next().value!);
   collaborationReads.set(transferId, { serialized, next: 0 });
   setTimeout(() => collaborationReads.delete(transferId), 10_000);
-  return { transferId, total, document: collaborationInfo(buffer, instanceId) };
+  return { transferId, total, document: collaborationInfo(buffer, instanceId), cursor };
+}
+
+async function collaborationFocus(instanceId: string, target: CollaborationTarget, request: unknown) {
+  const buffer = collaborationBuffer(target), draft = buffer.draft();
+  const cursor = collaborationJournal(instanceId).cursor(buffer.metadata.id), document = collaborationInfo(buffer, instanceId), focus = focusDraft(draft, request);
+  const value = focus.kind === "thread" ? { kind: focus.kind, thread: { ...focus.thread, revision: await threadRevision(focus.thread) } } : focus;
+  return { document, cursor, focus: value };
 }
 
 function collaborationReadChunk(transferId: string, index: number): string {
@@ -648,17 +663,39 @@ async function collaborationApply(payload: { instanceId: string; target: Collabo
   if (buffers.get(buffer.metadata.id) !== buffer || !buffer.guardedBy(guard) || busy || buffer.saving) {
     throw new CollaborationError("The document changed while the operation was being checked. Reread before retrying.", "CONFLICT");
   }
-  const operation = parseApplyEnvelope(payload.envelope).operations[0];
-  const spec = { ...(operation.kind === "replace" ? { changes: { from: operation.from, to: operation.to, insert: operation.text } } : {}),
-    effects: setComments.of(evaluated.draft.threads), annotations: isolateHistory.of("full"), userEvent: "input.agent" };
+  const { changes, highlights, byOperation } = composeAgentChanges(buffer.state.doc.length, evaluated.summary.edits);
+  const effects: StateEffect<unknown>[] = [setComments.of(evaluated.draft.threads)];
+  if (highlights.length) effects.push(setAgentHighlights.of(highlights));
+  const spec = { ...(changes.empty ? {} : { changes }), effects, annotations: isolateHistory.of("full"), userEvent: "input.agent" };
   if (activeNow) { view.dispatch(spec); captureActive(); }
   else {
     buffer.state = buffer.state.update(spec).state;
     buffer.generation++;
     rpc.send.dirty({ id: buffer.metadata.id, dirty: buffer.dirty || buffer.hasCommentDraft });
   }
+  const journal = collaborationJournal(payload.instanceId), activity = evaluated.summary.activities.map((item) => {
+    const event = journal.record(buffer.metadata.id, activityForOperation(item.kind, payload.actor,
+      { threadId: item.threadId, messageId: item.messageId, body: item.body }, item.kind.startsWith("replace") && byOperation.has(item.operation) ? [byOperation.get(item.operation)!] : undefined));
+    rpc.send.collaborationActivity(event); return event;
+  });
   refreshOpenDocuments();
-  return { document: collaborationInfo(buffer, payload.instanceId), change: evaluated.change, autoSave: settings.autoSave };
+  if (evaluated.summary.edits.length) notice(`Agent ${payload.actor} applied ${evaluated.summary.edits.length} source change${evaluated.summary.edits.length === 1 ? "" : "s"} to ${buffer.metadata.name}.`);
+  return { document: collaborationInfo(buffer, payload.instanceId), operations: evaluated.summary.activities.length, change: evaluated.change, changes: evaluated.summary.changes,
+    created: evaluated.summary.created, changed: evaluated.summary.changed, cursor: journal.cursor(buffer.metadata.id), activity, autoSave: settings.autoSave };
+}
+
+function collaborationJournal(instanceId: string): ActivityJournal {
+  if (!collaborationActivity || collaborationActivity.instanceId !== instanceId) throw new CollaborationError("The collaboration activity session changed. Reread the document.", "UNCERTAIN", true);
+  return collaborationActivity;
+}
+
+function recordHumanThreadChanges(before: ReviewThread[], after: ReviewThread[]) {
+  if (!collaborationActivity || !current?.id) return;
+  const now = new Date().toISOString();
+  for (const change of diffDraftActivity({ text: "", threads: before }, { text: "", threads: after }, localAuthor)) {
+    const event = collaborationActivity.record(current.id, { ...change, actor: localAuthor, createdAt: now });
+    rpc.send.collaborationActivity(event);
+  }
 }
 function refreshOpenDocuments() {
   folderTree.setDocuments([...buffers.values()].map((buffer) => ({ id: buffer.metadata.id, name: buffer.metadata.name, path: buffer.metadata.path, dirty: buffer.dirty || buffer.hasCommentDraft, conflict: buffer.conflict, active: current?.id === buffer.metadata.id })));
@@ -721,7 +758,7 @@ function showEmptyWorkspace() {
 }
 function applyOpenResult(result: OpenResult, replace = false) {
   captureActive();
-  if (replace) buffers.clear();
+  if (replace) for (const id of [...buffers.keys()]) dropBuffer(id);
   const changed = workspaceInfo.id !== result.workspace.id;
   workspaceInfo = result.workspace;
   folderTree.setWorkspace(workspaceInfo);
@@ -908,7 +945,7 @@ async function performPendingExternalOpen() {
 async function closeBuffer(id: string) {
   await run(async () => {
     const buffer = buffers.get(id); if (!buffer || !(await canLeave(buffer))) return;
-    const next = await rpc.request.closeDocument({ id }); buffers.delete(id); applyOpenResult(next);
+    const next = await rpc.request.closeDocument({ id }); dropBuffer(id); applyOpenResult(next);
   });
 }
 async function perform(command: Command) {
@@ -1260,6 +1297,7 @@ async function initialize() {
   try {
     const initial = await rpc.request.initial({ restoreScratch: settings.keepScratch });
     localAuthor = initial.localAuthor;
+    collaborationActivity = new ActivityJournal(initial.collaborationInstanceId);
     workspaceInfo = initial.workspace;
     folderTree.setWorkspace(workspaceInfo);
     for (const recovered of initial.recovered) {

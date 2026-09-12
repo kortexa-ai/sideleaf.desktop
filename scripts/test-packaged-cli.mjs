@@ -21,7 +21,7 @@ const runAsync = (args, childEnv, input) => new Promise((accept, reject) => {
   child.once("close", (status) => accept({ status, stdout, stderr }));
 });
 const help = spawnSync(executable, ["--help"], { encoding: "utf8", env, timeout: 20_000 });
-assert.equal(help.status, 0, JSON.stringify({ stderr: help.stderr, error: help.error })); assert.match(help.stdout, /desktop app supplies the runtime/);
+assert.equal(help.status, 0, JSON.stringify({ stderr: help.stderr, error: help.error })); assert.match(help.stdout, /desktop app supplies the runtime/); assert.match(help.stdout, /sideleaf focus/);
 const dir = mkdtempSync(join(tmpdir(), "sideleaf packaged café "));
 const file = join(dir, "notes 文 🌿.md"), input = join(dir, "input 文.json");
 writeFileSync(file, "\uFEFFHello 🌿 world\r\n");
@@ -52,8 +52,18 @@ thread = run(["threads", file]).threads[0]; assert.equal(thread.state, "resolved
 run(["thread-delete", file, "--actor", "agent:packaged", "--if-thread-revision", thread.revision], { threadId: thread.id });
 snapshot = run(["read", file]); assert.equal(snapshot.threads.length, 0);
 assert.equal(run(["read", file]).text, "Before Hello 🌿 world\n");
+const focused = run(["focus", file], { contract: "sideleaf-focus/v1", kind: "passage", target: { quote: "Hello 🌿", prefix: "Before " }, before: 3, after: 6 });
+assert.equal(focused.kind, "passage"); assert.equal(focused.text, "re Hello 🌿 world"); assert.match(focused.cursor, /^sf1\./);
+const batch = run(["apply", file, "--actor", "agent:batch"], { contract: "sideleaf-apply/v1", operations: [
+  { kind: "replace-quote", target: { quote: "Before" }, text: "Ahead" },
+  { kind: "replace-quote", target: { quote: "world" }, text: "earth" },
+] });
+assert.equal(batch.operations, 2); assert.deepEqual(batch.changes.map(({ operation }) => operation), [0, 1]);
+snapshot = run(["read", file]); assert.equal(snapshot.text, "Ahead Hello 🌿 earth\n");
+const resync = run(["wait", file, "--after", `sf1.${"0".repeat(64)}`, "--timeout", "1"]);
+assert.equal(resync.outcome, "resync"); assert.match(resync.cursor, /^sf1\./);
 if (process.platform !== "win32") assert.equal(statSync(file).mode & 0o777, 0o640, "The CLI must preserve private file permissions.");
-const disk = readFileSync(file, "utf8"); assert.ok(disk.startsWith("\uFEFFBefore Hello 🌿 world\r\n"));
+const disk = readFileSync(file, "utf8"); assert.ok(disk.startsWith("\uFEFFAhead Hello 🌿 earth\r\n"));
 writeFileSync(file + ".sideleaf.lock", "locked");
 run(["edit", file, "--actor", "agent:locked", "--if-revision", snapshot.revision], { from: 0, to: 0, text: "lost" }, 3);
 
@@ -65,17 +75,25 @@ const launchEnv = {
   ...(process.platform === "win32" ? { LOCALAPPDATA: join(launchHome, "AppData", "Local") } : {}),
 };
 const commands = [], documentId = crypto.randomUUID(), instanceId = crypto.randomUUID();
-let generation = 2, liveText = "unsaved live";
+let generation = 2, liveSequence = 0, liveText = "unsaved live";
 const liveRevision = () => `sl1.${instanceId}.${documentId}.${generation}`;
+const liveCursor = () => `sc1.${instanceId}.${documentId}.${liveSequence}`;
 const channel = await startAppChannel(sideleafUserData("stable", process.platform, launchEnv), (command) => {
   if (command.kind !== "collaboration") { commands.push(command); return; }
   const operation = command.operation;
   if (operation.kind === "documents") return { contract: "sideleaf-collaboration/v1", documents: [{ id: documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, active: false, dirty: true, generation, revision: liveRevision(), savedRevision: snapshot.revision }] };
   if (operation.kind === "ownership") return { owned: true };
   if (operation.kind === "read") return { owned: true, contract: "sideleaf-collaboration/v1", live: true, saved: false, dirty: true, active: false,
-    documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, revision: liveRevision(), savedRevision: snapshot.revision, text: liveText, threads: [], comments: [] };
-  if (operation.kind === "apply") { liveText = operation.envelope.operations[0].text; generation++; return { owned: true, contract: "sideleaf-collaboration/v1", live: true,
-    saved: false, dirty: true, autoSave: false, documentId, path: file, revision: liveRevision(), savedRevision: snapshot.revision, change: { from: 0, to: 12, inserted: liveText.length } }; }
+    documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, revision: liveRevision(), savedRevision: snapshot.revision, cursor: liveCursor(), text: liveText, threads: [], comments: [] };
+  if (operation.kind === "focus") return { owned: true, contract: "sideleaf-collaboration/v1", live: true, saved: false, dirty: true, active: false,
+    documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, revision: liveRevision(), savedRevision: snapshot.revision, cursor: liveCursor(),
+    kind: "range", range: { from: 0, to: 7 }, text: liveText.slice(0, 7) };
+  if (operation.kind === "apply") { liveText = operation.envelope.operations[0].text; generation++; liveSequence++; const cursor = liveCursor(); return { owned: true, contract: "sideleaf-collaboration/v1", live: true,
+    saved: false, dirty: true, autoSave: false, documentId, path: file, revision: liveRevision(), savedRevision: snapshot.revision, cursor, operations: 1,
+    change: { operation: 0, from: 0, to: 12, inserted: liveText.length }, changes: [{ operation: 0, from: 0, to: 12, inserted: liveText.length }],
+    created: { threadIds: [], messageIds: [] }, changed: { threadIds: [], messageIds: [] }, activity: [{ kind: "source-applied", actor: "agent:packaged", createdAt: "2026-09-12T00:00:00.000Z", documentId, cursor }] }; }
+  if (operation.kind === "wait") return { owned: true, contract: "sideleaf-collaboration/v1", outcome: "event", cursor: liveCursor(),
+    event: { kind: "source-applied", actor: "agent:packaged", createdAt: "2026-09-12T00:00:00.000Z", documentId, cursor: liveCursor() } };
   return { owned: false };
 });
 assert.equal(channel.kind, "primary");
@@ -90,13 +108,18 @@ try {
   const listed = await runAsync(["documents"], launchEnv);
   assert.equal(JSON.parse(listed.stdout).documents[0].id, documentId);
   const live = JSON.parse((await runAsync(["read", "--document", documentId], launchEnv)).stdout);
-  assert.equal(live.text, "unsaved live");
+  assert.equal(live.text, "unsaved live"); assert.match(live.cursor, /^sc1\./);
+  const liveFocus = JSON.parse((await runAsync(["focus", "--document", documentId], launchEnv,
+    { contract: "sideleaf-focus/v1", kind: "range", from: 0, to: 7 })).stdout);
+  assert.equal(liveFocus.text, "unsaved"); assert.equal(liveFocus.cursor, live.cursor);
   const applied = await runAsync(["apply", "--document", documentId, "--if-revision", live.revision, "--actor", "agent:packaged"], launchEnv,
     { operations: [{ kind: "replace", from: 0, to: 12, text: "packaged live" }] });
-  assert.equal(JSON.parse(applied.stdout).live, true); assert.equal(liveText, "packaged live");
+  const appliedReceipt = JSON.parse(applied.stdout); assert.equal(appliedReceipt.live, true); assert.equal(appliedReceipt.operations, 1); assert.equal(liveText, "packaged live");
+  const waited = await runAsync(["wait", "--document", documentId, "--after", live.cursor, "--actor", "agent:self", "--thread", "thread", "--mention", "@root", "--timeout", "1"], launchEnv);
+  assert.equal(JSON.parse(waited.stdout).outcome, "event");
   const refused = await runAsync(["edit", file, "--if-revision", snapshot.revision, "--actor", "agent:packaged"], launchEnv, { from: 0, to: 0, text: "lost" });
   assert.equal(refused.status, 3); assert.match(JSON.parse(refused.stderr).error, /open in Sideleaf; use apply/);
 } finally {
   if (channel.kind === "primary") await channel.close();
 }
-console.log(`Packaged Cottontail CLI passed headless help, running-instance activation/open, live read/apply ownership, pipes, input files, Unicode, BOM/CRLF, thread lifecycle/guards, legacy comments, revision and lock checks without Node/Bun on PATH: ${executable}`);
+console.log(`Packaged Cottontail CLI passed headless help, running-instance activation/open, live read/focus/apply/wait ownership, offline focused reads/batches, pipes, input files, Unicode, BOM/CRLF, thread lifecycle/guards, legacy comments, revision and lock checks without Node/Bun on PATH: ${executable}`);

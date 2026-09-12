@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EditorState } from "@codemirror/state";
 import { history, undo, redo, isolateHistory } from "@codemirror/commands";
-import { commentField, commentHistory, setComments } from "../src/ui/comments.ts";
+import { agentHighlightField, commentField, commentHistory, composeAgentChanges, setAgentHighlights, setComments } from "../src/ui/comments.ts";
 import { commentRange, makeAnchor } from "../src/document/anchors.ts";
 import { renderMarkdown } from "../src/ui/markdown.ts";
 
@@ -34,4 +34,19 @@ test("Markdown cannot inject scripts, privileged links, raw HTML or remote image
   assert.ok(!rendered.includes("<script>")); assert.ok(!rendered.includes("<img"));
   assert.ok(!rendered.includes('href="javascript:')); assert.ok(rendered.includes('href="https://sideleaf.xyz"'));
   assert.ok(rendered.includes("loading disabled"));
+});
+
+test("sequential agent edits preserve selection and map only surviving exact highlights", () => {
+  let state = EditorState.create({ doc: "abcdef", selection: { anchor: 6 }, extensions: [agentHighlightField] });
+  const composed = composeAgentChanges(state.doc.length, [
+    { operation: 0, from: 0, to: 1, text: "XX" },
+    { operation: 1, from: 3, to: 5, text: "Z" },
+    { operation: 2, from: 0, to: 2, text: "Q" },
+  ]);
+  state = state.update({ changes: composed.changes, effects: setAgentHighlights.of(composed.highlights), userEvent: "input.agent" }).state;
+  assert.equal(state.doc.toString(), "QbZef"); assert.equal(state.selection.main.head, 5);
+  assert.deepEqual(composed.highlights, [{ from: 2, to: 3 }, { from: 0, to: 1 }]);
+  assert.equal(state.field(agentHighlightField).size, 2);
+  state = state.update({ changes: { from: 5, insert: "!" }, userEvent: "input.type" }).state;
+  assert.equal(state.field(agentHighlightField).size, 0);
 });

@@ -1,9 +1,38 @@
-import { StateEffect, StateField } from "@codemirror/state";
-import { Decoration, EditorView } from "@codemirror/view";
+import { ChangeSet, StateEffect, StateField } from "@codemirror/state";
+import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import { invertedEffects } from "@codemirror/commands";
 import type { ReviewThread } from "../shared/contracts.ts";
 
 export const setComments = StateEffect.define<ReviewThread[]>();
+export const setAgentHighlights = StateEffect.define<{ from: number; to: number }[]>();
+export function composeAgentChanges(length: number, edits: { operation: number; from: number; to: number; text: string }[]) {
+  let changes = ChangeSet.empty(length), documentLength = length;
+  const highlights = new Map<number, { from: number; to: number }>();
+  for (const edit of edits) {
+    const step = ChangeSet.of({ from: edit.from, to: edit.to, insert: edit.text }, documentLength);
+    for (const [operation, range] of highlights) {
+      const touched = edit.from < range.to && edit.to > range.from || edit.from === edit.to && edit.from > range.from && edit.from < range.to;
+      if (touched) highlights.delete(operation);
+      else highlights.set(operation, { from: step.mapPos(range.from, 1), to: step.mapPos(range.to, -1) });
+    }
+    highlights.set(edit.operation, { from: edit.from, to: edit.from + edit.text.length });
+    changes = changes.compose(step); documentLength += edit.text.length - (edit.to - edit.from);
+  }
+  return { changes, highlights: [...highlights.values()], byOperation: highlights };
+}
+export const agentHighlightField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(highlights, transaction) {
+    let next = highlights.map(transaction.changes);
+    if (transaction.docChanged && !transaction.isUserEvent("input.agent")) next = Decoration.none;
+    for (const effect of transaction.effects) if (effect.is(setAgentHighlights)) {
+      next = Decoration.set(effect.value.filter((range) => range.to > range.from)
+        .map((range) => Decoration.mark({ class: "agent-applied", attributes: { title: "Applied by an agent in this session" } }).range(range.from, range.to)), true);
+    }
+    return next;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
 export const commentField = StateField.define<ReviewThread[]>({
   create: () => [],
   update(comments, transaction) {

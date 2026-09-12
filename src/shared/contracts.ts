@@ -34,8 +34,12 @@ export type DocumentMetadata = {
 export type DocumentSnapshot = Draft & DocumentMetadata;
 export type CollaborationTarget = { path: string; documentId?: never } | { path?: never; documentId: string };
 export type LiveDocumentInfo = DocumentMetadata & { active: boolean; dirty: boolean; generation: number; revision: string };
-export type LiveReadStart = { transferId: string; total: number; document: LiveDocumentInfo };
-export type LiveApplyResult = { document: LiveDocumentInfo; change: { from: number; to: number; inserted: number } | null; autoSave: boolean };
+export type CompactChange = { operation: number; from: number; to: number; inserted: number };
+export type ChangeIds = { threadIds: string[]; messageIds: string[] };
+export type LiveReadStart = { transferId: string; total: number; document: LiveDocumentInfo; cursor: string };
+export type LiveFocusResult = { document: LiveDocumentInfo; cursor: string; focus: unknown };
+export type LiveApplyResult = { document: LiveDocumentInfo; operations: number; change: { from: number; to: number; inserted: number } | null; changes: CompactChange[];
+  created: ChangeIds; changed: ChangeIds; cursor: string; activity: import("../collaboration/activity.ts").CursorActivity[]; autoSave: boolean };
 export type LiveApplyResponse = { ok: true; result: LiveApplyResult } | { ok: false; error: string; code: "BUSY" | "CONFLICT" | "NOT_FOUND" | "INVALID" | "UNCERTAIN"; retryable: boolean };
 export type WorkspaceInfo = { id: string; root: string | null; name: string; explicit: boolean; activeId: string | null };
 export type OpenResult = { workspace: WorkspaceInfo; document: DocumentSnapshot | null };
@@ -45,7 +49,7 @@ export type PendingComment = { anchor: Anchor; body: string; valid: boolean };
 export type ThreadComposer = { kind: "reply" | "edit"; threadId: string; messageId?: string; body: string; baseSemantic: string };
 export type PendingReview = { comment?: PendingComment | null; composer?: ThreadComposer | null };
 export type RecoveredDocument = { document: DocumentSnapshot; originalPath: string | null; revision: string | null; pending?: PendingReview | null };
-export type InitialDocument = OpenResult & { recovered: RecoveredDocument[]; recoveredScratch: boolean; recoveryError: string | null; localAuthor: string };
+export type InitialDocument = OpenResult & { recovered: RecoveredDocument[]; recoveredScratch: boolean; recoveryError: string | null; localAuthor: string; collaborationInstanceId: string };
 export function documentMetadata(snapshot: DocumentSnapshot): DocumentMetadata {
   const { id, path, name, lineEnding, notice } = snapshot;
   return { id, path, name, lineEnding, notice };
@@ -90,13 +94,15 @@ export type SideleafRPC = {
       windowAction: { params: { action: WindowAction }; response: boolean };
       finishClose: { params: { quit: boolean }; response: boolean };
     };
-    messages: { cancelSave: { transferId: string }; dirty: { id: string; dirty: boolean }; ready: { userAgent: string }; diagnostic: { event: string; message: string } };
+    messages: { cancelSave: { transferId: string }; dirty: { id: string; dirty: boolean }; ready: { userAgent: string }; diagnostic: { event: string; message: string };
+      collaborationActivity: import("../collaboration/activity.ts").CursorActivity; collaborationClosed: { documentId: string } };
   };
   webview: {
     requests: {
       collaborationDocuments: { params: { instanceId: string }; response: LiveDocumentInfo[] };
       collaborationReadStart: { params: { instanceId: string; target: CollaborationTarget }; response: LiveReadStart };
       collaborationReadChunk: { params: { transferId: string; index: number }; response: string };
+      collaborationFocus: { params: { instanceId: string; target: CollaborationTarget; request: unknown }; response: LiveFocusResult };
       collaborationApply: { params: { instanceId: string; target: CollaborationTarget; actor: string; ifRevision?: string; ifThreadRevision?: string; envelope: unknown; deadline: number }; response: LiveApplyResponse };
     };
     messages: { command: Command; update: UpdateState; foldersChanged: { workspaceId: string } };

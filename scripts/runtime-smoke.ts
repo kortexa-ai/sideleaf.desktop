@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { DocumentFile, decodeMarkdown } from "../src/document/files.ts";
 import { makeAnchor } from "../src/document/anchors.ts";
 import { DocumentWorkspace } from "../src/document/workspace.ts";
+import { ActivityJournal } from "../src/collaboration/activity.ts";
+import { evaluateApply, focusDraft } from "../src/collaboration/operations.ts";
 
 // Run with the Cottontail binary from the actual packaged app. Node-only tests
 // cannot establish compatibility of its filesystem, crypto, or encoding APIs.
@@ -54,4 +56,14 @@ let trashRefused = false;
 try { session.file.trash(() => false); } catch { trashRefused = true; }
 expect(trashRefused && DocumentFile.open(session.file.path!).snapshot().text === draft.text, "Failed Trash lost the file");
 root.watch([""]); root.watch([]); workspace.reset();
-console.log(JSON.stringify({ event: "sideleaf-runtime-smoke", result: "passed", platform: process.platform, architecture: process.arch, directory, checks: ["unicode-path", "utf8-bom", "crlf", "atomic-save", "comment-reopen", "external-conflict", "cached-conflict", "content-restoration", "invalid-encoding", "save-as", "folder-listing", "independent-sessions", "rename-identity", "failed-trash", "folder-watching"] }));
+const focused = focusDraft(draft, { contract: "sideleaf-focus/v1", kind: "passage", target: { quote: "Hello 🌿", suffix: " café." }, before: 2, after: 6 });
+expect(focused.kind === "passage" && focused.text === "\n\nHello 🌿 café.", "Focused passage changed its exact UTF-16 context");
+const evaluated = await evaluateApply(draft, { contract: "sideleaf-apply/v1", ifRevision: file.revision(), operations: [
+  { kind: "replace-quote", target: { quote: "Hello 🌿" }, text: "Hello leaf" },
+  { kind: "replace-quote", target: { quote: "café" }, text: "cafe" },
+] }, { actor: "agent:runtime", currentRevision: file.revision() });
+expect(evaluated.draft.text.includes("Hello leaf cafe."), "Sequential quote batch failed");
+const journal = new ActivityJournal("11111111-1111-4111-8111-111111111111"), documentId = "22222222-2222-4222-8222-222222222222";
+const cursor = journal.cursor(documentId); journal.record(documentId, { kind: "source-applied", actor: "agent:runtime" });
+expect(journal.scan(documentId, cursor).outcome === "event", "Semantic activity cursor missed a completed event");
+console.log(JSON.stringify({ event: "sideleaf-runtime-smoke", result: "passed", platform: process.platform, architecture: process.arch, directory, checks: ["unicode-path", "utf8-bom", "crlf", "atomic-save", "comment-reopen", "external-conflict", "cached-conflict", "content-restoration", "invalid-encoding", "save-as", "folder-listing", "independent-sessions", "rename-identity", "failed-trash", "folder-watching", "focus-passage", "atomic-quote-batch", "semantic-cursor"] }));

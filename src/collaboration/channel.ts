@@ -47,8 +47,9 @@ export type AppCommand =
 export type CollaborationOperation =
   | { kind: "documents" }
   | { kind: "ownership" | "read"; target: DocumentTarget }
+  | { kind: "focus"; target: DocumentTarget; request: unknown }
   | { kind: "apply"; target: DocumentTarget; actor: string; ifRevision?: string; ifThreadRevision?: string; envelope: ApplyEnvelope; deadline: number }
-  | { kind: "wait"; target: DocumentTarget; after: string; timeoutMs: number };
+  | { kind: "wait"; target: DocumentTarget; after: string; timeoutMs: number; actor?: string; threadId?: string; mention?: string };
 
 export type AppRequest = AppCommand | { kind: "collaboration"; operation: CollaborationOperation };
 export type AppRequestContext = { requestId: string; deadline: number; signal: AbortSignal };
@@ -249,13 +250,16 @@ function validateCommand(value: unknown): asserts value is AppRequest {
     const operation = (command as { operation?: Partial<CollaborationOperation> }).operation;
     if (!operation || typeof operation !== "object") throw new Error("Invalid collaboration request.");
     if (operation.kind === "documents") return;
-    if (operation.kind !== "ownership" && operation.kind !== "read" && operation.kind !== "apply" && operation.kind !== "wait") throw new Error("Invalid collaboration request.");
+    if (operation.kind !== "ownership" && operation.kind !== "read" && operation.kind !== "focus" && operation.kind !== "apply" && operation.kind !== "wait") throw new Error("Invalid collaboration request.");
     validateTarget(operation.target);
     if (operation.kind === "apply" && (typeof operation.actor !== "string" || !operation.actor.trim() || operation.actor.length > 200 ||
       operation.ifRevision !== undefined && (typeof operation.ifRevision !== "string" || operation.ifRevision.length > 200) ||
       operation.ifThreadRevision !== undefined && (typeof operation.ifThreadRevision !== "string" || operation.ifThreadRevision.length > 200) ||
       !Number.isSafeInteger(operation.deadline))) throw new Error("Invalid collaboration apply request.");
-    if (operation.kind === "wait" && (typeof operation.after !== "string" || operation.after.length > 200 || typeof operation.timeoutMs !== "number" || !Number.isSafeInteger(operation.timeoutMs) || operation.timeoutMs < 1 || operation.timeoutMs > MAX_WAIT_MS)) {
+    if (operation.kind === "wait" && (typeof operation.after !== "string" || operation.after.length > 200 || typeof operation.timeoutMs !== "number" || !Number.isSafeInteger(operation.timeoutMs) || operation.timeoutMs < 1 || operation.timeoutMs > MAX_WAIT_MS ||
+      operation.actor !== undefined && (typeof operation.actor !== "string" || !operation.actor.trim() || operation.actor.length > 200) ||
+      operation.threadId !== undefined && (typeof operation.threadId !== "string" || !operation.threadId || operation.threadId.length > 100) ||
+      operation.mention !== undefined && (typeof operation.mention !== "string" || !operation.mention || operation.mention.length > 200))) {
       throw new Error("Invalid collaboration wait request.");
     }
     return;

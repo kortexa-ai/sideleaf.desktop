@@ -91,6 +91,7 @@ button { border: 1px solid transparent; border-radius: 6px; background: transpar
 button:hover { background: var(--hover); }
 button:focus-visible, textarea:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 button:disabled { opacity: .45; cursor: default; }
+.agent-applied { background: color-mix(in srgb, var(--green) 24%, transparent); border-bottom: 1px solid var(--green); }
 button.primary { color: var(--primary-ink); background: var(--green); padding-inline: 17px; }
 button.primary:hover { filter: brightness(1.12); }
 [hidden] { display: none !important; }

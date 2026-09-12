@@ -28,9 +28,9 @@ Sideleaf stores review metadata in a terminal HTML comment. Do not edit that blo
 
 ## Read before writing
 
-Run \`sideleaf read FILE\` to get the visible text, threads, compatibility comments, and current document revision as JSON. Run \`sideleaf threads FILE\` for the current threads and their semantic revisions.
+Run \`sideleaf read FILE\` to get the visible text, threads, compatibility comments, current document revision, and semantic activity cursor as JSON. Run \`sideleaf threads FILE\` for the current threads and their semantic revisions. Use \`sideleaf focus FILE\` for a bounded range, exact passage, or one thread when the full source is unnecessary.
 
-Before replacing text or adding a root thread, read the file again and pass that exact revision with \`--if-revision HASH\`. Before replying, editing or deleting a reply, resolving, reopening, or deleting a thread, run \`sideleaf threads FILE\` and pass that thread's exact \`revision\` with \`--if-thread-revision HASH\`. Add \`--if-revision\` too when the whole document must remain unchanged. Pass a clear identity such as \`--actor agent:reviewer\`. If a write exits with code 3, reread and reconsider the operation; do not blindly retry.
+Before an offset replacement or offset-anchored root thread, read the file again and pass that exact revision with \`--if-revision HASH\`. An exact unique quote/context operation can tolerate unrelated source edits. Before replying, editing or deleting a reply, resolving, reopening, or deleting a thread, run \`sideleaf threads FILE\` and pass that thread's exact \`revision\` with \`--if-thread-revision HASH\`. Add \`--if-revision\` too when the whole document must remain unchanged. Pass a clear identity such as \`--actor agent:reviewer\`. If a write exits with code 3, reread and reconsider the operation; do not blindly retry.
 
 ## Author and edit
 
@@ -69,6 +69,12 @@ JSON
 \`\`\`
 
 The other explicit thread commands are \`thread-message-update\`, \`thread-message-delete\`, \`thread-reopen\`, and \`thread-delete\`. Deleting a thread removes its full discussion and should be deliberate. Legacy \`comments\`, \`comment-add\`, and \`comment-update\` address root messages; \`comment-remove\` refuses a thread that already has replies so it cannot erase discussion accidentally.
+
+## Batch and wait
+
+Use \`sideleaf apply FILE --actor agent:reviewer\` with a \`sideleaf-apply/v1\` JSON envelope to commit 1–64 sequential operations atomically. Put the starting document revision in \`ifRevision\` whenever the batch uses offset-addressed \`replace\` or \`thread-add\`; it may also guard any complete batch. Put \`ifThreadRevision\` on each operation that changes an existing thread. Quote-addressed \`replace-quote\` and \`thread-add-quote\` operations accept an exact \`quote\` plus optional exact \`prefix\` and \`suffix\`, can survive unrelated source edits, and refuse a missing or ambiguous match.
+
+Every read, focus and apply returns a cursor. \`sideleaf wait FILE --after CURSOR\` remains silent until one semantic event, timeout, app close, or resync. Add \`--actor NAME\` to exclude your own activity, and combine \`--thread ID\` or \`--mention TEXT\` for a narrower wake. Start one wait with the harness's supported background completion/notification facility; do not spend model turns on timer or status polling. If the harness cannot resume an active turn when that process completes, state that limit instead of inventing a daemon or claiming idle/ended-turn wakeup. Always reread or refocus after resync.
 
 Run \`sideleaf --help\` for the full command and JSON input reference.
 `;

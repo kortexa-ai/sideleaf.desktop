@@ -98,8 +98,10 @@ attribution, without authentication.
 accept `threadId`. Replies added to a resolved thread retain its resolved state until
 an explicit reopen. Existing-thread commands may also include `--if-revision` when
 both the thread and entire document must remain unchanged. Generic `apply` accepts
-the same operation objects. A `replace` or `thread-add` requires `--if-revision`;
-all other thread operations require `--if-thread-revision`.
+the same operation objects in a 1–64 operation batch. Offset replacements and thread
+additions require a document revision; exact quote/context operations can proceed
+across unrelated source edits. Existing-thread operations carry their semantic guard
+as `ifThreadRevision` in the operation. Optional `ifRevision` guards any complete batch.
 
 Legacy `comment-add`, `comment-update`, and `comment-remove` remain available for
 root-message clients. Updating a root preserves replies and retained history.
@@ -148,24 +150,51 @@ owns it and otherwise reads the current saved disk snapshot.
 Use `sideleaf read --document ID` for untitled buffers and whenever an exact live
 identity is preferable to a path.
 
-Collaboration operations include a guarded UTF-16 replacement:
+Collaboration operations include guarded batches. This example applies two sequential
+source changes and replies to one thread in a single editor transaction:
 
 ```sh
 sideleaf read --document DOCUMENT_ID > snapshot.json
 sideleaf apply --document DOCUMENT_ID \
   --if-revision LIVE_REVISION --actor agent:reviewer <<'JSON'
-{"operations":[{"kind":"replace","from":0,"to":0,"text":"# Review\n\n"}]}
+{"contract":"sideleaf-apply/v1","operations":[
+  {"kind":"replace","from":0,"to":0,"text":"# Review\n\n"},
+  {"kind":"replace-quote","target":{"quote":"old phrase","prefix":"Exact "},"text":"new phrase"},
+  {"kind":"thread-reply","threadId":"THREAD_ID","ifThreadRevision":"THREAD_REV","body":"Updated."}
+]}
 JSON
 ```
 
-Every operation is evaluated against the current live generation immediately before
-one editor transaction. It is one undo step, preserves the editor selection mapping,
-works for active and inactive buffers, and never activates another tab. Composition,
+Operations are evaluated in order against a temporary draft and either all commit or
+none do. The batch becomes one editor undo step, preserves CodeMirror selection
+mapping, highlights surviving source changes, works for active and inactive buffers,
+and never activates another tab. Thread guards compare the batch-start semantic value,
+so multiple guarded operations on one thread can share the same value. Composition,
 save-in-progress, closing, stale document or thread revision, timeout and uncertain
-transport outcomes reject without leaving a queued write. Text replacement is limited
-to 8,000 logical-LF characters so the request stays within the local channel's bounded
-frame. Thread add, reply, message update/delete, resolve/reopen, and explicit thread
-delete use the same live transaction route.
+transport outcomes reject without leaving a queued write. Each replacement is limited
+to 8,000 logical-LF characters and a batch to 64 operations.
+
+`replace-quote` and `thread-add-quote` resolve an exact nonempty `quote` with optional
+exact `prefix` and `suffix` context. A missing or ambiguous match refuses the complete
+batch. Matching counts overlaps and selectors cannot split a Unicode surrogate pair.
+Receipt `changes` use the input coordinates for each sequential operation; `created`
+and `changed` carry generated or affected thread/message IDs. A compatibility `change`
+field remains when the batch contains exactly one source change.
+
+Use `focus` to read a bounded range, passage, or complete thread without transferring
+the whole source. Every request has `"contract":"sideleaf-focus/v1"`:
+
+```sh
+sideleaf focus --document DOCUMENT_ID <<'JSON'
+{"contract":"sideleaf-focus/v1","kind":"passage","target":{"quote":"new phrase","prefix":"Exact "},"before":160,"after":160}
+JSON
+```
+
+Range focus accepts `from` and `to`; thread focus accepts `threadId`. Text responses
+include the returned `range` and exact `text`; passage responses also identify the
+matched `target` range. Thread responses include its semantic `revision`. Focus text is
+bounded to 16,384 UTF-16 code units. Each read, focus and apply receipt includes a
+cursor captured with that exact snapshot or commit.
 
 Receipts distinguish `live`, `saved` and `dirty`. With autosave off, a successful live
 apply remains in the recoverable dirty buffer and leaves disk unchanged. With autosave
@@ -176,11 +205,19 @@ available in read-only directories because they do not mutate or lock the docume
 Legacy `edit` and comment mutations reject an owned document with
 `open in Sideleaf; use apply`.
 
-`sideleaf wait FILE --after LIVE_REVISION --timeout SECONDS` is a silent one-shot
-foundation wait. It returns immediately with `resync` if the live revision already
-changed, returns `app-closed` when the app closes, or returns `timeout`; it writes no
-idle output. Semantic thread revisions are returned by `threads`; activity cursors
-and event filtering remain separate work.
+`sideleaf wait FILE --after CURSOR --timeout SECONDS` is a silent one-shot semantic
+wait. Optional `--actor NAME` excludes events from that actor; `--thread ID` and
+`--mention TEXT` restrict matches, and filters combine. It emits one bounded event,
+`timeout`, `app-closed`, or `resync`. Closing only the target document returns a
+`document-closed` resync. Source keystrokes do not wake semantic waits; committed
+agent source changes and thread create/reply/edit/delete/resolve/reopen activity do,
+as do local thread actions and their undo/redo.
+
+Live `sc1` cursors belong to one app instance and document journal. Restart, document
+closure, a future cursor, or an event gap requires resync. Offline `sf1` cursors bind
+to a saved revision. An offline wait uses a stat fast path, notices a later live owner,
+and moves to the live channel with an explicit resync. If one disk change contains
+multiple matching semantic events, Sideleaf returns resync instead of dropping one.
 
 Live failures use exit 4 and include a stable reason plus `retryable` and `requestId`
 when reconciliation is required. A request that crossed the authenticated endpoint

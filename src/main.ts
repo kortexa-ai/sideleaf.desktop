@@ -21,6 +21,7 @@ import { customShortcutAccelerator, saveAsAccelerator } from "./ui/shortcuts.ts"
 import { UpdateChecker } from "./updates.ts";
 import { startAppChannel, type AppCommand, type AppRequest, type AppRequestContext, type CollaborationOperation } from "./collaboration/channel.ts";
 import { COLLABORATION_CONTRACT, CollaborationError } from "./collaboration/operations.ts";
+import { ActivityJournal } from "./collaboration/activity.ts";
 
 import { migrateIdentityData, windowsIdentity } from "./platform/identity.ts";
 
@@ -68,6 +69,7 @@ const appChannel = await startAppChannel(Utils.paths.userData, async (command, c
 if (appChannel.kind === "delivered") process.exit(0);
 if (appChannel.kind !== "primary") throw new Error("Sideleaf app channel did not start.");
 const primaryChannel = appChannel;
+const collaborationActivity = new ActivityJournal(primaryChannel.instanceId);
 const launchPath = launchRequest?.path ?? null;
 let hasInitialPath = launchPath !== null;
 if (launchPath) await workspace.openOwned(launchPath); else workspace.newDocument();
@@ -147,7 +149,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
           }
         }
         initialDelivered = true;
-        return { ...workspace.result(), recovered, recoveredScratch, recoveryError, localAuthor };
+        return { ...workspace.result(), recovered, recoveredScratch, recoveryError, localAuthor, collaborationInstanceId: primaryChannel.instanceId };
       },
       cliAvailability: async () => ({ wslDistro: await defaultWSLDistro() }),
       installCLI: ({ wsl }) => installCLI(wsl === true),
@@ -294,6 +296,8 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         }
       },
       diagnostic: (payload) => { if (typeof payload?.event === "string" && typeof payload.message === "string") diagnostic(payload.event.slice(0, 40), payload.message); },
+      collaborationActivity: (payload) => { if (!collaborationActivity.ingest(payload)) diagnostic("collaboration-activity", "Rejected an invalid or stale renderer activity event."); },
+      collaborationClosed: ({ documentId }) => collaborationActivity.drop(documentId),
     },
   },
 });
@@ -333,7 +337,7 @@ async function readLive(target: CollaborationTarget, context: AppRequestContext)
   return { owned: true as const, contract: COLLABORATION_CONTRACT, live: true as const, saved: !start.document.dirty,
     dirty: start.document.dirty, active: start.document.active, documentId: start.document.id, path: start.document.path,
     name: start.document.name, lineEnding: start.document.lineEnding, notice: start.document.notice, revision: start.document.revision,
-    savedRevision: session.file.path ? session.file.revision() : null, text: draft.text, threads: draft.threads, comments: legacyComments(draft.threads) };
+    savedRevision: session.file.path ? session.file.revision() : null, cursor: start.cursor, text: draft.text, threads: draft.threads, comments: legacyComments(draft.threads) };
 }
 
 async function handleCollaboration(operation: CollaborationOperation, context: AppRequestContext): Promise<unknown> {
@@ -345,6 +349,16 @@ async function handleCollaboration(operation: CollaborationOperation, context: A
       savedRevision: document.path ? workspace.get(document.id).file.revision() : null })) };
   }
   if (operation.kind === "read") return readLive(operation.target, context);
+  if (operation.kind === "focus") {
+    const session = ownedSession(operation.target);
+    if (!session) return { owned: false };
+    await waitForRenderer(context);
+    const result = await rpc.request.collaborationFocus({ instanceId: primaryChannel.instanceId, target: operation.target, request: operation.request });
+    if (ownedSession({ documentId: result.document.id }) !== session) throw new CollaborationError("The document changed ownership during the focused read. Reread it.", "UNCERTAIN", true);
+    return { owned: true, contract: COLLABORATION_CONTRACT, live: true, saved: !result.document.dirty, dirty: result.document.dirty,
+      active: result.document.active, documentId: result.document.id, path: result.document.path, revision: result.document.revision,
+      savedRevision: session.file.path ? session.file.revision() : null, cursor: result.cursor, ...(result.focus as object) };
+  }
   if (operation.kind === "apply") {
     const session = ownedSession(operation.target);
     if (!session) return { owned: false };
@@ -354,27 +368,33 @@ async function handleCollaboration(operation: CollaborationOperation, context: A
       ifRevision: operation.ifRevision, ifThreadRevision: operation.ifThreadRevision, envelope: operation.envelope, deadline: operation.deadline });
     if (!response.ok) throw new CollaborationError(response.error, response.code, response.retryable);
     const result = response.result;
+    for (const event of result.activity) if (!collaborationActivity.ingest(event)) throw new CollaborationError("The live activity receipt was inconsistent. Focused resync is required.", "UNCERTAIN", true);
     if (ownedSession({ documentId: result.document.id }) !== session) throw new CollaborationError("The document changed ownership during apply. Reconcile by reading it again.", "UNCERTAIN", true);
     return { owned: true, ok: true, contract: COLLABORATION_CONTRACT, live: true, saved: !result.document.dirty, dirty: result.document.dirty,
       autoSave: result.autoSave, documentId: result.document.id, path: result.document.path, revision: result.document.revision,
-      savedRevision: session.file.path ? session.file.revision() : null, change: result.change };
+      savedRevision: session.file.path ? session.file.revision() : null, cursor: result.cursor, change: result.change, changes: result.changes,
+      operations: result.operations, created: result.created, changed: result.changed };
   }
   if (operation.kind !== "wait") throw new CollaborationError("Unsupported collaboration operation.", "INVALID");
   const session = ownedSession(operation.target);
   if (!session) return { owned: false };
-  const documents = await rendererDocuments(context);
-  const document = documents.find((candidate) => candidate.id === session.file.id);
-  if (!document) throw new CollaborationError("The owned document is not ready in the editor.", "BUSY", true);
-  if (document.revision !== operation.after) return { owned: true, contract: COLLABORATION_CONTRACT, outcome: "resync", revision: document.revision };
+  const filter = { actor: operation.actor, threadId: operation.threadId, mention: operation.mention };
+  const initial = collaborationActivity.scan(session.file.id, operation.after, filter);
+  if (initial.outcome !== "none") return { owned: true, contract: COLLABORATION_CONTRACT, ...initial };
   return new Promise((accept, reject) => {
     let settled = false;
-    const finish = (value: { outcome: "app-closed" } | { outcome: "timeout" }) => {
-      if (settled) return; settled = true; clearTimeout(timer); closingWaiters.delete(close); context.signal.removeEventListener("abort", abort);
+    const finish = (value: Record<string, unknown>) => {
+      if (settled) return; settled = true; clearTimeout(timer); unsubscribe(); closingWaiters.delete(close); context.signal.removeEventListener("abort", abort);
       accept({ owned: true, contract: COLLABORATION_CONTRACT, ...value });
     };
-    const close = (value: { outcome: "app-closed" }) => finish(value);
-    const abort = () => { if (!settled) { settled = true; clearTimeout(timer); closingWaiters.delete(close); reject(new CollaborationError("The wait was cancelled.", "UNCERTAIN", true)); } };
-    const timer = setTimeout(() => finish({ outcome: "timeout" }), operation.timeoutMs);
+    const check = () => {
+      if (ownedSession({ documentId: session.file.id }) !== session) { finish({ outcome: "resync", cursor: collaborationActivity.cursor(session.file.id), reason: "document-closed" }); return; }
+      const scanned = collaborationActivity.scan(session.file.id, operation.after, filter); if (scanned.outcome !== "none") finish(scanned);
+    };
+    const unsubscribe = collaborationActivity.subscribe(check);
+    const close = () => finish({ outcome: "app-closed", cursor: collaborationActivity.cursor(session.file.id) });
+    const abort = () => { if (!settled) { settled = true; clearTimeout(timer); unsubscribe(); closingWaiters.delete(close); reject(new CollaborationError("The wait was cancelled.", "UNCERTAIN", true)); } };
+    const timer = setTimeout(() => finish({ outcome: "timeout", cursor: collaborationActivity.cursor(session.file.id) }), operation.timeoutMs);
     closingWaiters.add(close); context.signal.addEventListener("abort", abort, { once: true });
   });
 }

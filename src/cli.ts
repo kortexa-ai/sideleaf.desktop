@@ -8,7 +8,8 @@ import { makeAnchor } from "./document/anchors.ts";
 import { legacyComments, MAX_DOCUMENT_BYTES, type ReviewThread } from "./shared/contracts.ts";
 import { installSideleafSkills, parseSkillInstallArgs } from "./skill.ts";
 import { AppChannelError, deliverAppCommand, requestApp, sideleafUserData, type AppCommand, type CollaborationOperation } from "./collaboration/channel.ts";
-import { COLLABORATION_CONTRACT, CollaborationError, evaluateApply, parseApplyEnvelope, threadRevision, type DocumentTarget } from "./collaboration/operations.ts";
+import { diffDraftActivity, fileCursor, matchesActivity, publicActivity } from "./collaboration/activity.ts";
+import { COLLABORATION_CONTRACT, CollaborationError, evaluateApply, focusDraft, parseApplyEnvelope, requiresDocumentRevision, threadRevision, type DocumentTarget } from "./collaboration/operations.ts";
 
 const help = `sideleaf — local Markdown and comments (JSON output)
 
@@ -19,8 +20,9 @@ sideleaf read --document ID [--app PATH]
 sideleaf comments FILE
 sideleaf threads FILE
 sideleaf documents [--app PATH]
-sideleaf apply FILE --if-revision REV --actor NAME < apply.json
-sideleaf wait FILE --after REV [--timeout SECONDS]
+sideleaf focus FILE < focus.json
+sideleaf apply FILE --actor NAME < apply.json
+sideleaf wait FILE --after CURSOR [--actor NAME] [--thread ID] [--mention TEXT] [--timeout SECONDS]
 sideleaf edit FILE --if-revision HASH --actor NAME < edit.json
 sideleaf comment-add FILE --if-revision HASH --actor NAME < comment.json
 sideleaf comment-update FILE --if-revision HASH --actor NAME < update.json
@@ -44,12 +46,17 @@ thread.json: {"from":0,"to":8,"body":"A thought"}
 reply.json: {"threadId":"thread-id","body":"A reply"}
 message.json: {"threadId":"thread-id","messageId":"message-id","body":"Revised reply"}
 thread-id.json: {"threadId":"thread-id"}
-apply.json: {"operations":[{"kind":"replace","from":0,"to":0,"text":"New text\\n"}]}
+focus.json: {"contract":"sideleaf-focus/v1","kind":"range","from":0,"to":200}
+apply.json: {"contract":"sideleaf-apply/v1","ifRevision":"REV","operations":[{"kind":"replace","from":0,"to":0,"text":"New text\\n"}]}
 
 Offsets are zero-based UTF-16 code units in logical LF source, end-exclusive.
-Use read.revision as --if-revision for text replacements and new threads.
-Existing-thread writes use threads[].revision as --if-thread-revision; they may
-also include --if-revision when the whole document must remain unchanged.
+Apply accepts 1–64 sequential operations atomically. replace-quote and
+thread-add-quote accept target {quote,prefix?,suffix?}; the match must be unique.
+Use read.revision as --if-revision (or apply.json ifRevision) for offset
+replacements and new threads. Unique quote/context operations do not require it.
+Existing-thread batch operations carry ifThreadRevision from
+threads[].revision; dedicated commands use --if-thread-revision. Use wait's
+--actor to exclude that actor; --actor, --thread and --mention filters combine.
 Actor names are explicit attribution, not authenticated identities. Exit: 0 success, 2 input/usage,
 3 revision conflict or writer lock, 4 busy/uncertain live request,
 1 filesystem/runtime failure.
@@ -190,7 +197,7 @@ async function main() {
     const targets = installSideleafSkills({ home: options.home ?? process.env.SIDELEAF_SKILLS_HOME, ...options });
     output({ ok: true, skill: "sideleaf", targets }); return;
   }
-  if (!["read", "comments", "threads", "documents", "apply", "wait", "edit", "comment-add", "comment-update", "comment-remove",
+  if (!["read", "comments", "threads", "documents", "focus", "apply", "wait", "edit", "comment-add", "comment-update", "comment-remove",
     "thread-add", "thread-reply", "thread-message-update", "thread-message-delete", "thread-resolve", "thread-reopen", "thread-delete", "open", "open-folder"].includes(command)) {
     if (command.startsWith("-")) inputError("Unknown command. Run sideleaf --help.");
     args.unshift(command); command = "open";
@@ -203,7 +210,7 @@ async function main() {
   while (args.length) {
     const key = args.shift()!;
     if (key === "--json") continue;
-    if (!["--if-revision", "--if-thread-revision", "--actor", "--input", "--app", "--after", "--timeout"].includes(key) || options.has(key) || !args.length) inputError(`Invalid option: ${key}`);
+    if (!["--if-revision", "--if-thread-revision", "--actor", "--input", "--app", "--after", "--timeout", "--thread", "--mention"].includes(key) || options.has(key) || !args.length) inputError(`Invalid option: ${key}`);
     options.set(key, args.shift()!);
   }
   const override = options.get("--app");
@@ -241,30 +248,80 @@ async function main() {
       value = await liveRead();
       if (!value) {
         const file = DocumentFile.open(path), draft = file.snapshot();
+        const cursor = fileCursor(file.revision());
         value = command === "read"
-          ? { path: file.path, revision: file.revision(), text: draft.text, comments: legacyComments(draft.threads), threads: await threadViews(draft.threads), revisions: revisionViews(file.history()), lineEnding: draft.lineEnding, notice: draft.notice }
-          : command === "comments" ? { revision: file.revision(), comments: legacyComments(draft.threads) }
-            : { revision: file.revision(), threads: await threadViews(draft.threads) };
+          ? { path: file.path, revision: file.revision(), cursor, text: draft.text, comments: legacyComments(draft.threads), threads: await threadViews(draft.threads), revisions: revisionViews(file.history()), lineEnding: draft.lineEnding, notice: draft.notice }
+          : command === "comments" ? { revision: file.revision(), cursor, comments: legacyComments(draft.threads) }
+            : { revision: file.revision(), cursor, threads: await threadViews(draft.threads) };
       }
     }
     output(command === "comments" && value.live === true ? { contract: value.contract, live: true, saved: value.saved, dirty: value.dirty,
       documentId: value.documentId, revision: value.revision, savedRevision: value.savedRevision, comments: value.comments, requestId: value.requestId } :
       command === "threads" ? { contract: value.contract, live: value.live ?? false, saved: value.saved ?? true, dirty: value.dirty ?? false,
         documentId: value.documentId ?? null, revision: value.revision, savedRevision: value.savedRevision ?? value.revision,
-        threads: await threadViews(value.threads), requestId: value.requestId } : value);
+        cursor: value.cursor, threads: await threadViews(value.threads), requestId: value.requestId } : value);
     return;
+  }
+
+  if (command === "focus") {
+    if ([...options.keys()].some((key) => !["--input", "--app"].includes(key))) inputError("focus accepts only --input PATH and --app PATH.");
+    const request = await readInput(options);
+    const live = await appCollaboration<Record<string, any>>({ kind: "focus", target, request }, override);
+    if (live.delivered && live.value?.owned === true) { const { owned: _owned, ...value } = live.value; output({ ...value, requestId: live.requestId }); return; }
+    if (live.delivered && live.value?.owned !== false) throw new CollaborationError("Sideleaf returned an invalid focused read.", "UNCERTAIN", true);
+    if (!path) throw new CollaborationError("The Sideleaf document ID is no longer open.", "NOT_FOUND");
+    assertOfflineFile(path);
+    const file = DocumentFile.open(path), draft = file.snapshot(), focused = focusDraft(draft, request);
+    const value = focused.kind === "thread" ? { kind: focused.kind, thread: { ...focused.thread, revision: await threadRevision(focused.thread) } } : focused;
+    output({ contract: COLLABORATION_CONTRACT, live: false, saved: true, dirty: false, documentId: null, path: file.path,
+      revision: file.revision(), savedRevision: file.revision(), cursor: fileCursor(file.revision()), ...value }); return;
   }
 
   if (command === "wait") {
     const after = options.get("--after");
-    if (!after) inputError("wait requires --after REV from a live read.");
+    if (!after) inputError("wait requires --after CURSOR from read, focus or apply.");
     const seconds = Number(options.get("--timeout") ?? "30");
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 120) inputError("--timeout must be 1–120 seconds.");
-    if ([...options.keys()].some((key) => !["--after", "--timeout", "--app"].includes(key))) inputError("Invalid wait option.");
+    if ([...options.keys()].some((key) => !["--after", "--timeout", "--app", "--actor", "--thread", "--mention"].includes(key))) inputError("Invalid wait option.");
+    const actor = options.get("--actor"), threadId = options.get("--thread"), mention = options.get("--mention");
+    if (actor !== undefined && (!actor.trim() || actor.length > 200)) inputError("--actor must contain 1–200 characters.");
+    if (threadId !== undefined && (!threadId || threadId.length > 100)) inputError("--thread requires a valid thread ID.");
+    if (mention !== undefined && (!mention || mention.length > 200)) inputError("--mention must contain 1–200 characters.");
     const timeoutMs = seconds * 1_000;
-    const result = await appCollaboration<Record<string, unknown>>({ kind: "wait", target, after, timeoutMs }, override, timeoutMs + 2_000);
-    if (!result.delivered || result.value?.owned === false) throw new CollaborationError("The target is not owned by a running Sideleaf app.", "NOT_FOUND");
-    output({ ...(result.value ?? {}), requestId: result.requestId }); return;
+    const operation = { kind: "wait" as const, target, after, timeoutMs, ...(actor ? { actor } : {}), ...(threadId ? { threadId } : {}), ...(mention ? { mention } : {}) };
+    const result = await appCollaboration<Record<string, unknown>>(operation, override, timeoutMs + 2_000);
+    if (result.delivered && result.value?.owned === true) { output({ ...(result.value ?? {}), requestId: result.requestId }); return; }
+    if (result.delivered && result.value?.owned !== false) throw new CollaborationError("Sideleaf returned an invalid wait result.", "UNCERTAIN", true);
+    if (!path) throw new CollaborationError("The Sideleaf document ID is no longer open.", "NOT_FOUND");
+    assertOfflineFile(path);
+    let file = DocumentFile.open(path), baseline = file.snapshot(), cursor = fileCursor(file.revision());
+    if (after !== cursor) { output({ contract: COLLABORATION_CONTRACT, live: false, outcome: "resync", cursor, reason: "gap" }); return; }
+    const deadline = Date.now() + timeoutMs; let nextOwnershipCheck = 0;
+    while (Date.now() < deadline) {
+      await new Promise((accept) => setTimeout(accept, Math.min(100, deadline - Date.now())));
+      if (Date.now() >= nextOwnershipCheck) {
+        nextOwnershipCheck = Date.now() + 500;
+        const owner = await appCollaboration<Record<string, unknown>>({ kind: "ownership", target }, override);
+        if (owner.delivered && owner.value?.owned === true) {
+          const live = await appCollaboration<Record<string, unknown>>(operation, override, Math.max(1_000, deadline - Date.now() + 1_000));
+          if (!live.delivered || live.value?.owned !== true) throw new CollaborationError("Document ownership changed during wait. Run a focused resync.", "UNCERTAIN", true);
+          output({ ...(live.value ?? {}), requestId: live.requestId }); return;
+        }
+        if (owner.delivered && owner.value?.owned !== false) throw new CollaborationError("Sideleaf returned an invalid ownership result.", "UNCERTAIN", true);
+      }
+      if (!file.pollChanged()) continue;
+      const next = DocumentFile.open(path), nextCursor = fileCursor(next.revision());
+      if (nextCursor === cursor) { file = next; continue; }
+      const snapshot = next.snapshot(), fallbackActor = next.history()[0]?.actor ?? "Local user";
+      const matching = diffDraftActivity(baseline, snapshot, fallbackActor).filter((candidate) => matchesActivity(candidate, { actor, threadId, mention }));
+      file = next; baseline = snapshot; cursor = nextCursor;
+      if (matching.length > 1) { output({ contract: COLLABORATION_CONTRACT, live: false, outcome: "resync", cursor, reason: "gap" }); return; }
+      if (matching[0]) {
+        const visible = publicActivity({ ...matching[0], documentId: file.id, cursor });
+        output({ contract: COLLABORATION_CONTRACT, live: false, outcome: "event", cursor, event: visible }); return;
+      }
+    }
+    output({ contract: COLLABORATION_CONTRACT, live: false, outcome: "timeout", cursor }); return;
   }
 
   const actor = options.get("--actor");
@@ -280,9 +337,9 @@ async function main() {
     let envelopeValue: unknown = payload;
     if (command !== "apply") envelopeValue = { operations: [{ ...payload, kind: command }] };
     const envelope = parseApplyEnvelope(envelopeValue);
-    const needsGlobal = ["replace", "thread-add"].includes(envelope.operations[0].kind);
-    if (needsGlobal && !revision) inputError(`${command} requires --if-revision from sideleaf read.`);
-    if (!needsGlobal && !threadGuard) inputError(`${command} requires --if-thread-revision from sideleaf threads.`);
+    const needsGlobal = requiresDocumentRevision(envelope);
+    if (needsGlobal && !revision && !envelope.ifRevision) inputError(`${command} requires a document revision in --if-revision or the apply envelope.`);
+    if (command !== "apply" && !needsGlobal && !threadGuard) inputError(`${command} requires --if-thread-revision from sideleaf threads.`);
     const route = async () => appCollaboration<Record<string, unknown>>({ kind: "apply", target, actor, ...(revision ? { ifRevision: revision } : {}),
       ...(threadGuard ? { ifThreadRevision: threadGuard } : {}), envelope, deadline: Date.now() + 3_500 }, override);
     let result = await route();
@@ -298,7 +355,8 @@ async function main() {
       const evaluated = await evaluateApply(current, envelope, { actor, currentRevision: file.revision(), ifRevision: revision, ifThreadRevision: threadGuard });
       file.save(evaluated.draft, undefined, actor, lock);
       return { ok: true, contract: COLLABORATION_CONTRACT, live: false, saved: true, dirty: false, documentId: null, path: file.path,
-        revision: file.revision(), savedRevision: file.revision(), change: evaluated.change };
+        revision: file.revision(), savedRevision: file.revision(), cursor: fileCursor(file.revision()), operations: envelope.operations.length,
+        change: evaluated.change, changes: evaluated.summary.changes, created: evaluated.summary.created, changed: evaluated.summary.changed };
     });
     output(receipt); return;
   }
