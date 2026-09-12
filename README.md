@@ -6,10 +6,11 @@ Sideleaf uses Electrobun, Cottontail, CodeMirror 6, and the operating system's w
 It is an independent implementation with its own product and document boundaries.
 
 Sideleaf 0.1 supports Markdown and text files and folders, native Open and Save As,
-literal source editing, live preview, find/replace, and anchored comments with undo.
-Comments and retained revision metadata are embedded in the document; copy the
+literal source editing, live preview, find/replace, and portable review threads with undo.
+Threads, guarded suggestions, and retained revision metadata are embedded in the document; copy the
 `.md` or `.txt` file to carry them with your writing. Existing comment sidecars migrate on save.
-The [agent CLI](docs/cli.md) reads and edits documents/comments without a running GUI.
+The [agent CLI](docs/cli.md) works offline or targets exact live editor buffers for guarded
+edits, reviews, bounded reads, atomic batches, and quiet semantic waits.
 Install it from the Sideleaf menu (or Windows Setup); it uses the bundled Cottontail
 runtime and needs no separate Node, Bun, or npm installation.
 `sideleaf skills install` adds a small self-contained skill that teaches supported
@@ -48,7 +49,7 @@ not follow links or junctions. Open a linked target directly when needed.
 
 ## Download
 
-Get [Sideleaf 0.1.7](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.7)
+Get [Sideleaf 0.1.8](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.8)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
 the ZIP, then run the setup executable.
