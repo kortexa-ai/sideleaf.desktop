@@ -212,11 +212,27 @@ body[data-platform="windows"] .cm-scroller::-webkit-scrollbar-thumb { background
 .empty-reader .growth-title { flex: none; color: var(--ink); font: italic clamp(18px, 2.5vh, 22px)/1.35 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
 .empty-reader .growth-copy { flex: none; margin-top: 5px; font: clamp(13px, 1.8vh, 15px)/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
 .comments-panel { width: 270px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); overflow-y: auto; }
+#thread-filters { position: sticky; top: 0; z-index: 1; display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--panel); }
+#thread-filters button { flex: 1; padding: 5px 3px; border: 1px solid transparent; font-size: 9px; color: var(--muted); }
+#thread-filters button[aria-pressed="true"] { border-color: var(--border); background: var(--paper); color: var(--ink); }
+#thread-filters span { font-variant-numeric: tabular-nums; }
 .empty-comments { margin: 20px; font-size: 12px; color: var(--muted); line-height: 1.8; }
 .comment-card { margin: 10px 12px; padding: 14px; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; }
+.comment-card[data-state="resolved"] { opacity: .78; }
 .comment-label { font-size: 8px; letter-spacing: .8px; color: var(--muted); }
 .comment-quote { display: block; white-space: pre-wrap; max-height: 100px; overflow-y: auto; width: 100%; text-align: left; border-left: 2px solid var(--quote-border); border-radius: 0; padding: 3px 8px; margin-top: 10px; font: 13px/1.5 Georgia, serif; color: var(--muted); }
-.comment-card p { white-space: pre-wrap; font-size: 12px; line-height: 1.7; }
+.thread-message { padding: 9px 0; border-top: 1px solid var(--border); }
+.thread-message:first-of-type { border-top: 0; }
+.thread-message header { display: flex; gap: 6px; align-items: baseline; color: var(--muted); font-size: 9px; }
+.thread-message header strong { color: var(--ink); font-size: 10px; }
+.thread-message p { margin: 5px 0; white-space: pre-wrap; font-size: 12px; line-height: 1.7; }
+.thread-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.thread-actions button, .message-actions button { padding: 3px 0; border: 0; font-size: 10px; color: var(--muted); }
+.message-actions { display: flex; gap: 8px; }
+.thread-composer { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.thread-composer textarea { width: 100%; min-height: 70px; padding: 8px; resize: vertical; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--ink); line-height: 1.5; }
+.thread-composer .composer-conflict { color: var(--warning, #9a5d00); font-size: 10px; line-height: 1.4; }
+.thread-composer .thread-actions { justify-content: flex-end; margin-top: 6px; }
 .remove-comment { padding: 3px 0; font-size: 10px; color: var(--muted); }
 .comment-anchor { background: var(--comment-bg); border-bottom: 1px solid var(--comment-border); }
 #comment-form { padding: 14px; }

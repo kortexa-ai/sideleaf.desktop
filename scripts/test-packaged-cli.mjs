@@ -38,6 +38,19 @@ assert.equal(snapshot.comments[0].anchor.from, 13);
 run(["edit", file, "--actor", "agent:stale", "--if-revision", stale], { from: 0, to: 0, text: "stale" }, 3);
 change("comment-update", { id, body: "Updated 文" }); assert.equal(run(["comments", file]).comments[0].body, "Updated 文");
 change("comment-remove", { id }); assert.equal(snapshot.comments.length, 0);
+const added = run(["thread-add", file, "--actor", "agent:packaged", "--if-revision", snapshot.revision], { from: 7, to: 12, body: "Thread root" });
+assert.equal(added.saved, true); snapshot = run(["read", file]);
+let thread = run(["threads", file]).threads[0], threadGuard = thread.revision;
+run(["thread-reply", file, "--actor", "agent:packaged", "--if-thread-revision", threadGuard], { threadId: thread.id, body: "Packaged reply 🌿" });
+run(["thread-resolve", file, "--actor", "agent:stale", "--if-thread-revision", threadGuard], { threadId: thread.id }, 3);
+snapshot = run(["read", file]); thread = run(["threads", file]).threads[0];
+change("comment-update", { id: thread.id, body: "Legacy root update preserves reply" });
+thread = run(["threads", file]).threads[0]; assert.equal(thread.messages.length, 2);
+run(["comment-remove", file, "--actor", "agent:packaged", "--if-revision", snapshot.revision], { id: thread.id }, 2);
+run(["thread-resolve", file, "--actor", "agent:packaged", "--if-thread-revision", thread.revision], { threadId: thread.id });
+thread = run(["threads", file]).threads[0]; assert.equal(thread.state, "resolved");
+run(["thread-delete", file, "--actor", "agent:packaged", "--if-thread-revision", thread.revision], { threadId: thread.id });
+snapshot = run(["read", file]); assert.equal(snapshot.threads.length, 0);
 assert.equal(run(["read", file]).text, "Before Hello 🌿 world\n");
 if (process.platform !== "win32") assert.equal(statSync(file).mode & 0o777, 0o640, "The CLI must preserve private file permissions.");
 const disk = readFileSync(file, "utf8"); assert.ok(disk.startsWith("\uFEFFBefore Hello 🌿 world\r\n"));
@@ -60,7 +73,7 @@ const channel = await startAppChannel(sideleafUserData("stable", process.platfor
   if (operation.kind === "documents") return { contract: "sideleaf-collaboration/v1", documents: [{ id: documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, active: false, dirty: true, generation, revision: liveRevision(), savedRevision: snapshot.revision }] };
   if (operation.kind === "ownership") return { owned: true };
   if (operation.kind === "read") return { owned: true, contract: "sideleaf-collaboration/v1", live: true, saved: false, dirty: true, active: false,
-    documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, revision: liveRevision(), savedRevision: snapshot.revision, text: liveText, comments: [] };
+    documentId, path: file, name: "document.md", lineEnding: "\n", notice: null, revision: liveRevision(), savedRevision: snapshot.revision, text: liveText, threads: [], comments: [] };
   if (operation.kind === "apply") { liveText = operation.envelope.operations[0].text; generation++; return { owned: true, contract: "sideleaf-collaboration/v1", live: true,
     saved: false, dirty: true, autoSave: false, documentId, path: file, revision: liveRevision(), savedRevision: snapshot.revision, change: { from: 0, to: 12, inserted: liveText.length } }; }
   return { owned: false };
@@ -86,4 +99,4 @@ try {
 } finally {
   if (channel.kind === "primary") await channel.close();
 }
-console.log(`Packaged Cottontail CLI passed headless help, running-instance activation/open, live read/apply ownership, pipes, input files, Unicode, BOM/CRLF, comments, revision and lock checks without Node/Bun on PATH: ${executable}`);
+console.log(`Packaged Cottontail CLI passed headless help, running-instance activation/open, live read/apply ownership, pipes, input files, Unicode, BOM/CRLF, thread lifecycle/guards, legacy comments, revision and lock checks without Node/Bun on PATH: ${executable}`);

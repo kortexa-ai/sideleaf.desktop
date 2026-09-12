@@ -8,7 +8,7 @@ import { renderMarkdown } from "../src/ui/markdown.ts";
 
 test("comments follow UTF-16 edits and survive delete/undo/redo in CodeMirror history", () => {
   let state = EditorState.create({ doc: "Hello 🌿 world", extensions: [history(), commentField, commentHistory] });
-  const comment = { id: "one", body: "Keep leaf", createdAt: "today", anchor: makeAnchor(state.doc.toString(), 6, 8) };
+  const comment = { id: "one", state: "open" as const, anchor: makeAnchor(state.doc.toString(), 6, 8), messages: [{ id: "one", body: "Keep leaf", createdAt: "today" }] };
   state = state.update({ effects: setComments.of([comment]), annotations: isolateHistory.of("full") }).state;
   state = state.update({ changes: { from: 0, insert: "Before " }, annotations: isolateHistory.of("full") }).state;
   assert.equal(state.field(commentField)[0]!.anchor.from, 13);

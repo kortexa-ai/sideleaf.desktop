@@ -14,13 +14,13 @@ import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } fr
 import { wordCountField } from "./word-count.ts";
 import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
 import { commentRange, makeAnchor } from "../document/anchors.ts";
-import { SAVE_CHUNK_CHARACTERS, type Anchor, type CollaborationTarget, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type LiveApplyResponse, type LiveApplyResult, type LiveDocumentInfo, type LiveReadStart, type SideleafRPC, type UpdateState, type WindowAction, type WorkspaceInfo, type OpenResult } from "../shared/contracts.ts";
-import { EditorBuffer } from "./workspace.ts";
+import { SAVE_CHUNK_CHARACTERS, type Anchor, type CollaborationTarget, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type LiveApplyResponse, type LiveApplyResult, type LiveDocumentInfo, type LiveReadStart, type ReviewThread, type SideleafRPC, type UpdateState, type WindowAction, type WorkspaceInfo, type OpenResult } from "../shared/contracts.ts";
+import { EditorBuffer, refreshUntitledRecoveries } from "./workspace.ts";
 import { FolderTree } from "./folder-tree.ts";
 import { APP_VERSION } from "../shared/version.ts";
 import { documentViewMode, isPlainText, type ViewMode } from "../shared/document-type.ts";
 import { documentExtensions, documentMode } from "./document-mode.ts";
-import { CollaborationError, evaluateApply, liveRevision } from "../collaboration/operations.ts";
+import { CollaborationError, evaluateApply, liveRevision, parseApplyEnvelope, threadRevision, threadSemanticValue, type ThreadOperation } from "../collaboration/operations.ts";
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const readonly = new Compartment();
@@ -64,6 +64,8 @@ let previewTimer: ReturnType<typeof setTimeout>;
 let pendingAnchor: Anchor | null = null;
 let pendingGeneration = 0;
 let generation = 0;
+let localAuthor = "Local user";
+let threadFilter: "open" | "resolved" | "all" = "open";
 let previewDirty = true;
 let lastScratchJSON: string | null = null;
 const collaborationReads = new Map<string, { serialized: string; next: number }>();
@@ -122,8 +124,8 @@ const rpc = Electroview.defineRPC<SideleafRPC>({
     collaborationDocuments: ({ instanceId }) => collaborationDocuments(instanceId),
     collaborationReadStart: ({ instanceId, target }) => collaborationReadStart(instanceId, target),
     collaborationReadChunk: ({ transferId, index }) => collaborationReadChunk(transferId, index),
-    collaborationApply: (payload): LiveApplyResponse => {
-      try { return { ok: true, result: collaborationApply(payload) }; }
+    collaborationApply: async (payload): Promise<LiveApplyResponse> => {
+      try { return { ok: true, result: await collaborationApply(payload) }; }
       catch (error) {
         if (error instanceof CollaborationError) return { ok: false, error: error.message, code: error.code, retryable: error.retryable };
         throw error;
@@ -519,11 +521,11 @@ element("zoom-reset").onclick = () => applyZoom(DEFAULT_ZOOM);
 applyZoom(documentZoom, false);
 rpc.send.diagnostic({ event: "editor-created", message: "CodeMirror initialized" });
 
-function createEditorState(text: string, comments: Draft["comments"] = [], name = "Untitled.md") {
+function createEditorState(text: string, threads: Draft["threads"] = [], name = "Untitled.md") {
   return EditorState.create({
     doc: text,
     extensions: [
-      basicSetup, documentMode.of(documentExtensions(name)), syntaxHighlighting(sideleafHighlight), commentField.init(() => comments), commentHistory, wordCountField,
+      basicSetup, documentMode.of(documentExtensions(name)), syntaxHighlighting(sideleafHighlight), commentField.init(() => threads), commentHistory, wordCountField,
       readonly.of(EditorState.readOnly.of(false)), wrapping.of(settings.wrapLines ? EditorView.lineWrapping : []),
       keymap.of([{ key: "Mod-b", run: () => formatSelection("**") }, { key: "Mod-i", run: () => formatSelection("*") }]),
       EditorView.updateListener.of((update) => {
@@ -557,9 +559,18 @@ function createEditorState(text: string, comments: Draft["comments"] = [], name 
 }
 
 function commentsJSON() { return JSON.stringify(view.state.field(commentField)); }
+function captureComposer(buffer = buffers.get(current?.id)): void {
+  if (!buffer?.composer) return;
+  const textarea = document.querySelector<HTMLTextAreaElement>(`textarea[data-composer="${buffer.composer.threadId}"]`);
+  if (!textarea) return;
+  buffer.composer.body = textarea.value;
+  buffer.composerSelection = { start: textarea.selectionStart, end: textarea.selectionEnd };
+  buffer.composerFocused = document.activeElement === textarea;
+}
 function captureActive(): EditorBuffer | undefined {
   const buffer = buffers.get(current?.id);
   if (!buffer) return;
+  captureComposer(buffer);
   buffer.state = view.state; buffer.metadata = current; buffer.savedDoc = savedDoc; buffer.savedComments = savedComments;
   buffer.generation = generation; buffer.pendingAnchor = pendingAnchor; buffer.pendingGeneration = pendingGeneration;
   buffer.commentBody = element<HTMLTextAreaElement>("comment-body").value;
@@ -606,16 +617,23 @@ function collaborationReadChunk(transferId: string, index: number): string {
   return text;
 }
 
-function collaborationApply(payload: { instanceId: string; target: CollaborationTarget; actor: string; ifRevision: string; envelope: unknown; deadline: number }): LiveApplyResult {
+async function collaborationApply(payload: { instanceId: string; target: CollaborationTarget; actor: string; ifRevision?: string; ifThreadRevision?: string; envelope: unknown; deadline: number }): Promise<LiveApplyResult> {
   if (Date.now() > payload.deadline) throw new CollaborationError("The apply request expired before the editor could evaluate it. Reread before retrying.", "UNCERTAIN", true);
   const buffer = collaborationBuffer(payload.target), active = current.id === buffer.metadata.id;
   if (busy || buffer.saving || (active && view.composing)) throw new CollaborationError("Sideleaf is busy with this document. Retry after the current edit or save finishes.", "BUSY", true);
+  const guard = buffer.guard();
   const revision = liveRevision(payload.instanceId, buffer.metadata.id, buffer.generation);
-  const evaluated = evaluateApply(buffer.draft(), payload.envelope, payload.ifRevision, revision);
-  const operation = payload.envelope && typeof payload.envelope === "object" ? (payload.envelope as { operations: [{ from: number; to: number; text: string }] }).operations[0] : null;
-  if (!operation) throw new CollaborationError("Invalid apply operation.", "INVALID");
-  const spec = { changes: { from: operation.from, to: operation.to, insert: operation.text }, effects: setComments.of(evaluated.draft.comments), annotations: isolateHistory.of("full"), userEvent: "input.agent" };
-  if (active) { view.dispatch(spec); captureActive(); }
+  const evaluated = await evaluateApply(buffer.draft(), payload.envelope, { actor: payload.actor, currentRevision: revision,
+    ifRevision: payload.ifRevision, ifThreadRevision: payload.ifThreadRevision });
+  const activeNow = current.id === buffer.metadata.id;
+  if (Date.now() > payload.deadline) throw new CollaborationError("The apply request expired before commit. Reread before retrying.", "UNCERTAIN", true);
+  if (buffers.get(buffer.metadata.id) !== buffer || !buffer.guardedBy(guard) || busy || buffer.saving || activeNow && view.composing) {
+    throw new CollaborationError("The document changed while the operation was being checked. Reread before retrying.", "CONFLICT");
+  }
+  const operation = parseApplyEnvelope(payload.envelope).operations[0];
+  const spec = { ...(operation.kind === "replace" ? { changes: { from: operation.from, to: operation.to, insert: operation.text } } : {}),
+    effects: setComments.of(evaluated.draft.threads), annotations: isolateHistory.of("full"), userEvent: "input.agent" };
+  if (activeNow) { view.dispatch(spec); captureActive(); }
   else {
     buffer.state = buffer.state.update(spec).state;
     buffer.generation++;
@@ -669,7 +687,7 @@ function activateBuffer(buffer: EditorBuffer, capture = true) {
   view.focus(); void folderTree.reveal(current.path);
 }
 function applyDocument(snapshot: DocumentSnapshot, recovered = false, previous?: EditorBuffer) {
-  const state = createEditorState(snapshot.text, snapshot.comments, snapshot.name);
+  const state = createEditorState(snapshot.text, snapshot.threads, snapshot.name);
   const buffer = previous ? EditorBuffer.reloaded(snapshot, state, previous) : new EditorBuffer(snapshot, state, recovered);
   buffers.set(snapshot.id, buffer); activateBuffer(buffer, false);
 }
@@ -743,7 +761,7 @@ function formatSelection(marker: string): boolean {
 async function stageDraft<T>(buffer: EditorBuffer, state: EditorState, complete: (transferId: string) => Promise<T>): Promise<T> {
   const transferId = crypto.randomUUID(), id = buffer.metadata.id;
   try {
-    const serialized = JSON.stringify({ text: state.doc.toString(), comments: state.field(commentField) });
+    const serialized = JSON.stringify({ text: state.doc.toString(), threads: state.field(commentField) });
     const total = Math.ceil(serialized.length / SAVE_CHUNK_CHARACTERS);
     for (let index = 0; index < total; index++) {
       await rpc.request.stageSave({ id, transferId, index, total, text: serialized.slice(index * SAVE_CHUNK_CHARACTERS, (index + 1) * SAVE_CHUNK_CHARACTERS) });
@@ -776,33 +794,42 @@ async function saveBuffer(buffer: EditorBuffer, saveAs = false): Promise<boolean
   buffer.saving = operation;
   try { return await operation; } finally { if (buffer.saving === operation) buffer.saving = null; }
 }
-async function persistScratch(buffer: EditorBuffer): Promise<void> {
-  if (!settings.keepScratch || buffer.saving) return;
+async function persistScratch(buffer: EditorBuffer): Promise<boolean> {
+  if (!settings.keepScratch || buffer.saving) return false;
   if (buffer.metadata.id === current.id) captureActive();
-  if (buffer.generation === buffer.recoveryGeneration) return;
   const generationAtSave = buffer.generation, state = buffer.state;
-  const pending = buffer.hasCommentDraft ? { anchor: buffer.pendingAnchor!, body: buffer.commentBody, valid: buffer.generation === buffer.pendingGeneration } : null;
-  const serialized = JSON.stringify({ draft: buffer.draft(), pending });
+  const pending = buffer.pendingReview();
+  const serialized = buffer.recoveryPayload();
+  if (serialized === buffer.recoveryJSON) return true;
   if (serialized !== buffer.recoveryJSON) {
     const operation = stageDraft(buffer, state, (transferId) => rpc.request.saveScratch({ id: buffer.metadata.id, transferId, pending }));
     buffer.saving = operation;
     try { await operation; } finally { if (buffer.saving === operation) buffer.saving = null; }
   }
-  buffer.recoveryJSON = serialized; buffer.recoveryGeneration = generationAtSave;
-  if (current.id === buffer.metadata.id) { lastScratchJSON = serialized; lastScratchGeneration = generationAtSave; }
+  if (buffer.metadata.id === current.id) captureActive();
+  if (buffer.markRecovery(serialized, generationAtSave)) {
+    if (current.id === buffer.metadata.id) { lastScratchJSON = serialized; lastScratchGeneration = generationAtSave; }
+    return true;
+  } else {
+    if (current.id === buffer.metadata.id) lastScratchGeneration = -1;
+  }
+  return false;
 }
-function hasCommentDraft(): boolean { return !!pendingAnchor && !!element<HTMLTextAreaElement>("comment-body").value.trim(); }
+function hasCommentDraft(): boolean { return !!pendingAnchor && !!element<HTMLTextAreaElement>("comment-body").value.trim() || !!buffers.get(current?.id)?.composer?.body.trim(); }
 async function canLeave(buffer = captureActive(), keepUntitled = false): Promise<boolean> {
   if (!buffer) return true;
   if (buffer.saving) await buffer.saving;
   captureActive();
+  if (keepUntitled && !buffer.metadata.path && settings.keepScratch && (buffer.dirty || buffer.hasCommentDraft)) {
+    if (await persistScratch(buffer)) return true;
+    notice("The draft changed while Sideleaf was preserving it. It remains open; quit again after the recovery save finishes."); return false;
+  }
   if (buffer.hasCommentDraft) {
     if (current.id !== buffer.metadata.id) { workspaceInfo = await rpc.request.activateDocument({ id: buffer.metadata.id }); activateBuffer(buffer); }
-    showComments(true); notice("Add or cancel the comment you are writing before leaving this document.");
-    element<HTMLTextAreaElement>("comment-body").focus(); return false;
+    showComments(true); notice("Finish or cancel the review message you are writing before leaving this document.");
+    (document.querySelector<HTMLTextAreaElement>("textarea[data-composer]") ?? element<HTMLTextAreaElement>("comment-body")).focus(); return false;
   }
   if (!buffer.dirty) return true;
-  if (keepUntitled && !buffer.metadata.path && settings.keepScratch) { await persistScratch(buffer); return true; }
   const choice = await rpc.request.confirmDiscard({ id: buffer.metadata.id }, userDialog);
   if (choice === "save") return saveBuffer(buffer);
   return choice === "discard";
@@ -810,19 +837,38 @@ async function canLeave(buffer = captureActive(), keepUntitled = false): Promise
 async function canLeaveAll(keepUntitled = false): Promise<boolean> {
   captureActive();
   for (const buffer of buffers.values()) if (!(await canLeave(buffer, keepUntitled))) return false;
+  if (keepUntitled && settings.keepScratch) {
+    // A later buffer's recovery write may have awaited after an earlier one.
+    // Refresh anything that changed during that interval, then require every
+    // relevant untitled snapshot to be current before the close can proceed.
+    captureActive();
+    if (!(await refreshUntitledRecoveries(buffers.values(), persistScratch))) {
+      notice("A draft changed while Sideleaf was preserving open documents. It remains open; quit again after recovery finishes."); return false;
+    }
+    captureActive();
+    if ([...buffers.values()].some((buffer) => !buffer.metadata.path && (buffer.dirty || buffer.hasCommentDraft) && buffer.recoveryJSON !== buffer.recoveryPayload())) {
+      notice("A draft changed while Sideleaf was preserving open documents. It remains open; quit again after recovery finishes."); return false;
+    }
+  }
   return true;
 }
 async function run(operation: () => Promise<void>, blockInput = true) {
   if (busy || !current) return;
   if (view.composing) { notice("Finish entering your current character before opening or saving a file."); return; }
   busy = true;
-  if (blockInput) view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) });
+  if (blockInput) {
+    view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(true)) });
+    element("comments-panel").inert = true;
+  }
   updateDirty(); updateSelection();
   try { await operation(); }
   catch (error) { notice((error as Error).message || String(error)); }
   finally {
     busy = false;
-    if (blockInput) view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(!current.id)) });
+    if (blockInput) {
+      view.dispatch({ effects: readonly.reconfigure(EditorState.readOnly.of(!current.id)) });
+      element("comments-panel").inert = false;
+    }
     updateDirty(); updateSelection();
     if (pendingQuit) { pendingQuit = false; queueMicrotask(() => { void perform("quit"); }); }
     else if (pendingExternalOpen) queueMicrotask(() => { void performPendingExternalOpen(); });
@@ -895,8 +941,8 @@ function beginComment() {
   if (busy) return;
   if (hasCommentDraft()) {
     showComments(true);
-    notice("Add or cancel the comment you are writing before starting another.");
-    element<HTMLTextAreaElement>("comment-body").focus();
+    notice("Finish or cancel the review message you are writing before starting another.");
+    (document.querySelector<HTMLTextAreaElement>("textarea[data-composer]") ?? element<HTMLTextAreaElement>("comment-body")).focus();
     return;
   }
   const selection = view.state.selection.main;
@@ -913,26 +959,142 @@ function beginComment() {
   element<HTMLTextAreaElement>("comment-body").value = "";
   element<HTMLTextAreaElement>("comment-body").focus();
 }
+function beginThreadComposer(thread: ReviewThread, value: { kind: "reply"; body: string } | { kind: "edit"; messageId: string; body: string }) {
+  const buffer = buffers.get(current.id); if (!buffer || busy) return;
+  captureActive();
+  if (buffer.hasCommentDraft) {
+    showComments(true); notice("Finish or cancel the review message you are writing before starting another.");
+    (document.querySelector<HTMLTextAreaElement>("textarea[data-composer]") ?? element<HTMLTextAreaElement>("comment-body")).focus(); return;
+  }
+  buffer.composer = { ...value, threadId: thread.id, baseSemantic: threadSemanticValue(thread) };
+  buffer.composerFocused = true; buffer.composerSelection = { start: value.body.length, end: value.body.length };
+  buffer.recoveryGeneration = -1; showComments(true); renderComments(); updateDirty(true);
+}
+async function applyLocalThreadOperation(operation: ThreadOperation): Promise<void> {
+  if (busy) throw new Error("Sideleaf is busy. Try again when the current action finishes.");
+  const buffer = captureActive(); if (!buffer) throw new Error("This document is no longer open.");
+  const guard = buffer.guard();
+  const draft = buffer.draft();
+  const thread = "threadId" in operation ? draft.threads.find((candidate) => candidate.id === operation.threadId) : undefined;
+  if ("threadId" in operation && !thread) throw new Error("This thread is no longer available.");
+  const evaluated = await evaluateApply(draft, { operations: [operation] }, { actor: localAuthor, currentRevision: "ui", ifRevision: "ui",
+    ...(thread ? { ifThreadRevision: await threadRevision(thread) } : {}) });
+  if (buffers.get(buffer.metadata.id) !== buffer || current.id !== buffer.metadata.id || !buffer.guardedBy(guard) || busy || view.composing) {
+    throw new Error("The document changed while the review action was being checked. Review the latest thread and try again.");
+  }
+  view.dispatch({ effects: setComments.of(evaluated.draft.threads), annotations: isolateHistory.of("full"), userEvent: "input" });
+  buffer.recoveryGeneration = -1;
+  lastScratchGeneration = -1; updateDirty(true);
+}
+async function confirmDeleteThread(threadId: string, expectedSemantic: string): Promise<boolean> {
+  const dialog = element<HTMLDialogElement>("delete-thread-dialog"); dialog.returnValue = "";
+  return new Promise<boolean>((resolve) => {
+    dialog.addEventListener("close", () => {
+      if (dialog.returnValue !== "delete") { resolve(false); return; }
+      const currentThread = view.state.field(commentField).find((thread) => thread.id === threadId);
+      if (!currentThread || threadSemanticValue(currentThread) !== expectedSemantic) {
+        notice("This thread changed while the confirmation was open. Review it and confirm deletion again."); resolve(false); return;
+      }
+      resolve(true);
+    }, { once: true });
+    dialog.showModal(); dialog.focus();
+  });
+}
 function renderComments() {
-  const comments = view.state.field(commentField);
-  element("comment-count").textContent = String(comments.length);
+  const buffer = buffers.get(current?.id);
+  captureComposer(buffer);
+  const threads = view.state.field(commentField);
+  const counts = { open: threads.filter((thread) => thread.state === "open").length, resolved: threads.filter((thread) => thread.state === "resolved").length, all: threads.length };
+  element("comment-count").textContent = String(counts.open);
+  document.querySelectorAll<HTMLButtonElement>("[data-thread-filter]").forEach((button) => {
+    const filter = button.dataset.threadFilter as keyof typeof counts;
+    button.setAttribute("aria-pressed", String(filter === threadFilter));
+    button.querySelector("span")!.textContent = String(counts[filter]);
+  });
   const list = element("comments-list"); list.replaceChildren();
-  if (!comments.length) {
+  const visible = threads.filter((thread) => threadFilter === "all" || thread.state === threadFilter || buffer?.composer?.threadId === thread.id);
+  if (!visible.length) {
     const empty = document.createElement("p"); empty.className = "empty-comments";
-    empty.textContent = "Select a passage in the editor, then add a comment. Keep your thoughts beside your words."; list.append(empty);
+    empty.textContent = threads.length ? `No ${threadFilter} threads.` : "Select a passage in the editor, then start a review thread."; list.append(empty);
   }
-  for (const comment of comments) {
-    const card = document.createElement("section"); card.className = "comment-card";
+  const renderComposer = (thread: ReviewThread | null, parent: HTMLElement) => {
+    if (!buffer?.composer || buffer.composer.threadId !== (thread?.id ?? buffer.composer.threadId)) return;
+    const composer = buffer.composer;
+    const wrapper = document.createElement("form"); wrapper.className = "thread-composer";
+    const target = thread && (composer.kind === "reply" || thread.messages.some((message) => message.id === composer.messageId));
+    const changed = !!target && threadSemanticValue(thread) !== composer.baseSemantic;
+    const label = document.createElement("label"); label.textContent = !target ? "This thread or message is no longer available. Copy or cancel your saved draft." : composer.kind === "reply" ? "Reply" : "Edit message";
+    const textarea = document.createElement("textarea"); textarea.maxLength = 20_000; textarea.value = composer.body; textarea.dataset.composer = composer.threadId;
+    textarea.readOnly = !target;
+    textarea.addEventListener("input", () => { composer.body = textarea.value; buffer.recoveryGeneration = -1; lastScratchGeneration = -1; submit.disabled = changed || !textarea.value.trim(); updateDirty(true); });
+    wrapper.append(label, textarea);
+    if (changed) {
+      const warning = document.createElement("p"); warning.className = "composer-conflict";
+      warning.textContent = "This thread changed while you were writing. Review the latest messages before sending."; wrapper.append(warning);
+    }
+    const actions = document.createElement("div"); actions.className = "thread-actions";
+    const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "Cancel";
+    cancel.onclick = () => { buffer.composer = null; buffer.composerFocused = false; buffer.recoveryGeneration = -1; renderComments(); updateDirty(true); };
+    actions.append(cancel);
+    if (changed) {
+      const reconcile = document.createElement("button"); reconcile.type = "button"; reconcile.textContent = "Use latest thread";
+      reconcile.onclick = () => { composer.baseSemantic = threadSemanticValue(thread!); renderComments(); };
+      actions.append(reconcile);
+    }
+    const submit = document.createElement("button");
+    if (target) {
+      submit.className = "primary"; submit.type = "submit"; submit.textContent = composer.kind === "reply" ? "Reply" : "Save edit";
+      submit.disabled = changed || !composer.body.trim(); actions.append(submit);
+      wrapper.onsubmit = (event) => { event.preventDefault(); if (changed || !composer.body.trim()) return;
+        const operation: ThreadOperation = composer.kind === "reply"
+          ? { kind: "thread-reply", threadId: thread!.id, body: composer.body.trim() }
+          : { kind: "thread-message-update", threadId: thread!.id, messageId: composer.messageId!, body: composer.body.trim() };
+        void applyLocalThreadOperation(operation).then(() => { buffer.composer = null; buffer.composerFocused = false; buffer.recoveryGeneration = -1; renderComments(); updateDirty(true); }).catch((error) => notice(error.message));
+      };
+    }
+    wrapper.append(actions); parent.append(wrapper);
+  };
+  for (const thread of visible) {
+    const card = document.createElement("section"); card.className = "comment-card"; card.dataset.state = thread.state;
     const label = document.createElement("span"); label.className = "comment-label";
-    label.textContent = comment.anchor.state === "attached" ? "ON THIS PASSAGE" : "UNANCHORED · PASSAGE CHANGED";
-    const quote = document.createElement("button"); quote.className = "comment-quote"; quote.textContent = comment.anchor.quote;
-    quote.disabled = comment.anchor.state === "orphaned";
-    quote.onclick = () => { view.dispatch({ selection: { anchor: comment.anchor.from, head: comment.anchor.to }, scrollIntoView: true }); setMode("split"); view.focus(); };
-    const body = document.createElement("p"); body.textContent = comment.body;
-    const remove = document.createElement("button"); remove.className = "remove-comment"; remove.textContent = "Remove";
-    remove.onclick = () => { if (!busy) view.dispatch({ effects: setComments.of(view.state.field(commentField).filter((c) => c.id !== comment.id)), annotations: isolateHistory.of("full") }); };
-    card.append(label, quote, body, remove); list.append(card);
+    label.textContent = `${thread.state.toUpperCase()} · ${thread.anchor.state === "attached" ? "ON THIS PASSAGE" : "UNANCHORED"}`;
+    const quote = document.createElement("button"); quote.className = "comment-quote"; quote.textContent = thread.anchor.quote;
+    quote.disabled = thread.anchor.state === "orphaned";
+    quote.onclick = () => { view.dispatch({ selection: { anchor: thread.anchor.from, head: thread.anchor.to }, scrollIntoView: true }); setMode("split"); view.focus(); };
+    card.append(label, quote);
+    for (const [messageIndex, message] of thread.messages.entries()) {
+      const container = document.createElement("article"); container.className = "thread-message";
+      const header = document.createElement("header"), author = document.createElement("strong"), timestamp = document.createElement("span");
+      author.textContent = message.author ?? "Unknown author"; timestamp.textContent = message.updatedAt ? `edited ${message.updatedAt}` : message.createdAt;
+      header.append(author, timestamp);
+      const body = document.createElement("p"); body.textContent = message.body;
+      const actions = document.createElement("div"); actions.className = "message-actions";
+      const edit = document.createElement("button"); edit.textContent = "Edit";
+      edit.onclick = () => beginThreadComposer(thread, { kind: "edit", messageId: message.id, body: message.body }); actions.append(edit);
+      if (messageIndex > 0) {
+        const remove = document.createElement("button"); remove.textContent = "Delete reply";
+        remove.onclick = () => { void applyLocalThreadOperation({ kind: "thread-message-delete", threadId: thread.id, messageId: message.id }).catch((error) => notice(error.message)); };
+        actions.append(remove);
+      }
+      container.append(header, body, actions); card.append(container);
+    }
+    const actions = document.createElement("div"); actions.className = "thread-actions";
+    const reply = document.createElement("button"); reply.textContent = "Reply"; reply.onclick = () => beginThreadComposer(thread, { kind: "reply", body: "" });
+    const state = document.createElement("button"); state.textContent = thread.state === "open" ? "Resolve" : "Reopen";
+    state.onclick = () => { void applyLocalThreadOperation({ kind: thread.state === "open" ? "thread-resolve" : "thread-reopen", threadId: thread.id }).catch((error) => notice(error.message)); };
+    const remove = document.createElement("button"); remove.textContent = "Delete thread";
+    remove.onclick = () => { const expected = threadSemanticValue(thread); void confirmDeleteThread(thread.id, expected).then(async (confirmed) => { if (confirmed) await applyLocalThreadOperation({ kind: "thread-delete", threadId: thread.id }); }).catch((error) => notice(error.message)); };
+    actions.append(reply, state, remove); card.append(actions);
+    renderComposer(thread, card); list.append(card);
   }
+  if (buffer?.composer && !threads.some((thread) => thread.id === buffer.composer!.threadId)) {
+    const unavailable = document.createElement("section"); unavailable.className = "comment-card"; renderComposer(null, unavailable); list.prepend(unavailable);
+  }
+  if (buffer?.composerFocused) requestAnimationFrame(() => {
+    const textarea = document.querySelector<HTMLTextAreaElement>(`textarea[data-composer="${buffer.composer?.threadId ?? ""}"]`);
+    if (!textarea) return; textarea.focus({ preventScroll: true });
+    if (buffer.composerSelection) textarea.setSelectionRange(buffer.composerSelection.start, buffer.composerSelection.end);
+  });
 }
 function applyDocumentType() {
   const plain = isPlainText(current.name);
@@ -969,18 +1131,26 @@ document.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((butto
 element("add-comment").onclick = beginComment;
 commentsToggle.onclick = () => showComments(element("comments-panel").hidden);
 element("comments-close").onclick = () => showComments(false);
+document.querySelectorAll<HTMLButtonElement>("[data-thread-filter]").forEach((button) => {
+  button.onclick = () => { threadFilter = button.dataset.threadFilter as typeof threadFilter; renderComments(); };
+});
 element("dismiss-notice").onclick = () => { element("notice").hidden = true; };
 element("dismiss-update").onclick = () => { void rpc.request.dismissUpdate(); };
-element("comment-body").addEventListener("input", () => { lastScratchGeneration = -1; updateDirty(true); });
-element("cancel-comment").onclick = () => { pendingAnchor = null; element("comment-form").hidden = true; lastScratchGeneration = -1; updateDirty(true); view.focus(); };
+element("comment-body").addEventListener("input", () => {
+  const buffer = buffers.get(current.id);
+  if (buffer) { buffer.commentBody = element<HTMLTextAreaElement>("comment-body").value; buffer.recoveryGeneration = -1; }
+  lastScratchGeneration = -1; updateDirty(true);
+});
+element("cancel-comment").onclick = () => { pendingAnchor = null; element("comment-form").hidden = true; const buffer = buffers.get(current.id); if (buffer) buffer.recoveryGeneration = -1; lastScratchGeneration = -1; updateDirty(true); view.focus(); };
 element("comment-form").onsubmit = (event) => {
   event.preventDefault();
   const body = element<HTMLTextAreaElement>("comment-body").value.trim();
   if (!pendingAnchor || !body || busy) return;
   if (generation !== pendingGeneration) { notice("The document changed while you wrote this comment. Select the passage again before adding it."); return; }
-  const comment = { id: crypto.randomUUID(), body, createdAt: new Date().toISOString(), anchor: pendingAnchor };
-  view.dispatch({ effects: setComments.of([...view.state.field(commentField), comment]), annotations: isolateHistory.of("full") });
-  pendingAnchor = null; element("comment-form").hidden = true; lastScratchGeneration = -1; updateDirty(true); view.focus();
+  const anchor = pendingAnchor;
+  void applyLocalThreadOperation({ kind: "thread-add", from: anchor.from, to: anchor.to, body }).then(() => {
+    pendingAnchor = null; element("comment-form").hidden = true; lastScratchGeneration = -1; updateDirty(true); view.focus();
+  }).catch((error) => notice(error.message));
 };
 element("save-copy").onclick = () => { void perform("saveAs"); };
 element("reload").onclick = () => { void run(async () => {
@@ -1040,7 +1210,7 @@ async function checkDisk() {
           if (buffer.dirty || buffer.hasCommentDraft || buffer.saving) return;
           const snapshot = await rpc.request.reload({ id });
           if (buffers.get(id) !== buffer) return;
-          const next = EditorBuffer.reloaded(snapshot, createEditorState(snapshot.text, snapshot.comments), buffer);
+          const next = EditorBuffer.reloaded(snapshot, createEditorState(snapshot.text, snapshot.threads), buffer);
           buffers.set(id, next);
           if (current.id === id) { activateBuffer(next, false); notice("Reloaded changes made outside Sideleaf."); }
         });
@@ -1054,12 +1224,14 @@ async function checkDisk() {
 async function initialize() {
   try {
     const initial = await rpc.request.initial({ restoreScratch: settings.keepScratch });
+    localAuthor = initial.localAuthor;
     workspaceInfo = initial.workspace;
     folderTree.setWorkspace(workspaceInfo);
     for (const recovered of initial.recovered) {
-      const buffer = new EditorBuffer(recovered.document, createEditorState(recovered.document.text, recovered.document.comments), true);
+      const buffer = new EditorBuffer(recovered.document, createEditorState(recovered.document.text, recovered.document.threads), true);
       buffer.originalPath = recovered.originalPath;
-      if (recovered.pending) { buffer.pendingAnchor = recovered.pending.anchor; buffer.commentBody = recovered.pending.body; buffer.pendingGeneration = recovered.pending.valid ? buffer.generation : -1; }
+      if (recovered.pending?.comment) { buffer.pendingAnchor = recovered.pending.comment.anchor; buffer.commentBody = recovered.pending.comment.body; buffer.pendingGeneration = recovered.pending.comment.valid ? buffer.generation : -1; }
+      if (recovered.pending?.composer) { buffer.composer = recovered.pending.composer; buffer.composerFocused = true; }
       rpc.send.dirty({ id: buffer.metadata.id, dirty: buffer.dirty || buffer.hasCommentDraft });
       if (recovered.originalPath) { buffer.metadata.name = `${recovered.originalPath.split(/[\\/]/).at(-1)} (recovered)`; buffer.metadata.notice = `Recovered unsaved changes from ${recovered.originalPath}. Save a copy to keep them; the original file was not changed.`; }
       buffers.set(buffer.metadata.id, buffer);

@@ -7,6 +7,7 @@ import * as Utils from "electrobun/main/utils";
 import { mkdirSync, appendFileSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { userInfo } from "node:os";
 import { DocumentFile } from "./document/files.ts";
 import { RecoveryStore, ScratchStore } from "./document/scratch.ts";
 import { DocumentWorkspace } from "./document/workspace.ts";
@@ -14,7 +15,7 @@ import { defaultWSLDistro, installCommandLineTool, installWSLCommand } from "./p
 import { chooseSavePath } from "./platform/dialogs.ts";
 import { handleWindowAction } from "./platform/window-controls.ts";
 import { loadWindowsChrome, type WindowsChrome } from "./platform/windows-chrome.ts";
-import { documentMetadata, validateDraft, type CollaborationTarget, type Command, type Draft, type LiveDocumentInfo, type RecoveredDocument, type SideleafRPC } from "./shared/contracts.ts";
+import { documentMetadata, legacyComments, validateDraft, type CollaborationTarget, type Command, type Draft, type LiveDocumentInfo, type RecoveredDocument, type SideleafRPC } from "./shared/contracts.ts";
 import { APP_VERSION } from "./shared/version.ts";
 import { customShortcutAccelerator, saveAsAccelerator } from "./ui/shortcuts.ts";
 import { UpdateChecker } from "./updates.ts";
@@ -31,6 +32,7 @@ const macDoubleClick = (() => {
   try { return execFileSync("defaults", ["read", "-g", "AppleActionOnDoubleClick"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
   catch { return "Maximize"; }
 })();
+const localAuthor = (() => { try { return userInfo().username.trim() || "Local user"; } catch { return "Local user"; } })();
 let windowsChrome: WindowsChrome | undefined;
 
 const launchTime = performance.now();
@@ -145,7 +147,7 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
           }
         }
         initialDelivered = true;
-        return { ...workspace.result(), recovered, recoveredScratch, recoveryError };
+        return { ...workspace.result(), recovered, recoveredScratch, recoveryError, localAuthor };
       },
       cliAvailability: async () => ({ wslDistro: await defaultWSLDistro() }),
       installCLI: ({ wsl }) => installCLI(wsl === true),
@@ -331,7 +333,7 @@ async function readLive(target: CollaborationTarget, context: AppRequestContext)
   return { owned: true as const, contract: COLLABORATION_CONTRACT, live: true as const, saved: !start.document.dirty,
     dirty: start.document.dirty, active: start.document.active, documentId: start.document.id, path: start.document.path,
     name: start.document.name, lineEnding: start.document.lineEnding, notice: start.document.notice, revision: start.document.revision,
-    savedRevision: session.file.path ? session.file.revision() : null, text: draft.text, comments: draft.comments };
+    savedRevision: session.file.path ? session.file.revision() : null, text: draft.text, threads: draft.threads, comments: legacyComments(draft.threads) };
 }
 
 async function handleCollaboration(operation: CollaborationOperation, context: AppRequestContext): Promise<unknown> {
@@ -349,7 +351,7 @@ async function handleCollaboration(operation: CollaborationOperation, context: A
     await waitForRenderer(context);
     if (context.signal.aborted || Date.now() > operation.deadline) throw new CollaborationError("The apply request expired before dispatch. Reread before retrying.", "UNCERTAIN", true);
     const response = await rpc.request.collaborationApply({ instanceId: primaryChannel.instanceId, target: operation.target, actor: operation.actor,
-      ifRevision: operation.ifRevision, envelope: operation.envelope, deadline: operation.deadline });
+      ifRevision: operation.ifRevision, ifThreadRevision: operation.ifThreadRevision, envelope: operation.envelope, deadline: operation.deadline });
     if (!response.ok) throw new CollaborationError(response.error, response.code, response.retryable);
     const result = response.result;
     if (ownedSession({ documentId: result.document.id }) !== session) throw new CollaborationError("The document changed ownership during apply. Reconcile by reading it again.", "UNCERTAIN", true);

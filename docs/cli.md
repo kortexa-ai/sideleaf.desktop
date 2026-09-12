@@ -52,9 +52,9 @@ the same command with `--force` only when you want the bundled version to replac
 it. Each changed `SKILL.md` is staged beside its destination and replaced
 atomically.
 
-The current skill describes flat comments because comment threads and resolution
-are not shipped yet. Agents can reread comments saved by a human and can add a new
-anchored comment without inventing unsupported thread commands.
+The skill describes portable review threads and their revision guards. It also
+documents the legacy comment commands, which continue to address thread roots for
+older integrations.
 
 On macOS, remove the command link before removing the app: `sudo rm /usr/local/bin/sideleaf`.
 In each WSL distro where you installed it, `sudo rm /usr/local/bin/sideleaf` removes the
@@ -63,35 +63,52 @@ wrapper reports that the app is missing instead of running a stale copied CLI.
 
 ```sh
 sideleaf read 'notes café.md' > snapshot.json
-# Read the revision field from snapshot.json and supply it for every write:
+# Whole-document edits and new threads use the document revision:
 sideleaf edit 'notes café.md' --if-revision HASH --actor agent:reviewer <<'JSON'
 {"from":0,"to":0,"text":"# Notes\n\n"}
 JSON
-sideleaf comment-add 'notes café.md' --if-revision NEW_HASH --actor agent:reviewer <<'JSON'
+sideleaf thread-add 'notes café.md' --if-revision NEW_HASH --actor agent:reviewer <<'JSON'
 {"from":2,"to":7,"body":"Keep this heading"}
 JSON
-sideleaf comments 'notes café.md'
-sideleaf comment-update 'notes café.md' --if-revision NEW_HASH --actor agent:reviewer <<'JSON'
-{"id":"COMMENT_ID","body":"Updated thought"}
+sideleaf threads 'notes café.md' > threads.json
+# Existing-thread writes use that thread's semantic revision:
+sideleaf thread-reply 'notes café.md' --if-thread-revision THREAD_HASH --actor agent:reviewer <<'JSON'
+{"threadId":"THREAD_ID","body":"I checked it."}
 JSON
-sideleaf comment-remove 'notes café.md' --if-revision NEW_HASH --actor agent:reviewer <<'JSON'
-{"id":"COMMENT_ID"}
+sideleaf thread-resolve 'notes café.md' --if-thread-revision NEW_THREAD_HASH --actor agent:reviewer <<'JSON'
+{"threadId":"THREAD_ID"}
 JSON
 ```
 
 `--input PATH` supplies the same JSON without shell redirection (useful in
 PowerShell). Read operations are deterministic for unchanged disk bytes. A write
-returns the new revision, text and comments; generated IDs and timestamps record
-that operation. CLI writes retain actor attribution in embedded revision metadata,
-including text-only edits. Plain GUI documents remain plain until annotated. Offsets are zero-based, end-exclusive UTF-16 code units in source
-with logical LF separators. Metadata is excluded. Edits cannot split surrogate
-pairs. Actor names explicitly attribute writes and comments, without authentication.
-Thread replies and resolve/reopen are not yet desktop features.
+returns a receipt with the new document revision and saved/live state. `read`
+includes the visible text, `threads`, a root-only compatibility `comments` view,
+and retained revisions. `threads` returns each thread with a semantic `revision`
+computed from its state, messages, and attribution; anchor relocation and unrelated
+source edits do not change that value. Generated IDs and timestamps record each
+operation. CLI writes retain actor attribution in embedded revision metadata,
+including text-only edits. Plain GUI documents remain plain until annotated.
+Offsets are zero-based, end-exclusive UTF-16 code units in logical-LF source.
+Metadata is excluded. Edits cannot split surrogate pairs. Actor names provide
+attribution, without authentication.
+
+`thread-message-update` and `thread-message-delete` accept `threadId` and
+`messageId`; delete refuses the root message. `thread-reopen` and `thread-delete`
+accept `threadId`. Replies added to a resolved thread retain its resolved state until
+an explicit reopen. Existing-thread commands may also include `--if-revision` when
+both the thread and entire document must remain unchanged. Generic `apply` accepts
+the same operation objects. A `replace` or `thread-add` requires `--if-revision`;
+all other thread operations require `--if-thread-revision`.
+
+Legacy `comment-add`, `comment-update`, and `comment-remove` remain available for
+root-message clients. Updating a root preserves replies and retained history.
+Removing a root with replies is refused; use explicit `thread-delete` with its
+semantic revision when deletion of the entire discussion is intended.
 
 Exit codes: 0 success; 2 invalid usage/input; 3 stale revision or another Sideleaf
-writer's lock; 1 filesystem/runtime failure. Errors are JSON on stderr. Every write
-requires the current whole-file revision, including comments. Reread after a conflict;
-do not blindly retry with a new hash. Desktop and CLI share a per-document exclusive
+writer's lock; 1 filesystem/runtime failure. Errors are JSON on stderr. Reread after
+a conflict; do not blindly retry with a new hash. Desktop and CLI share a per-document exclusive
 lock and atomic replacement. Clean GUI documents reload CLI changes; dirty documents
 retain their draft and show a conflict. An abandoned `.sideleaf.lock` is not stolen:
 check its recorded PID and ensure all writers stopped before manually removing it.
@@ -131,7 +148,7 @@ owns it and otherwise reads the current saved disk snapshot.
 Use `sideleaf read --document ID` for untitled buffers and whenever an exact live
 identity is preferable to a path.
 
-The first collaboration operation is one guarded UTF-16 replacement:
+Collaboration operations include a guarded UTF-16 replacement:
 
 ```sh
 sideleaf read --document DOCUMENT_ID > snapshot.json
@@ -141,13 +158,14 @@ sideleaf apply --document DOCUMENT_ID \
 JSON
 ```
 
-The replacement is evaluated against the current live generation immediately before
+Every operation is evaluated against the current live generation immediately before
 one editor transaction. It is one undo step, preserves the editor selection mapping,
 works for active and inactive buffers, and never activates another tab. Composition,
-save-in-progress, closing, stale revision, timeout and uncertain transport outcomes
-reject without leaving a queued write. The foundation limits inserted text to 8,000
-logical-LF characters so the complete request stays within the local channel's bounded
-frame. Later collaboration work will add quote-scoped batches and thread operations.
+save-in-progress, closing, stale document or thread revision, timeout and uncertain
+transport outcomes reject without leaving a queued write. Text replacement is limited
+to 8,000 logical-LF characters so the request stays within the local channel's bounded
+frame. Thread add, reply, message update/delete, resolve/reopen, and explicit thread
+delete use the same live transaction route.
 
 Receipts distinguish `live`, `saved` and `dirty`. With autosave off, a successful live
 apply remains in the recoverable dirty buffer and leaves disk unchanged. With autosave
@@ -161,8 +179,8 @@ Legacy `edit` and comment mutations reject an owned document with
 `sideleaf wait FILE --after LIVE_REVISION --timeout SECONDS` is a silent one-shot
 foundation wait. It returns immediately with `resync` if the live revision already
 changed, returns `app-closed` when the app closes, or returns `timeout`; it writes no
-idle output. Semantic thread/activity cursors and event filtering belong to the next
-collaboration slice.
+idle output. Semantic thread revisions are returned by `threads`; activity cursors
+and event filtering remain separate work.
 
 Live failures use exit 4 and include a stable reason plus `retryable` and `requestId`
 when reconciliation is required. A request that crossed the authenticated endpoint

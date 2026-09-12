@@ -1,6 +1,6 @@
 import { EditorState, type Text } from "@codemirror/state";
 import { commentField } from "./comments.ts";
-import { documentMetadata, type Anchor, type DocumentMetadata, type DocumentSnapshot, type Draft } from "../shared/contracts.ts";
+import { documentMetadata, type Anchor, type DocumentMetadata, type DocumentSnapshot, type Draft, type PendingReview, type ThreadComposer } from "../shared/contracts.ts";
 
 /** The complete editor state carries history, selection and comment effects. */
 export class EditorBuffer {
@@ -11,6 +11,9 @@ export class EditorBuffer {
   pendingAnchor: Anchor | null = null;
   pendingGeneration = 0;
   commentBody = "";
+  composer: ThreadComposer | null = null;
+  composerSelection: { start: number; end: number } | null = null;
+  composerFocused = false;
   editorTop = 0;
   editorLeft = 0;
   previewTop = 0;
@@ -35,13 +38,40 @@ export class EditorBuffer {
     return next;
   }
   commentsJSON() { return JSON.stringify(this.state.field(commentField)); }
-  draft(): Draft { return { text: this.state.doc.toString(), comments: this.state.field(commentField) }; }
+  draft(): Draft { return { text: this.state.doc.toString(), threads: this.state.field(commentField) }; }
+  pendingReview(): PendingReview | null {
+    if (!this.hasCommentDraft) return null;
+    return {
+      comment: this.pendingAnchor ? { anchor: this.pendingAnchor, body: this.commentBody, valid: this.generation === this.pendingGeneration } : null,
+      composer: this.composer?.body.trim() ? structuredClone(this.composer) : null,
+    };
+  }
+  recoveryPayload() { return JSON.stringify({ draft: this.draft(), pending: this.pendingReview() }); }
+  markRecovery(serialized: string, generation: number): boolean {
+    if (serialized !== this.recoveryPayload()) { this.recoveryGeneration = -1; return false; }
+    this.recoveryJSON = serialized; this.recoveryGeneration = generation; return true;
+  }
+  guard() { return { state: this.state, generation: this.generation, pending: JSON.stringify(this.pendingReview()) }; }
+  guardedBy(guard: { state: EditorState; generation: number; pending: string }) {
+    return this.state === guard.state && this.generation === guard.generation && JSON.stringify(this.pendingReview()) === guard.pending;
+  }
   get dirty() { return !this.state.doc.eq(this.savedDoc) || this.commentsJSON() !== this.savedComments; }
-  get hasCommentDraft() { return !!this.pendingAnchor && !!this.commentBody.trim(); }
+  get hasCommentDraft() { return !!this.pendingAnchor && !!this.commentBody.trim() || !!this.composer?.body.trim(); }
   saved(metadata: DocumentMetadata, state: EditorState) {
     if (metadata.id !== this.metadata.id) throw new Error("Save result belongs to another document.");
     this.metadata = metadata; this.savedDoc = state.doc;
     this.savedComments = JSON.stringify(state.field(commentField));
     this.conflict = false; this.error = null; this.recoveryGeneration = -1; this.recoveryJSON = null;
   }
+}
+
+/** Re-save stale untitled recovery records once, then reject if any snapshot
+ * changed while another buffer was being written. Callers keep inputs frozen
+ * until the close either commits or is cancelled. */
+export async function refreshUntitledRecoveries(buffers: Iterable<EditorBuffer>, persist: (buffer: EditorBuffer) => Promise<boolean>): Promise<boolean> {
+  const current = [...buffers].filter((buffer) => !buffer.metadata.path && (buffer.dirty || buffer.hasCommentDraft));
+  for (const buffer of current) {
+    if (buffer.recoveryJSON !== buffer.recoveryPayload() && !(await persist(buffer))) return false;
+  }
+  return current.every((buffer) => buffer.recoveryJSON === buffer.recoveryPayload());
 }

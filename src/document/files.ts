@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, fchmodSync, linkSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
-import { relocateComment } from "./anchors.ts";
+import { relocateThread } from "./anchors.ts";
 import { isPlainText } from "../shared/document-type.ts";
 import { windowsFileKey } from "../platform/windows-channel.ts";
 
@@ -185,7 +185,7 @@ export class DocumentFile {
   private statChanged = false;
   private bom = false;
   private lineEnding: "\n" | "\r\n" = "\n";
-  private draft: Draft = { text: "", comments: [] };
+  private draft: Draft = { text: "", threads: [] };
   private notice: string | null = null;
   private revisions: CommentRevision[] = [];
   private untitledName = "Untitled.md";
@@ -231,10 +231,10 @@ export class DocumentFile {
     const sourceHash = hash(sourceBytes);
     const matched = sidecar.revisions.find((r) => r.sourceHash === sourceHash);
     const selected = matched ?? sidecar.revisions[0];
-    const comments = (selected?.comments ?? []).map((c) => relocateComment(c, decoded.text, !!matched));
-    validateDraft({ text: decoded.text, comments });
+    const threads = (selected?.threads ?? []).map((thread) => relocateThread(thread, decoded.text, !!matched));
+    validateDraft({ text: decoded.text, threads });
     this.disk = disk; this.statKey = disk.statKey; this.statChanged = false; this.bom = decoded.bom; this.lineEnding = decoded.lineEnding;
-    this.draft = { text: decoded.text, comments };
+    this.draft = { text: decoded.text, threads };
     this.notice = selected && !matched ? "The file changed outside Sideleaf. Check the comment anchors; uncertain ones remain unanchored." :
       matched && matched !== sidecar.revisions[0] ? "Recovered the comment revision matching this file after an interrupted save." : null;
   }
@@ -332,11 +332,11 @@ export class DocumentFile {
       if (splitMetadata(draft.text).metadata) throw new Error("Source contains reserved Sideleaf metadata.");
       const sourceHash = hash(source);
       const previousRevision = this.revisions[0];
-      const unchanged = this.disk?.metadata === null && previousRevision?.sourceHash === sourceHash && JSON.stringify(previousRevision.comments) === JSON.stringify(draft.comments);
-      const revision: CommentRevision = unchanged ? previousRevision : { sourceHash, comments: structuredClone(draft.comments), actor, savedAt: new Date().toISOString() };
+      const unchanged = this.disk?.metadata === null && previousRevision?.sourceHash === sourceHash && JSON.stringify(previousRevision.threads) === JSON.stringify(draft.threads);
+      const revision: CommentRevision = unchanged ? previousRevision : { sourceHash, threads: structuredClone(draft.threads), actor, savedAt: new Date().toISOString() };
       const revisions = [revision, ...this.revisions.filter((r) => JSON.stringify(r) !== JSON.stringify(revision))].slice(0, 3);
-      const metadata: Metadata = { format: "sideleaf-comments", version: 1, revisions };
-      const annotated = draft.comments.length > 0 || this.revisions.length > 0 || actor !== "local-user";
+      const metadata: Metadata = { format: "sideleaf-comments", version: 2, revisions };
+      const annotated = draft.threads.length > 0 || this.revisions.length > 0 || actor !== "local-user";
       const bytes = annotated ? encode(embedMetadata(draft.text, metadata)) : source;
       if (previousDisk ? readDisk(path).signature !== previousDisk.signature : existsSync(path)) throw new Error("The file changed during save. Your draft is still open; save a copy.");
       // Source and all comments now commit with one fsynced atomic replacement.

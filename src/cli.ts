@@ -5,10 +5,10 @@ import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { acquireDocumentLockAsync, DocumentFile, type DocumentLock } from "./document/files.ts";
 import { makeAnchor } from "./document/anchors.ts";
-import { MAX_DOCUMENT_BYTES } from "./shared/contracts.ts";
+import { legacyComments, MAX_DOCUMENT_BYTES, type ReviewThread } from "./shared/contracts.ts";
 import { installSideleafSkills, parseSkillInstallArgs } from "./skill.ts";
 import { AppChannelError, deliverAppCommand, requestApp, sideleafUserData, type AppCommand, type CollaborationOperation } from "./collaboration/channel.ts";
-import { COLLABORATION_CONTRACT, CollaborationError, evaluateApply, parseApplyEnvelope, type DocumentTarget } from "./collaboration/operations.ts";
+import { COLLABORATION_CONTRACT, CollaborationError, evaluateApply, parseApplyEnvelope, threadRevision, type DocumentTarget } from "./collaboration/operations.ts";
 
 const help = `sideleaf — local Markdown and comments (JSON output)
 
@@ -17,6 +17,7 @@ sideleaf FILE [--app PATH]
 sideleaf read FILE
 sideleaf read --document ID [--app PATH]
 sideleaf comments FILE
+sideleaf threads FILE
 sideleaf documents [--app PATH]
 sideleaf apply FILE --if-revision REV --actor NAME < apply.json
 sideleaf wait FILE --after REV [--timeout SECONDS]
@@ -24,6 +25,13 @@ sideleaf edit FILE --if-revision HASH --actor NAME < edit.json
 sideleaf comment-add FILE --if-revision HASH --actor NAME < comment.json
 sideleaf comment-update FILE --if-revision HASH --actor NAME < update.json
 sideleaf comment-remove FILE --if-revision HASH --actor NAME < remove.json
+sideleaf thread-add FILE --if-revision REV --actor NAME < thread.json
+sideleaf thread-reply FILE --if-thread-revision REV --actor NAME < reply.json
+sideleaf thread-message-update FILE --if-thread-revision REV --actor NAME < message.json
+sideleaf thread-message-delete FILE --if-thread-revision REV --actor NAME < message.json
+sideleaf thread-resolve FILE --if-thread-revision REV --actor NAME < thread-id.json
+sideleaf thread-reopen FILE --if-thread-revision REV --actor NAME < thread-id.json
+sideleaf thread-delete FILE --if-thread-revision REV --actor NAME < thread-id.json
 sideleaf open FILE [--app PATH]
 sideleaf open-folder DIRECTORY [--app PATH]
 sideleaf skills install [--user | --target NAME] [--force]
@@ -32,11 +40,17 @@ edit.json: {"from":0,"to":0,"text":"New text\\n"}
 comment.json: {"from":0,"to":8,"body":"A thought"}
 update.json: {"id":"comment-id","body":"Revised thought"}
 remove.json: {"id":"comment-id"}
+thread.json: {"from":0,"to":8,"body":"A thought"}
+reply.json: {"threadId":"thread-id","body":"A reply"}
+message.json: {"threadId":"thread-id","messageId":"message-id","body":"Revised reply"}
+thread-id.json: {"threadId":"thread-id"}
 apply.json: {"operations":[{"kind":"replace","from":0,"to":0,"text":"New text\\n"}]}
 
 Offsets are zero-based UTF-16 code units in logical LF source, end-exclusive.
-Use read.revision as --if-revision for every write. Actor names are explicit
-attribution, not authenticated identities. Exit: 0 success, 2 input/usage,
+Use read.revision as --if-revision for text replacements and new threads.
+Existing-thread writes use threads[].revision as --if-thread-revision; they may
+also include --if-revision when the whole document must remain unchanged.
+Actor names are explicit attribution, not authenticated identities. Exit: 0 success, 2 input/usage,
 3 revision conflict or writer lock, 4 busy/uncertain live request,
 1 filesystem/runtime failure.
 Use --input PATH instead of stdin. The desktop app supplies the runtime.
@@ -52,6 +66,12 @@ function output(value: unknown) { process.stdout.write(`${json(value)}\n`); }
 function inputError(message: string): never { throw Object.assign(new Error(message), { exitCode: 2 }); }
 function integer(value: unknown): number { if (!Number.isSafeInteger(value) || (value as number) < 0) inputError("Offsets must be nonnegative UTF-16 integers."); return value as number; }
 function body(value: unknown): string { if (typeof value !== "string" || !value.trim() || value.length > 20_000) inputError("Comment body must contain 1–20,000 characters."); return value; }
+async function threadViews(threads: ReviewThread[]) {
+  return Promise.all(threads.map(async (thread) => ({ ...thread, revision: await threadRevision(thread) })));
+}
+function revisionViews(revisions: Array<{ threads: ReviewThread[] } & Record<string, unknown>>) {
+  return revisions.map((revision) => ({ ...revision, comments: legacyComments(revision.threads) }));
+}
 
 function appChannelRoot(override?: string): string {
   if (!override) return sideleafUserData("stable");
@@ -170,7 +190,8 @@ async function main() {
     const targets = installSideleafSkills({ home: options.home ?? process.env.SIDELEAF_SKILLS_HOME, ...options });
     output({ ok: true, skill: "sideleaf", targets }); return;
   }
-  if (!["read", "comments", "documents", "apply", "wait", "edit", "comment-add", "comment-update", "comment-remove", "open", "open-folder"].includes(command)) {
+  if (!["read", "comments", "threads", "documents", "apply", "wait", "edit", "comment-add", "comment-update", "comment-remove",
+    "thread-add", "thread-reply", "thread-message-update", "thread-message-delete", "thread-resolve", "thread-reopen", "thread-delete", "open", "open-folder"].includes(command)) {
     if (command.startsWith("-")) inputError("Unknown command. Run sideleaf --help.");
     args.unshift(command); command = "open";
   }
@@ -182,7 +203,7 @@ async function main() {
   while (args.length) {
     const key = args.shift()!;
     if (key === "--json") continue;
-    if (!["--if-revision", "--actor", "--input", "--app", "--after", "--timeout"].includes(key) || options.has(key) || !args.length) inputError(`Invalid option: ${key}`);
+    if (!["--if-revision", "--if-thread-revision", "--actor", "--input", "--app", "--after", "--timeout"].includes(key) || options.has(key) || !args.length) inputError(`Invalid option: ${key}`);
     options.set(key, args.shift()!);
   }
   const override = options.get("--app");
@@ -212,7 +233,7 @@ async function main() {
     const { owned: _owned, ...value } = result.value;
     return { ...value, requestId: result.requestId };
   };
-  if (command === "read" || command === "comments") {
+  if (command === "read" || command === "comments" || command === "threads") {
     let value: Record<string, any> | null = await liveRead();
     if (!value) {
       if (!path) throw new CollaborationError("The Sideleaf document ID is no longer open.", "NOT_FOUND");
@@ -221,12 +242,16 @@ async function main() {
       if (!value) {
         const file = DocumentFile.open(path), draft = file.snapshot();
         value = command === "read"
-          ? { path: file.path, revision: file.revision(), text: draft.text, comments: draft.comments, revisions: file.history(), lineEnding: draft.lineEnding, notice: draft.notice }
-          : { revision: file.revision(), comments: draft.comments };
+          ? { path: file.path, revision: file.revision(), text: draft.text, comments: legacyComments(draft.threads), threads: await threadViews(draft.threads), revisions: revisionViews(file.history()), lineEnding: draft.lineEnding, notice: draft.notice }
+          : command === "comments" ? { revision: file.revision(), comments: legacyComments(draft.threads) }
+            : { revision: file.revision(), threads: await threadViews(draft.threads) };
       }
     }
     output(command === "comments" && value.live === true ? { contract: value.contract, live: true, saved: value.saved, dirty: value.dirty,
-      documentId: value.documentId, revision: value.revision, savedRevision: value.savedRevision, comments: value.comments, requestId: value.requestId } : value);
+      documentId: value.documentId, revision: value.revision, savedRevision: value.savedRevision, comments: value.comments, requestId: value.requestId } :
+      command === "threads" ? { contract: value.contract, live: value.live ?? false, saved: value.saved ?? true, dirty: value.dirty ?? false,
+        documentId: value.documentId ?? null, revision: value.revision, savedRevision: value.savedRevision ?? value.revision,
+        threads: await threadViews(value.threads), requestId: value.requestId } : value);
     return;
   }
 
@@ -245,12 +270,21 @@ async function main() {
   const actor = options.get("--actor");
   if (!actor?.trim() || actor.length > 200) inputError("Writes require --actor NAME (1–200 characters).");
   const revision = options.get("--if-revision");
-  if (!revision || (!/^[a-f0-9]{64}$/.test(revision) && !/^sl1\.[a-f0-9-]{36}\.[a-f0-9-]{36}\.[0-9]+$/.test(revision))) inputError("Writes require --if-revision from sideleaf read.");
+  if (revision && !/^[a-f0-9]{64}$/.test(revision) && !/^sl1\.[a-f0-9-]{36}\.[a-f0-9-]{36}\.[0-9]+$/.test(revision)) inputError("Invalid --if-revision; use the value from sideleaf read.");
+  const threadGuard = options.get("--if-thread-revision");
+  if (threadGuard && !/^st1\.[a-f0-9]{64}$/.test(threadGuard)) inputError("Invalid --if-thread-revision; use the value from sideleaf threads.");
   const payload = await readInput(options);
 
-  if (command === "apply") {
-    const envelope = parseApplyEnvelope(payload);
-    const route = async () => appCollaboration<Record<string, unknown>>({ kind: "apply", target, actor, ifRevision: revision, envelope, deadline: Date.now() + 3_500 }, override);
+  const modern = command === "apply" || command.startsWith("thread-");
+  if (modern) {
+    let envelopeValue: unknown = payload;
+    if (command !== "apply") envelopeValue = { operations: [{ ...payload, kind: command }] };
+    const envelope = parseApplyEnvelope(envelopeValue);
+    const needsGlobal = ["replace", "thread-add"].includes(envelope.operations[0].kind);
+    if (needsGlobal && !revision) inputError(`${command} requires --if-revision from sideleaf read.`);
+    if (!needsGlobal && !threadGuard) inputError(`${command} requires --if-thread-revision from sideleaf threads.`);
+    const route = async () => appCollaboration<Record<string, unknown>>({ kind: "apply", target, actor, ...(revision ? { ifRevision: revision } : {}),
+      ...(threadGuard ? { ifThreadRevision: threadGuard } : {}), envelope, deadline: Date.now() + 3_500 }, override);
     let result = await route();
     if (result.delivered && result.value?.owned === true) { output({ ...result.value, requestId: result.requestId }); return; }
     if (result.delivered && result.value?.owned !== false) throw new CollaborationError("Sideleaf returned an invalid apply result.", "UNCERTAIN", true);
@@ -261,7 +295,7 @@ async function main() {
       if (result.delivered && result.value?.owned === true) return { ...result.value, requestId: result.requestId };
       if (result.delivered && result.value?.owned !== false) throw new CollaborationError("Sideleaf returned an invalid apply result.", "UNCERTAIN", true);
       const file = DocumentFile.open(path, lock), current = file.snapshot();
-      const evaluated = evaluateApply(current, envelope, revision, file.revision());
+      const evaluated = await evaluateApply(current, envelope, { actor, currentRevision: file.revision(), ifRevision: revision, ifThreadRevision: threadGuard });
       file.save(evaluated.draft, undefined, actor, lock);
       return { ok: true, contract: COLLABORATION_CONTRACT, live: false, saved: true, dirty: false, documentId: null, path: file.path,
         revision: file.revision(), savedRevision: file.revision(), change: evaluated.change };
@@ -269,6 +303,8 @@ async function main() {
     output(receipt); return;
   }
 
+  if (!revision) inputError(`${command} requires --if-revision from sideleaf read.`);
+  if (threadGuard) inputError(`${command} does not accept --if-thread-revision.`);
   if (documentId) inputError(`${command} requires a file path; use apply for an open document ID.`);
   assertOfflineFile(path);
   const assertLegacyUnowned = async () => {
@@ -288,24 +324,29 @@ async function main() {
     for (const offset of [from, to]) if (offset > 0 && /[\uD800-\uDBFF]/.test(draft.text[offset - 1]!) && /[\uDC00-\uDFFF]/.test(draft.text[offset]!)) inputError("An edit cannot split a Unicode surrogate pair.");
     const text = draft.text.slice(0, from) + payload.text + draft.text.slice(to);
     const delta = payload.text.length - (to - from);
-    draft.comments = draft.comments.map((comment) => {
-      const a = comment.anchor;
-      if (a.state === "orphaned") return comment;
-      if ((from < a.to && to > a.from) || (from === to && from > a.from && from < a.to)) return { ...comment, anchor: { ...a, state: "orphaned" as const } };
+    draft.threads = draft.threads.map((thread) => {
+      const a = thread.anchor;
+      if (a.state === "orphaned") return thread;
+      if ((from < a.to && to > a.from) || (from === to && from > a.from && from < a.to)) return { ...thread, anchor: { ...a, state: "orphaned" as const } };
       const start = a.from + (to <= a.from ? delta : 0), end = a.to + (to < a.to || (to === a.to && from < to) ? delta : 0);
-      return { ...comment, anchor: makeAnchor(text, start, end) };
+      return { ...thread, anchor: makeAnchor(text, start, end) };
     });
     draft.text = text;
   } else if (command === "comment-add") {
-    draft.comments.push({ id: randomUUID(), body: body(payload.body), createdAt: now, author: actor, anchor: makeAnchor(draft.text, integer(payload.from), integer(payload.to)) });
+    const id = randomUUID();
+    draft.threads.push({ id, state: "open", anchor: makeAnchor(draft.text, integer(payload.from), integer(payload.to)), messages: [{ id, body: body(payload.body), createdAt: now, author: actor }] });
   } else {
-    const comment = draft.comments.find((c) => c.id === payload.id);
-    if (!comment) inputError("Comment ID was not found.");
-    if (command === "comment-remove") draft.comments = draft.comments.filter((c) => c !== comment);
-    else { comment.body = body(payload.body); comment.updatedAt = now; comment.updatedBy = actor; }
+    const thread = draft.threads.find((candidate) => candidate.id === payload.id);
+    if (!thread) inputError("Comment ID was not found.");
+    if (command === "comment-remove") {
+      if (thread.messages.length > 1) inputError("This comment has replies. Use thread-delete with its semantic revision for an explicit destructive deletion.");
+      draft.threads = draft.threads.filter((candidate) => candidate !== thread);
+    } else {
+      const root = thread.messages[0]!; root.body = body(payload.body); root.updatedAt = now; root.updatedBy = actor;
+    }
   }
     file.save(draft, undefined, actor, lock);
-    return { ok: true, revision: file.revision(), text: draft.text, comments: draft.comments };
+    return { ok: true, revision: file.revision(), text: draft.text, comments: legacyComments(draft.threads) };
   });
   output(result);
 }

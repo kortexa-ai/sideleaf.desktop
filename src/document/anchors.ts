@@ -1,4 +1,4 @@
-import type { Anchor, Comment } from "../shared/contracts.ts";
+import type { Anchor, Comment, ReviewThread } from "../shared/contracts.ts";
 
 export function commentRange(text: string, from: number, to: number): { from: number; to: number } {
   if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to > text.length) {
@@ -36,4 +36,9 @@ export function relocateComment(comment: Comment, text: string, sameRevision: bo
   }
   if (matches.length !== 1) return { ...comment, anchor: { ...a, state: "orphaned" } };
   return { ...comment, anchor: makeAnchor(text, matches[0]!, matches[0]! + a.quote.length) };
+}
+
+export function relocateThread(thread: ReviewThread, text: string, sameRevision: boolean): ReviewThread {
+  const relocated = relocateComment({ ...thread.messages[0]!, anchor: thread.anchor }, text, sameRevision);
+  return relocated.anchor === thread.anchor ? thread : { ...thread, anchor: relocated.anchor };
 }

@@ -20,7 +20,9 @@ test("the default install creates a valid self-contained Sideleaf skill", () => 
   assert.match(frontmatter[1]!, /^description: \S.+$/m);
   assert.match(text, /sideleaf read FILE/);
   assert.match(text, /--if-revision HASH/);
-  assert.match(text, /flat comments, not threads/);
+  assert.match(text, /--if-thread-revision HASH/);
+  assert.match(text, /sideleaf thread-reply FILE/);
+  assert.match(text, /comment-remove.*refuses a thread/s);
   assert.equal(readdirSync(dirname(result!.path)).join(","), "SKILL.md");
 });
 

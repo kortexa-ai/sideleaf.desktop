@@ -12,7 +12,7 @@ and [platform guide](https://framework.blackboard.sh/electrobun/guides/cross-pla
 describe the underlying framework. Sideleaf's tested support matrix is narrower than
 the framework's advertised matrix. Record actual package tests before expanding it.
 
-## Documents and comments
+## Documents and review threads
 
 The editor represents source as Unicode with logical LF separators. Saving restores
 the original LF/CRLF style and UTF-8 BOM. Markdown is never parsed and reserialized
@@ -24,10 +24,10 @@ reload. The webview can save only an open session; each session has its own stag
 transfer. Save As obtains a path from a native picker. A SHA-256 fingerprint includes
 the complete file and any legacy comment sidecar. It is checked before every save, and a
 two-second poll detects external writes. Reload creates a history boundary. Saving
-preserves undo history. Comment insertion/removal and anchor changes share the text
+preserves undo history. Thread operations and anchor changes share the text
 editor's history; they do not create a separate conflicting undo stack.
 
-Embedded metadata uses `sideleaf-comments`, version 1. The terminal envelope is
+Embedded metadata uses `sideleaf-comments`, version 2. The terminal envelope is
 exactly two newlines, `<!-- sideleaf:metadata`, a newline, one JSON object, a newline,
 `-->`, and a final newline. All envelope separators use the source file's LF/CRLF
 style. The two leading newlines belong to the envelope, preserving source that has
@@ -36,12 +36,20 @@ comment terminators. Metadata never enters the source editor or preview.
 
 Source is limited to 10 MiB of UTF-8 and metadata to 10 MiB. Each of up to three
 retained revisions contains SHA-256 of exact source bytes (including BOM and original
-line endings), complete comments, and optional actor/save timestamp. These are
-comment recovery revisions, not full historical text. The CLI's write precondition
-hash covers the complete on-disk document and any legacy sidecar. New files without
-comments/history have no envelope; unchanged plain saves preserve the file itself.
+line endings), complete review threads, and optional actor/save timestamp. A thread
+has one stable ID, an anchor, open/resolved state, resolution attribution, and ordered
+messages with stable IDs and edit attribution. The root message deliberately shares
+the thread ID. These are review recovery revisions, not full historical text. The
+CLI's write precondition hash covers the complete on-disk document and any legacy
+sidecar. New files without threads/history have no envelope; unchanged plain saves
+preserve the file itself.
 
-Legacy version-1 sidecars remain readable, including the two-revision interrupted-save
+Embedded version-1 metadata migrates in memory to one open thread per comment,
+preserving the comment ID as both thread and root-message ID, its anchor, attribution,
+and retained history. Unattributed legacy comments remain unattributed. The next
+explicit save writes version 2, which older readers reject before changing the file.
+
+Legacy sidecars remain readable, including the two-revision interrupted-save
 recovery case. Saving embeds the selected comment set plus both retained revisions
 in one atomic replacement. Only after exact readback succeeds is the sidecar renamed
 to `filename.md.sideleaf.json.migrated-UUID`. Keep that backup for recovery. Save As
@@ -65,8 +73,8 @@ not an operating-system-wide compare-and-swap protocol.
 
 One host workspace owns a root, document registry and per-directory watchers.
 The renderer keeps a CodeMirror EditorState per buffer and mounts one EditorView.
-Selection, undo, comments, pending comment text, scroll and saved baselines remain
-with the originating buffer. Saves use captured states and session IDs, including
+Selection, undo, review threads, pending root/reply/edit text, scroll and saved
+baselines remain with the originating buffer. Saves use captured states and session IDs, including
 background autosave; typing during transfer remains dirty. Dirty native window
 state covers every buffer. Close Folder and Quit check all affected documents.
 
@@ -89,7 +97,7 @@ Windows network/WSL paths. Legacy sidecars must migrate through Save first.
 
 With Keep unsaved draft enabled, each dirty buffer has its own private atomic
 recovery record, checked every five seconds independently of autosave. Records
-include original path/revision and unfinished comments. Startup migrates the older
+include original path/revision and unfinished root/reply/edit review text. Startup migrates the older
 single untitled record only after writing its replacement. Recovered named content
 opens as a separate untitled copy; recovery never replays it over an original.
 Saving or discarding one document cannot clear another document's recovery record.
@@ -129,7 +137,7 @@ Files ending in `.txt` (case-insensitive) use plain CodeMirror editing in Write
 mode, with the Markdown view controls and Single line breaks setting hidden.
 New starts as Markdown. Save As and Rename apply the destination type only on
 success and preserve editor history; cancelled or failed operations keep the
-existing type. Comments and their embedded metadata remain available in text
+existing type. Review threads and their embedded metadata remain available in text
 files. Recovery copies of text files remain untitled text documents. The Mac
 app and Windows installer advertise `.txt` in Open With and Default Apps.
 

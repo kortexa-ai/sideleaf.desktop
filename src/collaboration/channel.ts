@@ -47,7 +47,7 @@ export type AppCommand =
 export type CollaborationOperation =
   | { kind: "documents" }
   | { kind: "ownership" | "read"; target: DocumentTarget }
-  | { kind: "apply"; target: DocumentTarget; actor: string; ifRevision: string; envelope: ApplyEnvelope; deadline: number }
+  | { kind: "apply"; target: DocumentTarget; actor: string; ifRevision?: string; ifThreadRevision?: string; envelope: ApplyEnvelope; deadline: number }
   | { kind: "wait"; target: DocumentTarget; after: string; timeoutMs: number };
 
 export type AppRequest = AppCommand | { kind: "collaboration"; operation: CollaborationOperation };
@@ -252,7 +252,9 @@ function validateCommand(value: unknown): asserts value is AppRequest {
     if (operation.kind !== "ownership" && operation.kind !== "read" && operation.kind !== "apply" && operation.kind !== "wait") throw new Error("Invalid collaboration request.");
     validateTarget(operation.target);
     if (operation.kind === "apply" && (typeof operation.actor !== "string" || !operation.actor.trim() || operation.actor.length > 200 ||
-      typeof operation.ifRevision !== "string" || operation.ifRevision.length > 200 || !Number.isSafeInteger(operation.deadline))) throw new Error("Invalid collaboration apply request.");
+      operation.ifRevision !== undefined && (typeof operation.ifRevision !== "string" || operation.ifRevision.length > 200) ||
+      operation.ifThreadRevision !== undefined && (typeof operation.ifThreadRevision !== "string" || operation.ifThreadRevision.length > 200) ||
+      !Number.isSafeInteger(operation.deadline))) throw new Error("Invalid collaboration apply request.");
     if (operation.kind === "wait" && (typeof operation.after !== "string" || operation.after.length > 200 || typeof operation.timeoutMs !== "number" || !Number.isSafeInteger(operation.timeoutMs) || operation.timeoutMs < 1 || operation.timeoutMs > MAX_WAIT_MS)) {
       throw new Error("Invalid collaboration wait request.");
     }

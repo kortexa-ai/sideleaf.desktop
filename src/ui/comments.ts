@@ -1,10 +1,10 @@
 import { StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import { invertedEffects } from "@codemirror/commands";
-import type { Comment } from "../shared/contracts.ts";
+import type { ReviewThread } from "../shared/contracts.ts";
 
-export const setComments = StateEffect.define<Comment[]>();
-export const commentField = StateField.define<Comment[]>({
+export const setComments = StateEffect.define<ReviewThread[]>();
+export const commentField = StateField.define<ReviewThread[]>({
   create: () => [],
   update(comments, transaction) {
     let next = comments;
@@ -32,7 +32,7 @@ export const commentField = StateField.define<Comment[]>({
   },
   provide: (field) => EditorView.decorations.from(field, (comments) => Decoration.set(comments
     .filter((c) => c.anchor.state === "attached")
-    .map((c) => Decoration.mark({ class: "comment-anchor", attributes: { title: c.body } }).range(c.anchor.from, c.anchor.to)), true)),
+    .map((c) => Decoration.mark({ class: "comment-anchor", attributes: { title: c.messages[0]?.body ?? "Review thread" } }).range(c.anchor.from, c.anchor.to)), true)),
 });
 
 // Restoring the exact prior annotation set makes undo of deletions and comment

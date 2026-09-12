@@ -4,7 +4,7 @@ import { SaveTransfer } from "../src/document/save-transfer.ts";
 import { SAVE_CHUNK_CHARACTERS } from "../src/shared/contracts.ts";
 
 test("a large Unicode draft crosses bounded packets without losing surrogate pairs or escapes", () => {
-  const draft = { text: ('🌿 café 葉.\n\\"').repeat(500_000), comments: [] };
+  const draft = { text: ('🌿 café 葉.\n\\"').repeat(500_000), threads: [] };
   const serialized = JSON.stringify(draft);
   assert.ok(Buffer.byteLength(serialized) > 8 * 1024 * 1024);
   const transfer = new SaveTransfer();
@@ -26,11 +26,11 @@ test("incomplete, cancelled, stale, oversized and invalid transfers cannot commi
   assert.throws(() => transfer.append({ ...begin, transferId: "stale", index: 1 }), /out of order/);
   assert.throws(() => transfer.append({ ...begin, text: 'x'.repeat(SAVE_CHUNK_CHARACTERS + 1) }), /Invalid/);
   transfer.clear("stale");
-  transfer.append({ ...begin, index: 1, text: '"ok","comments":[]}' });
+  transfer.append({ ...begin, index: 1, text: '"ok","threads":[]}' });
   assert.equal(transfer.take("one").text, "ok");
-  transfer.append({ ...begin, total: 1, text: '{"text":2,"comments":[]}' });
+  transfer.append({ ...begin, total: 1, text: '{"text":2,"threads":[]}' });
   assert.throws(() => transfer.take("one"), /text documents/);
-  transfer.append({ ...begin, total: 1, text: '{"text":"ok","comments":[]}' });
+  transfer.append({ ...begin, total: 1, text: '{"text":"ok","threads":[]}' });
   transfer.clear("one");
   assert.throws(() => transfer.take("one"), /incomplete/);
 });

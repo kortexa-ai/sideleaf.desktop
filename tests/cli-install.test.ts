@@ -15,7 +15,8 @@ test("WSL installation is unavailable outside Windows", { skip: process.platform
 });
 test("the WSL wrapper translates collaboration document operands and execs the Windows CLI", () => {
   const source = readFileSync(new URL("../src/platform/install-cli-wsl.sh", import.meta.url), "utf8");
-  assert.match(source, /read\|comments\|apply\|wait\|edit/);
+  assert.match(source, /read\|comments\|threads\|apply\|wait\|edit/);
+  assert.match(source, /thread-add\|thread-reply\|thread-message-update\|thread-message-delete\|thread-resolve\|thread-reopen\|thread-delete/);
   assert.match(source, /\$\{args\[1\]\} != -\*/);
   assert.match(source, /""\|documents\|skills/);
   assert.match(source, /exec "\$launcher" "\$\{args\[@\]\}"/);

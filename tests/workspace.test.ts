@@ -47,7 +47,7 @@ test("tree navigation promotes a standalone root and retains stable file session
     const a = workspace.open(join(root, "A.md")); const id = a.document!.id;
     assert.equal(a.workspace.explicit, false);
     const session = workspace.get(id); session.dirty = true;
-    const raw = JSON.stringify({ text: "Edited Alpha", comments: [] });
+    const raw = JSON.stringify({ text: "Edited Alpha", threads: [] });
     session.transfer.append({ transferId: "save-a", index: 0, total: 1, text: raw });
     const b = workspace.openEntry(a.workspace.id, "Notes/B.md");
     assert.equal(b.workspace.root, root); assert.equal(b.workspace.explicit, true);
@@ -89,13 +89,13 @@ test("Save As cannot target a different open file and standalone roots follow sa
     const a = workspace.open(join(root, "A.md")); const b = workspace.openEntry(a.workspace.id, "Notes/B.md");
     assert.throws(() => workspace.assertSaveTarget(a.document!.id, b.document!.path!), /already open/);
     workspace.reset(); const draft = workspace.newDocument().document!;
-    workspace.get(draft.id).file.save({ text: "New", comments: [] }, join(root, "new.md")); workspace.refreshRootAfterSave(draft.id);
+    workspace.get(draft.id).file.save({ text: "New", threads: [] }, join(root, "new.md")); workspace.refreshRootAfterSave(draft.id);
     assert.equal(workspace.info().root, root); assert.equal(workspace.info().explicit, false);
   } finally { workspace.reset(); }
 });
 test("renaming preserves identity and dirty edits, refuses collisions and stale disk contents", () => {
   const root = fixture(), file = DocumentFile.open(join(root, "A.md")); const id = file.id, revision = file.revision();
-  const draft = { text: "Unsaved editor text", comments: [] };
+  const draft = { text: "Unsaved editor text", threads: [] };
   const renamed = file.rename("café 文 🌿.md");
   assert.equal(renamed.id, id); assert.equal(file.revision(), revision); assert.equal(file.pollChanged(), false);
   assert.equal(existsSync(join(root, "A.md")), false);

@@ -30,14 +30,14 @@ test("Save As and Rename change type only on success, retaining annotated text a
   const folder = mkdtempSync(join(tmpdir(), "sideleaf-type-")), path = join(folder, "café.md");
   writeFileSync(path, "\uFEFF# Literal *text*\r\n- One\r\n");
   const file = DocumentFile.open(path), draft = file.snapshot();
-  draft.comments.push({ id: "one", createdAt: "today", body: "Keep this", anchor: makeAnchor(draft.text, 2, 9) });
+  draft.threads.push({ id: "one", state: "open", anchor: makeAnchor(draft.text, 2, 9), messages: [{ id: "one", createdAt: "today", body: "Keep this" }] });
   const target = join(folder, "葉.TXT");
   const text = file.save(draft, target);
   assert.equal(isPlainText(text.name), true);
   assert.equal(text.lineEnding, "\r\n");
   assert.equal(readFileSync(target)[0], 0xef);
   assert.equal(splitMetadata(decodeMarkdown(readFileSync(target)).text).text, draft.text);
-  assert.deepEqual(DocumentFile.open(target).snapshot().comments, draft.comments);
+  assert.deepEqual(DocumentFile.open(target).snapshot().threads, draft.threads);
   assert.throws(() => file.save(draft, join(folder, "missing", "failed.md")));
   assert.equal(file.name, "葉.TXT");
   assert.throws(() => file.rename("café.md"), /already exists/);
@@ -45,10 +45,10 @@ test("Save As and Rename change type only on success, retaining annotated text a
   assert.equal(isPlainText(file.rename("renamed.markdown").name), false);
   assert.equal(isPlainText(file.save(draft, join(folder, "again.txt")).name), true);
   assert.equal(isPlainText(file.save(draft, join(folder, "copy.md")).name), false);
-  assert.deepEqual(DocumentFile.open(file.path!).snapshot().comments, draft.comments);
+  assert.deepEqual(DocumentFile.open(file.path!).snapshot().threads, draft.threads);
   const fresh = new DocumentFile();
   assert.equal(fresh.name, "Untitled.md");
-  assert.equal(fresh.save({ text: "# Still literal", comments: [] }, join(folder, "new.txt")).name, "new.txt");
+  assert.equal(fresh.save({ text: "# Still literal", threads: [] }, join(folder, "new.txt")).name, "new.txt");
   assert.equal(readFileSync(fresh.path!, "utf8"), "# Still literal");
 });
 
@@ -56,7 +56,7 @@ test("plain-text recovery remains an untitled text copy across repeated recovery
   const folder = mkdtempSync(join(tmpdir(), "sideleaf-type-recovery-")), path = join(folder, "original.TXT");
   writeFileSync(path, "Original");
   const file = DocumentFile.open(path), store = new RecoveryStore(join(folder, "recovery"));
-  store.save({ id: file.id, originalPath: path, revision: file.revision(), draft: { text: "Unsaved", comments: [] } });
+  store.save({ id: file.id, originalPath: path, revision: file.revision(), draft: { text: "Unsaved", threads: [] } });
   const record = store.load().records[0]!;
   const recovered = DocumentFile.fromDraft(record.draft, record.originalPath);
   assert.equal(recovered.name, "Untitled.txt"); assert.equal(recovered.path, null);
@@ -72,7 +72,7 @@ test("switching editor type removes Markdown behavior and preserves text, select
   const target = { get state() { return state; }, dispatch: (transaction: Transaction) => { state = transaction.state; } };
   assert.equal(insertNewlineContinueMarkup(target), true);
   assert.equal(state.doc.toString(), "- One\n- ");
-  const comment = { id: "one", createdAt: "today", body: "Keep", anchor: makeAnchor(state.doc.toString(), 2, 5) };
+  const comment = { id: "one", state: "open" as const, anchor: makeAnchor(state.doc.toString(), 2, 5), messages: [{ id: "one", createdAt: "today", body: "Keep" }] };
   state = state.update({ effects: setComments.of([comment]) }).state;
   const selection = state.selection;
   state = state.update({ effects: documentMode.reconfigure(documentExtensions("note.txt")) }).state;

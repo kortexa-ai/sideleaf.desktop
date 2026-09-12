@@ -1,31 +1,47 @@
 import { createHash } from "node:crypto";
-import { MAX_DOCUMENT_BYTES, validateDraft, type Comment } from "../shared/contracts.ts";
+import { MAX_DOCUMENT_BYTES, validateDraft, type Comment, type ReviewThread } from "../shared/contracts.ts";
 
-export type CommentRevision = { sourceHash: string; comments: Comment[]; actor?: string; savedAt?: string };
-export type Metadata = { format: "sideleaf-comments"; version: 1; revisions: CommentRevision[] };
+export type ThreadRevision = { sourceHash: string; threads: ReviewThread[]; actor?: string; savedAt?: string };
+export type CommentRevision = ThreadRevision;
+export type Metadata = { format: "sideleaf-comments"; version: 2; revisions: ThreadRevision[] };
+type LegacyRevision = { sourceHash: string; comments: Comment[]; actor?: string; savedAt?: string };
+type LegacyMetadata = { format: "sideleaf-comments"; version: 1; revisions: LegacyRevision[] };
 export const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const marker = "<!-- sideleaf:metadata";
 const prefix = `\n\n${marker}\n`;
 const suffix = "\n-->\n";
 
+export function migrateComment(comment: Comment): ReviewThread {
+  const { anchor, ...message } = comment;
+  return { id: comment.id, anchor: structuredClone(anchor), state: "open", messages: [structuredClone(message)] };
+}
+
+function validateRevision(revision: ThreadRevision) {
+  if (typeof revision?.sourceHash !== "string" || !/^[a-f0-9]{64}$/.test(revision.sourceHash) || !Array.isArray(revision.threads)) throw new Error("Invalid thread revision.");
+  if (revision.actor !== undefined && (typeof revision.actor !== "string" || !revision.actor.trim() || revision.actor.length > 200)) throw new Error("Invalid revision actor.");
+  if (revision.savedAt !== undefined && (typeof revision.savedAt !== "string" || revision.savedAt.length > 40)) throw new Error("Invalid revision timestamp.");
+  // Historical ranges are not authority over the current source.
+  validateDraft({ text: "", threads: revision.threads.map((thread) => ({ ...thread, anchor: { ...thread.anchor, state: "orphaned" } })) });
+  if (revision.threads.some((thread) => !["attached", "orphaned"].includes(thread.anchor.state))) throw new Error("Invalid stored anchor state.");
+}
+
 export function parseMetadata(bytes: Uint8Array | null, legacy = false): Metadata {
-  if (bytes === null) return { format: "sideleaf-comments", version: 1, revisions: [] };
+  if (bytes === null) return { format: "sideleaf-comments", version: 2, revisions: [] };
   if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("Sideleaf metadata exceeds 10 MiB. Nothing was changed.");
-  let data: Metadata;
+  let data: Metadata | LegacyMetadata;
   try { data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
   catch { throw new Error("Sideleaf metadata is not valid JSON. It will not be overwritten."); }
-  if (data?.format !== "sideleaf-comments" || data.version !== 1 || !Array.isArray(data.revisions) || data.revisions.length > (legacy ? 2 : 3) || !data.revisions.length) {
+  if (data?.format !== "sideleaf-comments" || ![1, 2].includes(data.version) || !Array.isArray(data.revisions) || data.revisions.length > (legacy ? 2 : 3) || !data.revisions.length) {
     throw new Error("Sideleaf metadata uses an unsupported format. It will not be overwritten.");
   }
-  for (const revision of data.revisions) {
-    if (typeof revision?.sourceHash !== "string" || !/^[a-f0-9]{64}$/.test(revision.sourceHash) || !Array.isArray(revision.comments)) throw new Error("Invalid comment revision.");
-    if (revision.actor !== undefined && (typeof revision.actor !== "string" || !revision.actor.trim() || revision.actor.length > 200)) throw new Error("Invalid revision actor.");
-    if (revision.savedAt !== undefined && (typeof revision.savedAt !== "string" || revision.savedAt.length > 40)) throw new Error("Invalid revision timestamp.");
-    // Historical ranges are not authority over the current source.
-    validateDraft({ text: "", comments: revision.comments.map((c) => ({ ...c, anchor: { ...c.anchor, state: "orphaned" } })) });
-    if (revision.comments.some((c) => !["attached", "orphaned"].includes(c.anchor.state))) throw new Error("Invalid stored anchor state.");
-  }
-  return data;
+  const revisions: ThreadRevision[] = data.version === 1
+    ? data.revisions.map((revision) => {
+      if (!Array.isArray(revision.comments)) throw new Error("Invalid comment revision.");
+      return { sourceHash: revision.sourceHash, actor: revision.actor, savedAt: revision.savedAt, threads: revision.comments.map(migrateComment) };
+    })
+    : data.revisions;
+  for (const revision of revisions) validateRevision(revision);
+  return { format: "sideleaf-comments", version: 2, revisions };
 }
 
 // The exact terminal block is reserved. Its two leading newlines belong to the

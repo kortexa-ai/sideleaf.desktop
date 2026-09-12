@@ -227,7 +227,8 @@ test("collaboration responses chunk large live snapshots and deduplicate mutatio
   const applied = await requestApp<{ owned: boolean; applied: boolean }>(root, apply, { requestId: applyId });
   const replay = await requestApp<{ owned: boolean; applied: boolean }>(root, apply, { requestId: applyId });
   assert.deepEqual(replay.value, applied.value);
-  const changed = structuredClone(apply); changed.operation.kind === "apply" && (changed.operation.envelope.operations[0].text = "y");
+  const changed = structuredClone(apply);
+  if (changed.operation.kind === "apply" && changed.operation.envelope.operations[0].kind === "replace") changed.operation.envelope.operations[0].text = "y";
   await assert.rejects(requestApp(root, changed, { requestId: applyId }), (error: unknown) => (error as { code?: unknown }).code === "INVALID");
   assert.equal(handled, 2);
 });

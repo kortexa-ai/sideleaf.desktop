@@ -16,15 +16,18 @@ test("agent read/edit/comment lifecycle, stale actions and dirty GUI conflict", 
   let revision = original.data.revision;
   const write = (command: string, payload: object) => { const result = cli([command, path, "--if-revision", revision, "--actor", "agent:test"], payload); assert.equal(result.status, 0, JSON.stringify(result.data)); revision = result.data.revision; return result.data; };
   const added = write("comment-add", { from: 6, to: 8, body: "Keep the leaf -->" });
-  assert.equal(gui.changed(), true); assert.throws(() => gui.save({ text: "dirty GUI", comments: [] }), /changed on disk/);
+  assert.equal(gui.changed(), true); assert.throws(() => gui.save({ text: "dirty GUI", threads: [] }), /changed on disk/);
   assert.equal(cli(["edit", path, "--if-revision", original.data.revision, "--actor", "agent:test"], { from: 0, to: 0, text: "stale" }).status, 3);
   write("edit", { from: 0, to: 0, text: "Before " });
-  assert.equal(DocumentFile.open(path).snapshot().comments[0]!.anchor.from, 13);
+  assert.equal(DocumentFile.open(path).snapshot().threads[0]!.anchor.from, 13);
   write("comment-update", { id: added.comments[0].id, body: "Updated" });
   assert.equal(cli(["comments", path]).data.comments[0].updatedBy, "agent:test");
   write("comment-remove", { id: added.comments[0].id });
-  assert.equal(DocumentFile.open(path).snapshot().comments.length, 0);
+  assert.equal(DocumentFile.open(path).snapshot().threads.length, 0);
   assert.equal(DocumentFile.open(path).snapshot().text, "Before Hello 🌿 world\n");
+  const read = cli(["read", path]).data;
+  assert.equal(read.revisions.every((item: any) => Array.isArray(item.comments) && Array.isArray(item.threads)), true);
+  assert.equal(read.revisions.some((item: any) => item.comments[0]?.id === added.comments[0].id), true);
   assert.match(readFileSync(path, "utf8"), /sideleaf:metadata/);
 });
 test("CLI requires revision/actor and rejects splitting emoji", () => {
@@ -46,6 +49,43 @@ test("apply uses the guarded offline evaluator and commits while holding one loc
   const stale = cli(["apply", path, "--if-revision", revision, "--actor", "agent:test"],
     { operations: [{ kind: "replace", from: 0, to: 0, text: "lost" }] });
   assert.equal(stale.status, 3); assert.equal(stale.data.reason, "CONFLICT");
+});
+
+test("thread CLI lifecycle uses semantic guards and keeps legacy root edits safe", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "sideleaf-cli-thread-")), "review café.txt"); writeFileSync(path, "Hello 🌿 world\n");
+  let global = cli(["read", path]).data.revision;
+  assert.equal(cli(["thread-add", path, "--if-revision", global, "--actor", "agent:root"], { from: 6, to: 8, body: "Root" }).status, 0);
+  let viewed = cli(["threads", path]); assert.equal(viewed.status, 0);
+  const id = viewed.data.threads[0].id, initialSemantic = viewed.data.threads[0].revision;
+  assert.equal(viewed.data.threads[0].messages[0].author, "agent:root"); assert.equal(viewed.data.threads[0].messages[0].id, id);
+
+  global = cli(["read", path]).data.revision;
+  assert.equal(cli(["edit", path, "--if-revision", global, "--actor", "agent:text"], { from: 0, to: 0, text: "Before " }).status, 0);
+  assert.equal(cli(["thread-reply", path, "--if-thread-revision", initialSemantic, "--actor", "agent:reply"], { threadId: id, body: "Reply" }).status, 0);
+  assert.equal(cli(["thread-resolve", path, "--if-thread-revision", initialSemantic, "--actor", "agent:stale"], { threadId: id }).status, 3);
+
+  viewed = cli(["threads", path]); const withReply = viewed.data.threads[0];
+  assert.equal(cli(["thread-resolve", path, "--if-thread-revision", withReply.revision, "--actor", "agent:resolve"], { threadId: id }).status, 0);
+  viewed = cli(["threads", path]);
+  assert.equal(cli(["thread-reply", path, "--if-thread-revision", viewed.data.threads[0].revision, "--actor", "agent:late"], { threadId: id, body: "Still resolved" }).status, 0);
+  viewed = cli(["threads", path]); assert.equal(viewed.data.threads[0].state, "resolved"); assert.equal(viewed.data.threads[0].messages.length, 3);
+
+  global = cli(["read", path]).data.revision;
+  assert.equal(cli(["comment-update", path, "--if-revision", global, "--actor", "legacy:agent"], { id, body: "Updated root" }).status, 0);
+  viewed = cli(["threads", path]); assert.equal(viewed.data.threads[0].messages.length, 3); assert.equal(viewed.data.threads[0].messages[0].updatedBy, "legacy:agent");
+  global = cli(["read", path]).data.revision;
+  const refused = cli(["comment-remove", path, "--if-revision", global, "--actor", "legacy:agent"], { id });
+  assert.equal(refused.status, 2); assert.match(refused.data.error, /has replies.*thread-delete/);
+
+  const replyId = viewed.data.threads[0].messages[1].id;
+  assert.equal(cli(["thread-message-update", path, "--if-thread-revision", viewed.data.threads[0].revision, "--actor", "agent:edit"], { threadId: id, messageId: replyId, body: "Edited reply" }).status, 0);
+  viewed = cli(["threads", path]);
+  assert.equal(cli(["thread-message-delete", path, "--if-thread-revision", viewed.data.threads[0].revision, "--actor", "agent:delete"], { threadId: id, messageId: replyId }).status, 0);
+  viewed = cli(["threads", path]);
+  assert.equal(cli(["thread-reopen", path, "--if-thread-revision", viewed.data.threads[0].revision, "--actor", "agent:reopen"], { threadId: id }).status, 0);
+  viewed = cli(["threads", path]);
+  assert.equal(cli(["thread-delete", path, "--if-thread-revision", viewed.data.threads[0].revision, "--actor", "agent:delete"], { threadId: id }).status, 0);
+  assert.equal(cli(["threads", path]).data.threads.length, 0);
 });
 
 test("open-folder requires a directory and file-open keeps its file contract", () => {
@@ -104,12 +144,14 @@ test("live reads and applies use exact document IDs while legacy mutations refus
     if (operation?.kind === "documents") return { contract: "sideleaf-collaboration/v1", documents: [{ id, path, name: "owned.md", lineEnding: "\n", notice: null, active: false, dirty: true, generation, revision: revision(), savedRevision: "saved" }] };
     if (operation?.kind === "ownership") return { owned: true };
     if (operation?.kind === "read") return { owned: true, contract: "sideleaf-collaboration/v1", live: true, saved: false, dirty: true, active: false,
-      documentId: id, path, name: "owned.md", lineEnding: "\n", notice: null, revision: revision(), savedRevision: "saved", text, comments: [] };
+      documentId: id, path, name: "owned.md", lineEnding: "\n", notice: null, revision: revision(), savedRevision: "saved", text, threads: [] };
     if (operation?.kind === "apply") {
-      assert.equal(operation.ifRevision, revision());
-      text = operation.envelope.operations[0].text; generation++;
+      const change = operation.envelope.operations[0];
+      if (change.kind === "replace") { assert.equal(operation.ifRevision, revision()); text = change.text; }
+      else { assert.equal(change.kind, "thread-reply"); assert.equal(operation.ifRevision, undefined); assert.equal(operation.ifThreadRevision, `st1.${"a".repeat(64)}`); }
+      generation++;
       return { owned: true, contract: "sideleaf-collaboration/v1", live: true, saved: false, dirty: true, autoSave: false, documentId: id, path,
-        revision: revision(), savedRevision: "saved", change: { from: 0, to: 12, inserted: text.length } };
+        revision: revision(), savedRevision: "saved", change: change.kind === "replace" ? { from: 0, to: 12, inserted: text.length } : null };
     }
     return { owned: false };
   });
@@ -129,6 +171,9 @@ test("live reads and applies use exact document IDs while legacy mutations refus
     const applied = await run(["apply", "--document", id, "--if-revision", read.data.revision, "--actor", "agent:test"],
       { operations: [{ kind: "replace", from: 0, to: 12, text: "agent live" }] });
     assert.equal(applied.status, 0); assert.equal(applied.data.live, true); assert.equal(text, "agent live");
+    const thread = await run(["thread-reply", "--document", id, "--if-thread-revision", `st1.${"a".repeat(64)}`, "--actor", "agent:test"],
+      { threadId: "thread", body: "Live reply" });
+    assert.equal(thread.status, 0); assert.equal(thread.data.change, null);
     const legacy = await run(["edit", path, "--if-revision", "a".repeat(64), "--actor", "agent:test"], { from: 0, to: 0, text: "lost" });
     assert.equal(legacy.status, 3); assert.match(legacy.data.error, /open in Sideleaf; use apply/);
     assert.equal(readFileSync(path, "utf8"), "disk");

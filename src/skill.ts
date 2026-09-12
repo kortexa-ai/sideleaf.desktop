@@ -17,20 +17,20 @@ export type SkillInstallResult = { target: SkillTarget; path: string; status: "i
 
 export const SIDELEAF_SKILL = `---
 name: sideleaf
-description: Use Sideleaf's local CLI to read, author, edit, and review Markdown files with portable embedded comments.
+description: Use Sideleaf's local CLI to read, author, edit, and review Markdown files with portable embedded review threads.
 ---
 
 # Work with Markdown in Sideleaf
 
-Use Sideleaf for local Markdown work when comments or revision-safe edits need to remain in the same portable file. It does not require a running Sideleaf window or network access.
+Use Sideleaf for local Markdown work when review threads or revision-safe edits need to remain in the same portable file. It does not require a running Sideleaf window or network access.
 
 Sideleaf stores review metadata in a terminal HTML comment. Do not edit that block by hand. Use the CLI so the visible Markdown, comment anchors, and retained revision data stay consistent.
 
 ## Read before writing
 
-Run \`sideleaf read FILE\` to get the visible text, comments, and current revision as JSON. Run \`sideleaf comments FILE\` when only the current comments are needed.
+Run \`sideleaf read FILE\` to get the visible text, threads, compatibility comments, and current document revision as JSON. Run \`sideleaf threads FILE\` for the current threads and their semantic revisions.
 
-Before every CLI write, read the file again and pass that exact revision with \`--if-revision HASH\`. Pass a clear identity such as \`--actor agent:reviewer\`. If a write exits with code 3, the file changed or another Sideleaf writer has it locked. Read again, reconsider the edit against the new text, and do not blindly retry.
+Before replacing text or adding a root thread, read the file again and pass that exact revision with \`--if-revision HASH\`. Before replying, editing or deleting a reply, resolving, reopening, or deleting a thread, run \`sideleaf threads FILE\` and pass that thread's exact \`revision\` with \`--if-thread-revision HASH\`. Add \`--if-revision\` too when the whole document must remain unchanged. Pass a clear identity such as \`--actor agent:reviewer\`. If a write exits with code 3, reread and reconsider the operation; do not blindly retry.
 
 ## Author and edit
 
@@ -46,19 +46,29 @@ JSON
 
 Use offsets from the logical LF text returned by \`sideleaf read\`. Never count bytes, and never split a Unicode surrogate pair.
 
-## Review comments
+## Review threads
 
 Add a comment to an exact source range:
 
 \`\`\`sh
-sideleaf comment-add FILE --if-revision HASH --actor agent:reviewer <<'JSON'
+sideleaf thread-add FILE --if-revision HASH --actor agent:reviewer <<'JSON'
 {"from":2,"to":7,"body":"Please check this wording."}
 JSON
 \`\`\`
 
-Use \`sideleaf comment-update\` or \`sideleaf comment-remove\` with the current revision and the comment ID. Read the document again after every write because the revision changes.
+Read the returned thread list, or run \`sideleaf threads FILE\`, before acting on that thread:
 
-To read human responses, run \`sideleaf comments FILE\` again after the human saves. The current release has flat comments, not threads or resolve/reopen state. Do not invent reply or resolve commands. Add a new anchored comment when a separate response is useful, or update an existing comment only when the user asked for that change.
+\`\`\`sh
+sideleaf thread-reply FILE --if-thread-revision THREAD_HASH --actor agent:reviewer <<'JSON'
+{"threadId":"THREAD_ID","body":"Reply text"}
+JSON
+
+sideleaf thread-resolve FILE --if-thread-revision NEW_THREAD_HASH --actor agent:reviewer <<'JSON'
+{"threadId":"THREAD_ID"}
+JSON
+\`\`\`
+
+The other explicit thread commands are \`thread-message-update\`, \`thread-message-delete\`, \`thread-reopen\`, and \`thread-delete\`. Deleting a thread removes its full discussion and should be deliberate. Legacy \`comments\`, \`comment-add\`, and \`comment-update\` address root messages; \`comment-remove\` refuses a thread that already has replies so it cannot erase discussion accidentally.
 
 Run \`sideleaf --help\` for the full command and JSON input reference.
 `;
