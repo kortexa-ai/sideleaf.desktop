@@ -19,7 +19,7 @@
         "@types/bun": "1.4.1",
         "@types/markdown-it": "14.2.0",
         "@types/node": "26.5.0",
-        "electrobun": "2.0.2-beta.15",
+        "electrobun": "2.0.2-beta.27",
         "esbuild": "0.28.2",
         "sharp": "0.35.4",
         "typescript": "5.9.3",
@@ -193,7 +193,7 @@
 
     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
 
-    "electrobun": ["electrobun@2.0.2-beta.15", "", { "bin": "bin/electrobun.cjs" }, "sha512-Wcv9C4J3DZNxRotFoo7uA+KKZ1/mkGQBY3F4EWzMEjPcTyTsweeyLwB+BsEy937TnP0Tt9HdZbaBuLI3LeLf9g=="],
+    "electrobun": ["electrobun@2.0.2-beta.27", "", { "bin": { "electrobun": "bin/electrobun.cjs" } }, "sha512-bWS3reeV1N83Izq5Lf8eCAF47jk0VRvsJBtu5KZvVMmEiyZKCzXYStQcprNGglLVRbdFsWv7QyGPUhDTgCatcQ=="],
 
     "entities": ["entities@8.1.0", "", {}, "sha512-kxL7msIffSuh9aaFAMD7rxAIuTRMAHMeBtgHW2yUdWw732ZNh4MehkF2gdjvtdmikkaIP9bFDDJOPlsvm7avrA=="],
 

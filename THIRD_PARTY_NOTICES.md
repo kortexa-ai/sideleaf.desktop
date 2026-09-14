@@ -34,12 +34,12 @@ own use; the Sideleaf terms do not restrict the rights their licenses grant.
 
 The pinned inputs for v0.1.0 are:
 
-- [Cottontail](https://github.com/blackboardsh/cottontail/tree/e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb),
+- [Cottontail](https://github.com/blackboardsh/cottontail/tree/54fcb3d08a7ce59139f83fee24eee70e567d4e56),
   including its build scripts and runtime module source.
 - [JavaScriptCore build scripts and patches](https://github.com/blackboardsh/jsc/tree/46a8b00303faeba2c09854e78511845e9ccbeb9a),
   based on [WebKit 27877cc2](https://github.com/WebKit/WebKit/tree/27877cc2acd8a3cea8b3827ddb48d6c6c0177714).
 - [ICU 70.1](https://github.com/unicode-org/icu/releases/tag/release-70-1).
-- [Electrobun 2.0.2-beta.15](https://github.com/blackboardsh/electrobun/tree/69e9faf89217100b65513fc6c339ec6a0010515b).
+- [Electrobun 2.0.2-beta.27](https://github.com/blackboardsh/electrobun/tree/39ed16f1aae430fb78ca37f704ffa30198a5a197).
 
 Use the included JavaScriptCore workflow for your platform to build a changed
 static SDK, then set `COTTONTAIL_JSC_ARCHIVE` to that SDK when running Cottontail's

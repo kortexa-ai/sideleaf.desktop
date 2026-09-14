@@ -5,7 +5,7 @@ See THIRD_PARTY_NOTICES.md for corresponding source and relinking information.
 
 ========================================================================
 
-Cottontail 0.6.0-canary.14 and zig-asar 0.2.7
+Cottontail 0.7.0-canary.10 and zig-asar 0.2.7
 
 Their pinned package.json files declare MIT and Blackboard Technologies Inc. as author.
 
@@ -878,8 +878,8 @@ THE SOFTWARE.
 
 ========================================================================
 
-Electrobun 2.0.2-beta.15
-Source: https://raw.githubusercontent.com/blackboardsh/electrobun/69e9faf89217100b65513fc6c339ec6a0010515b/LICENSE
+Electrobun 2.0.2-beta.27
+Source: https://raw.githubusercontent.com/blackboardsh/electrobun/39ed16f1aae430fb78ca37f704ffa30198a5a197/LICENSE
 
 MIT License
 
@@ -906,7 +906,7 @@ SOFTWARE.
 ========================================================================
 
 Cottontail compiler and vendored notices
-Source: https://raw.githubusercontent.com/blackboardsh/cottontail/e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb/src/compiler/LICENSE.md
+Source: https://raw.githubusercontent.com/blackboardsh/cottontail/54fcb3d08a7ce59139f83fee24eee70e567d4e56/src/compiler/LICENSE.md
 
 Bun itself is MIT-licensed.
 
@@ -995,7 +995,7 @@ For compatibility reasons, the following packages are embedded into Bun's binary
 ========================================================================
 
 libuv in Cottontail
-Source: https://raw.githubusercontent.com/blackboardsh/cottontail/e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb/vendors/libuv/LICENSE
+Source: https://raw.githubusercontent.com/blackboardsh/cottontail/54fcb3d08a7ce59139f83fee24eee70e567d4e56/vendors/libuv/LICENSE
 
 Copyright (c) 2015-present libuv project contributors.
 

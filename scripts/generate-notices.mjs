@@ -9,7 +9,7 @@ const directories = Object.values(licenses).flat().flatMap((entry) => entry.path
 const sources = JSON.parse(await readFile("scripts/third-party-sources.json", "utf8"));
 const sections = ["Sideleaf — third-party copyright and license notices\n\nSideleaf's MIT license does not replace these component licenses.\nSee THIRD_PARTY_NOTICES.md for corresponding source and relinking information."];
 const mit = (await readFile("LICENSE", "utf8")).replace("Copyright (c) 2026 Franci Penov", "Copyright (c) Blackboard Technologies Inc.");
-sections.push(`Cottontail 0.6.0-canary.14 and zig-asar 0.2.7\n\nTheir pinned package.json files declare MIT and Blackboard Technologies Inc. as author.\n\n${mit}`);
+sections.push(`Cottontail 0.7.0-canary.10 and zig-asar 0.2.7\n\nTheir pinned package.json files declare MIT and Blackboard Technologies Inc. as author.\n\n${mit}`);
 
 for (const directory of directories) {
   const pkg = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));

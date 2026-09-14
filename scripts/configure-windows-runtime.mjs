@@ -13,7 +13,7 @@ const version = versionMatch.slice(1).join(".");
 const resourceVersion = `${versionMatch.slice(1).join(",")},0`;
 const runtime = dependencies.objects.find((entry) => entry.product === "cottontail");
 const desktop = dependencies.objects.find((entry) => entry.product === "electrobun");
-if (runtime?.revision !== "e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb" || desktop?.version !== "2.0.2-beta.15") {
+if (runtime?.revision !== "54fcb3d08a7ce59139f83fee24eee70e567d4e56" || desktop?.version !== "2.0.2-beta.27") {
   throw new Error("Review the Windows stack-limit adapter before changing the desktop runtime.");
 }
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");

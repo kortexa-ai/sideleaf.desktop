@@ -8,7 +8,7 @@ import { build } from "esbuild";
 // unfamiliar SDK. This reduces installed bytes, not the static JSC executable.
 const dependencies = JSON.parse(await readFile(".hutch/dependencies.lock", "utf8"));
 const versions = new Map(dependencies.objects.map((item) => [item.product, item.version]));
-if (versions.get("cottontail") !== "0.6.0-canary.14" || versions.get("electrobun") !== "2.0.2-beta.15") {
+if (versions.get("cottontail") !== "0.7.0-canary.10" || versions.get("electrobun") !== "2.0.2-beta.27") {
   throw new Error("Review Sideleaf's runtime pack list before building with this SDK version.");
 }
 const platform = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "win" : null;

@@ -1,18 +1,18 @@
 {
   "licenses": [
     {
-      "name": "Electrobun 2.0.2-beta.15",
-      "url": "https://raw.githubusercontent.com/blackboardsh/electrobun/69e9faf89217100b65513fc6c339ec6a0010515b/LICENSE",
+      "name": "Electrobun 2.0.2-beta.27",
+      "url": "https://raw.githubusercontent.com/blackboardsh/electrobun/39ed16f1aae430fb78ca37f704ffa30198a5a197/LICENSE",
       "sha256": "89501a3146809de20e626255576d513ff89777d29a6f7e659d07be59b0ce2d91"
     },
     {
       "name": "Cottontail compiler and vendored notices",
-      "url": "https://raw.githubusercontent.com/blackboardsh/cottontail/e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb/src/compiler/LICENSE.md",
+      "url": "https://raw.githubusercontent.com/blackboardsh/cottontail/54fcb3d08a7ce59139f83fee24eee70e567d4e56/src/compiler/LICENSE.md",
       "sha256": "0c20f12545cd037c737bd32b80d6ad1b50d78df3626140710e4938da9d9c2d9f"
     },
     {
       "name": "libuv in Cottontail",
-      "url": "https://raw.githubusercontent.com/blackboardsh/cottontail/e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb/vendors/libuv/LICENSE",
+      "url": "https://raw.githubusercontent.com/blackboardsh/cottontail/54fcb3d08a7ce59139f83fee24eee70e567d4e56/vendors/libuv/LICENSE",
       "sha256": "16de0c32b265cb7d46a6d3bd614f259dd4d693a5e26b3407b04aae8d73041f0c"
     },
     {
@@ -69,8 +69,8 @@
     }
   ],
   "runtime": {
-    "cottontail": "e5ddf52648c502b1b124ec5f41a9b87b7b9ecedb",
-    "electrobun": "69e9faf89217100b65513fc6c339ec6a0010515b",
+    "cottontail": "54fcb3d08a7ce59139f83fee24eee70e567d4e56",
+    "electrobun": "39ed16f1aae430fb78ca37f704ffa30198a5a197",
     "jscBuild": "46a8b00303faeba2c09854e78511845e9ccbeb9a",
     "webkit": "27877cc2acd8a3cea8b3827ddb48d6c6c0177714",
     "icu": "70.1"

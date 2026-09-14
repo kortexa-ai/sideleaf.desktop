@@ -26,7 +26,7 @@ void WINAPI sideleafStart(void) {
     if (directory + sizeof(filename) / sizeof(WCHAR) > 32768) fail();
     for (DWORD i = 0; i < sizeof(filename) / sizeof(WCHAR); ++i) runtimePath[directory + i] = filename[i];
 
-    // Cottontail .14 reserves a 128 MiB script-thread stack. Matching JSC's
+    // The pinned Cottontail runtime reserves a 128 MiB script-thread stack. Matching JSC's
     // limit to that reservation keeps VM entry/exit from repeatedly touching
     // those pages. JSC still applies the native bounds and its guard reserve.
     // Set this before the runtime starts; JSC latches it at VM creation.

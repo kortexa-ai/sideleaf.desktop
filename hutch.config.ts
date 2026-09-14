@@ -1,4 +1,4 @@
 export default {
-  electrobun: { version: "2.0.2-beta.15" },
+  electrobun: { version: "2.0.2-beta.27" },
   packageManager: "bun",
 };
