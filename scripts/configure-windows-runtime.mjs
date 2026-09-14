@@ -17,7 +17,7 @@ if (runtime?.revision !== "54fcb3d08a7ce59139f83fee24eee70e567d4e56" || desktop?
   throw new Error("Review the Windows stack-limit adapter before changing the desktop runtime.");
 }
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const originalHash = "abeb0b7889439b3c9d92dd10988bf06c8f2f7744eb60cabdbb1fabea3b1d833b";
+const originalHash = "a3f5a4f5785e043735c24742218ce9c3785b7f0bc77f8ad098be62b5d24a081c";
 const environment = process.env.ELECTROBUN_BUILD_ENV ?? "dev";
 if (!["dev", "canary", "stable"].includes(environment)) throw new Error("Unknown build environment.");
 const buildDir = resolve("build", `${environment}-win-x64`);
