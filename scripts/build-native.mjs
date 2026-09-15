@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 await mkdir("dist/native", { recursive: true });
 if (process.platform === "darwin") {
   execFileSync("xcrun", ["clang", "-Os", "-Wall", "-Wextra", "src/platform/cli-launcher.c", "-o", "dist/native/sideleaf"], { stdio: "inherit" });
+  execFileSync("xcrun", ["clang", "-Os", "-Wall", "-Wextra", "src/platform/macos-launcher.c", "-o", "dist/native/sideleaf-launcher"], { stdio: "inherit" });
   execFileSync("xcrun", ["swiftc", "-O", "-emit-library", "-module-name", "SideleafDialogs", "src/platform/save-dialog.swift", "-o", "dist/native/libSideleafDialogs.dylib"], { stdio: "inherit" });
 }
 if (process.platform === "win32") {

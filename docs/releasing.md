@@ -64,6 +64,10 @@ credentials, unreviewed screenshots, or development build directories.
 - On macOS, verify all nested signatures, notarization staples, and Gatekeeper
   acceptance on the distribution and installed app. Check the app and installer
   minimum OS metadata against their binaries.
+  Repeat strict verification and Gatekeeper assessment after normal launch and
+  bundled CLI use. The macOS GUI and CLI launchers set `COTTONTAIL_TMP_DIR` to a
+  private directory under the OS-provided per-user temporary directory before
+  the runtime starts. No `.cottontail-tmp` may appear inside the signed app.
 - On Windows, confirm the setup and launcher remain unsigned as intended, install
   and uninstall in an isolated test account or directory, and preserve user files.
   Confirm the launcher reports `Sideleaf` as its file description so Windows uses

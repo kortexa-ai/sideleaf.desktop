@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 // Run before Hutch signs, compresses, and wraps the final application.
@@ -37,6 +37,22 @@ if (!wrapper) {
 }
 if (process.platform === "darwin") {
   if (!wrapper) {
+    const launcher = join(root, "Contents/MacOS/launcher");
+    const original = join(root, "Contents/MacOS/electrobun-launcher");
+    const receiptPath = join(root, "Contents/MacOS/sideleaf-launcher.json");
+    const digest = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+    // Install before signing. The adapter sets the runtime's scratch location
+    // before the framework starts Cottontail; application JavaScript is too late.
+    if (!existsSync(original)) renameSync(launcher, original);
+    else {
+      const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+      if (digest(original) !== receipt.originalHash || ![receipt.originalHash, receipt.wrapperHash].includes(digest(launcher))) {
+        throw new Error("Unexpected macOS launcher contents. Rebuild the app before applying its adapter.");
+      }
+    }
+    copyFileSync("dist/native/sideleaf-launcher", launcher);
+    chmodSync(launcher, 0o755);
+    writeFileSync(receiptPath, JSON.stringify({ originalHash: digest(original), wrapperHash: digest(launcher) }) + "\n");
     const command = join(root, "Contents/MacOS/sideleaf");
     copyFileSync("dist/native/sideleaf", command);
     chmodSync(command, 0o755);
