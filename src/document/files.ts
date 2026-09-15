@@ -6,13 +6,14 @@ import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } 
 import { relocateThread } from "./anchors.ts";
 import { isPlainText } from "../shared/document-type.ts";
 import { windowsFileKey } from "../platform/windows-channel.ts";
+import { writeWSLFile } from "./wsl-write.ts";
 
 import { hash, parseMetadata, splitMetadata, embedMetadata, type Metadata, type CommentRevision } from "./metadata.ts";
 type DiskState = { bytes: Buffer; metadata: Buffer | null; mode: number; signature: string; statKey: string };
 
 // Windows UNC access to WSL does not expose Linux permission bits through stat.
-// Keep Linux responsible for private staging and modes; Cottontail still performs
-// document parsing, conflict checks, writes and the atomic replacement.
+// Keep Linux responsible for private staging, modes and atomic replacement;
+// Cottontail still performs document parsing, conflict checks and verification.
 export function wslLocation(path: string): { distro: string; path: string } | null {
   const match = /^\\\\(?:wsl\$|wsl\.localhost)\\([^\\]+)\\(.*)$/i.exec(path);
   return match ? { distro: match[1]!, path: "/" + match[2]!.replaceAll("\\", "/") } : null;
@@ -118,14 +119,14 @@ function regularFile(path: string) {
   return stat;
 }
 
-function readDisk(path: string): DiskState {
+function readDisk(path: string, knownMode?: number): DiskState {
   const stat = regularFile(path);
   const statKey = diskStatKey(path) ?? "";
   const bytes = readFileSync(path);
   const sidecarPath = metadataPath(path);
   if (existsSync(sidecarPath)) regularFile(sidecarPath);
   const metadata = readOptional(sidecarPath);
-  const mode = isWSL(path) ? Number.parseInt(linuxFileCommand(path, "stat", ["-c", "%a", "--"]), 8) & 0o777 : stat.mode & 0o777;
+  const mode = knownMode ?? (isWSL(path) ? Number.parseInt(linuxFileCommand(path, "stat", ["-c", "%a", "--"]), 8) & 0o777 : stat.mode & 0o777);
   return { bytes, metadata, mode, signature: `${hash(bytes)}:${metadata === null ? "none" : hash(metadata)}`, statKey };
 }
 
@@ -151,20 +152,18 @@ export function decodeMarkdown(bytes: Uint8Array): { text: string; bom: boolean;
 // filesystem. fsync completes before rename. An existing mode is preserved.
 export function atomicWrite(path: string, bytes: Uint8Array, mode = 0o600): void {
   const temp = join(dirname(path), `.${basename(path)}.sideleaf-${randomUUID()}.tmp`);
+  if (isWSL(path)) {
+    writeWSLFile(wslLocation(path)!, wslLocation(temp)!.path, bytes, mode);
+    return;
+  }
   let fd: number | undefined;
   try {
-    const wsl = isWSL(path);
-    // Make the empty staging file private before any Markdown reaches it. POSIX
-    // noclobber provides exclusive creation, including rejection of symlinks.
-    if (wsl) linuxFileCommand(temp, "/bin/sh", ["-c", 'umask 077; set -C; : > "$1"', "sideleaf"]);
-    fd = openSync(temp, wsl ? "r+" : "wx", mode);
+    fd = openSync(temp, "wx", mode);
     writeFileSync(fd, bytes);
-    if (!wsl) fchmodSync(fd, mode);
+    fchmodSync(fd, mode);
     fsyncSync(fd);
     closeSync(fd); fd = undefined;
-    if (wsl) linuxFileCommand(temp, "chmod", [mode.toString(8), "--"]);
     renameSync(temp, path);
-    if (wsl) linuxFileCommand(dirname(path), "sync", ["-f", "--"]);
     // Directory sync is supported on macOS/Linux. A failed sync is surfaced:
     // the bytes may have reached disk, but we must not report a durable save.
     if (process.platform !== "win32") {
@@ -338,7 +337,7 @@ export class DocumentFile {
       const metadata: Metadata = { format: "sideleaf-comments", version: 3, revisions };
       const annotated = draft.threads.length > 0 || this.revisions.length > 0 || actor !== "local-user";
       const bytes = annotated ? encode(embedMetadata(draft.text, metadata)) : source;
-      if (previousDisk ? readDisk(path).signature !== previousDisk.signature : existsSync(path)) throw new Error("The file changed during save. Your draft is still open; save a copy.");
+      if (previousDisk ? readDisk(path, previousDisk.mode).signature !== previousDisk.signature : existsSync(path)) throw new Error("The file changed during save. Your draft is still open; save a copy.");
       // Source and all comments now commit with one fsynced atomic replacement.
       // Avoid replacing an unchanged plain file (including its inode/mtime).
       if (!previousDisk || !previousDisk.bytes.equals(bytes)) atomicWrite(path, bytes, previousDisk?.mode ?? 0o644);
