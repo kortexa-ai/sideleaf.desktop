@@ -39,7 +39,8 @@ if (process.platform === "darwin") {
   if (!wrapper) {
     const launcher = join(root, "Contents/MacOS/launcher");
     const original = join(root, "Contents/MacOS/electrobun-launcher");
-    const receiptPath = join(root, "Contents/MacOS/sideleaf-launcher.json");
+    // MacOS is a nested-code location; non-code receipts belong in Resources.
+    const receiptPath = join(root, "Contents/Resources/sideleaf-launcher.json");
     const digest = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
     // Install before signing. The adapter sets the runtime's scratch location
     // before the framework starts Cottontail; application JavaScript is too late.
