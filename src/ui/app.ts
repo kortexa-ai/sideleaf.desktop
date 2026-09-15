@@ -2,7 +2,7 @@ import "./bootstrap.ts";
 import { Electroview } from "electrobun/view";
 import { basicSetup } from "codemirror";
 import { Compartment, EditorState, type StateEffect, type Text } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { redo, undo, isolateHistory } from "@codemirror/commands";
@@ -20,6 +20,7 @@ import { FolderTree } from "./folder-tree.ts";
 import { APP_VERSION } from "../shared/version.ts";
 import { documentViewMode, isPlainText, type ViewMode } from "../shared/document-type.ts";
 import { documentExtensions, documentMode } from "./document-mode.ts";
+import { formattingShortcuts } from "./formatting.ts";
 import { CollaborationError, evaluateApply, focusDraft, liveRevision, threadRevision, threadSemanticValue, type SuggestionOperation, type ThreadOperation } from "../collaboration/operations.ts";
 import { ActivityJournal, activityForOperation, diffDraftActivity, recordReloadActivity } from "../collaboration/activity.ts";
 
@@ -531,7 +532,7 @@ function createEditorState(text: string, threads: Draft["threads"] = [], name = 
     extensions: [
       basicSetup, documentMode.of(documentExtensions(name)), syntaxHighlighting(sideleafHighlight), commentField.init(() => threads), commentHistory, agentHighlightField, wordCountField,
       readonly.of(EditorState.readOnly.of(false)), wrapping.of(settings.wrapLines ? EditorView.lineWrapping : []),
-      keymap.of([{ key: "Mod-b", run: () => formatSelection("**") }, { key: "Mod-i", run: () => formatSelection("*") }]),
+      formattingShortcuts(() => !busy),
       EditorView.updateListener.of((update) => {
         if (update.startState.field(commentField) !== update.state.field(commentField) && !update.transactions.some((transaction) => transaction.isUserEvent("input.agent"))) {
           recordHumanThreadChanges(update.startState.field(commentField), update.state.field(commentField));
@@ -817,13 +818,6 @@ function updatePreview() {
 function updateWordCount() {
   const count = view.state.field(wordCountField);
   element("word-count").textContent = `${count.toLocaleString()} ${count === 1 ? "word" : "words"}`;
-}
-function formatSelection(marker: string): boolean {
-  if (isPlainText(current?.name)) return true;
-  if (busy) return false;
-  const { from, to } = view.state.selection.main;
-  view.dispatch({ changes: [{ from, insert: marker }, { from: to, insert: marker }], selection: { anchor: from + marker.length, head: to + marker.length }, userEvent: "input" });
-  return true;
 }
 async function stageDraft<T>(buffer: EditorBuffer, state: EditorState, complete: (transferId: string) => Promise<T>): Promise<T> {
   const transferId = crypto.randomUUID(), id = buffer.metadata.id;
