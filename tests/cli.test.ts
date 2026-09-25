@@ -38,6 +38,18 @@ test("CLI requires revision/actor and rejects splitting emoji", () => {
   assert.equal(readFileSync(path, "utf8"), "🌿");
 });
 
+test("agent commands reject files that are not Sideleaf document types", () => {
+  const folder = mkdtempSync(join(tmpdir(), "sideleaf-cli-plain-"));
+  for (const name of ["config.json", ".env", "settings.ini", "notes"]) {
+    const path = join(folder, name); writeFileSync(path, "KEY=value\r\n");
+    for (const args of [["read", path], ["threads", path], ["edit", path, "--if-revision", "x", "--actor", "agent:test"]]) {
+      const result = cli(args, { from: 0, to: 0, text: "x" });
+      assert.equal(result.status, 2); assert.match(result.data.error ?? JSON.stringify(result.data), /support only \.md/);
+    }
+    assert.equal(readFileSync(path, "utf8"), "KEY=value\r\n");
+  }
+});
+
 test("apply uses the guarded offline evaluator and commits while holding one lock", () => {
   const path = join(mkdtempSync(join(tmpdir(), "sideleaf-cli-apply-")), "a.md"); writeFileSync(path, "Hello 🌿\n");
   const revision = cli(["read", path]).data.revision;

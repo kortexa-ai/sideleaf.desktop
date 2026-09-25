@@ -18,7 +18,7 @@ import { SAVE_CHUNK_CHARACTERS, type Anchor, type CollaborationTarget, type Comm
 import { EditorBuffer, refreshUntitledRecoveries } from "./workspace.ts";
 import { FolderTree } from "./folder-tree.ts";
 import { APP_VERSION } from "../shared/version.ts";
-import { documentViewMode, isPlainText, type ViewMode } from "../shared/document-type.ts";
+import { documentViewMode, isPlainText, REVIEW_UNSUPPORTED, supportsReview, type ViewMode } from "../shared/document-type.ts";
 import { documentExtensions, documentMode } from "./document-mode.ts";
 import { formattingShortcuts } from "./formatting.ts";
 import { CollaborationError, evaluateApply, focusDraft, liveRevision, threadRevision, threadSemanticValue, type SuggestionOperation, type ThreadOperation } from "../collaboration/operations.ts";
@@ -608,6 +608,7 @@ function collaborationBuffer(target: CollaborationTarget): EditorBuffer {
   captureActive();
   const matches = [...buffers.values()].filter((buffer) => target.documentId ? buffer.metadata.id === target.documentId : buffer.metadata.path === target.path);
   if (matches.length !== 1) throw new CollaborationError(matches.length ? "The collaboration target is ambiguous." : "This document is not open in Sideleaf.", "NOT_FOUND");
+  if (!supportsReview(matches[0]!.metadata.name)) throw new CollaborationError(REVIEW_UNSUPPORTED, "INVALID");
   return matches[0]!;
 }
 
@@ -1002,6 +1003,7 @@ function showComments(show: boolean) {
 }
 function beginComment() {
   if (busy) return;
+  if (!supportsReview(current.name)) { notice(REVIEW_UNSUPPORTED); return; }
   if (hasCommentDraft()) {
     showComments(true);
     notice("Finish or cancel the review message you are writing before starting another.");

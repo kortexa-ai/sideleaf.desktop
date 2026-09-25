@@ -4,7 +4,7 @@ import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, re
 import { basename, dirname, join, resolve } from "node:path";
 import { MAX_DOCUMENT_BYTES, validateDraft, type Draft, type DocumentSnapshot } from "../shared/contracts.ts";
 import { relocateThread } from "./anchors.ts";
-import { isPlainText } from "../shared/document-type.ts";
+import { isPlainText, supportsReview, REVIEW_UNSUPPORTED } from "../shared/document-type.ts";
 import { windowsFileKey } from "../platform/windows-channel.ts";
 import { writeWSLFile } from "./wsl-write.ts";
 
@@ -136,7 +136,7 @@ export function decodeMarkdown(bytes: Uint8Array): { text: string; bom: boolean;
   let text: string;
   try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bom ? bytes.subarray(3) : bytes); }
   catch { throw new Error("This file is not valid UTF-8. Convert a copy to UTF-8 before opening it in Sideleaf."); }
-  if (text.includes("\u0000")) throw new Error("This file contains NUL characters and is not supported as Markdown.");
+  if (text.includes("\u0000")) throw new Error("This file contains NUL characters and looks binary. Sideleaf opens only UTF-8 text files.");
   // One scan classifies every line ending; only CRLF content allocates a
   // second copy, and that copy is the normalized text returned to the caller.
   let hasCRLF = false, loneCR = false, loneLF = false;
@@ -336,6 +336,7 @@ export class DocumentFile {
       const revisions = [revision, ...this.revisions.filter((r) => JSON.stringify(r) !== JSON.stringify(revision))].slice(0, 3);
       const metadata: Metadata = { format: "sideleaf-comments", version: 3, revisions };
       const annotated = draft.threads.length > 0 || this.revisions.length > 0 || actor !== "local-user";
+      if (annotated && !supportsReview(basename(path))) throw new Error(REVIEW_UNSUPPORTED);
       const bytes = annotated ? encode(embedMetadata(draft.text, metadata)) : source;
       if (previousDisk ? readDisk(path, previousDisk.mode).signature !== previousDisk.signature : existsSync(path)) throw new Error("The file changed during save. Your draft is still open; save a copy.");
       // Source and all comments now commit with one fsynced atomic replacement.

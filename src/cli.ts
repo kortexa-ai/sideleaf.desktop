@@ -5,6 +5,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { acquireDocumentLockAsync, DocumentFile, type DocumentLock } from "./document/files.ts";
 import { makeAnchor } from "./document/anchors.ts";
+import { REVIEW_UNSUPPORTED, supportsReview } from "./shared/document-type.ts";
 import { legacyComments, MAX_DOCUMENT_BYTES, type ReviewThread } from "./shared/contracts.ts";
 import { installSideleafSkills, parseSkillInstallArgs } from "./skill.ts";
 import { AppChannelError, deliverAppCommand, requestApp, sideleafUserData, type AppCommand, type CollaborationOperation } from "./collaboration/channel.ts";
@@ -236,6 +237,7 @@ async function main() {
     output({ ok: true, path, delivery: await openDesktop(action, override) }); return;
   }
   const resolved = collaborationTarget(filename, documentId);
+  if (resolved.path && !supportsReview(basename(resolved.path))) inputError(`${REVIEW_UNSUPPORTED} Use sideleaf FILE to edit this file in the app.`);
   const target = resolved.target; path = resolved.path ?? "";
 
   const liveRead = async (): Promise<Record<string, any> | null> => {

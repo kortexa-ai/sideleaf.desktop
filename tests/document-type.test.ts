@@ -11,19 +11,42 @@ import { DocumentFile, decodeMarkdown } from "../src/document/files.ts";
 import { RecoveryStore } from "../src/document/scratch.ts";
 import { makeAnchor } from "../src/document/anchors.ts";
 import { splitMetadata } from "../src/document/metadata.ts";
-import { isPlainText, documentViewMode } from "../src/shared/document-type.ts";
+import { isPlainText, documentViewMode, supportsReview } from "../src/shared/document-type.ts";
 import { documentMode, documentExtensions } from "../src/ui/document-mode.ts";
 import { commentField, commentHistory, setComments } from "../src/ui/comments.ts";
 
 test("filename type guards every view request without changing the Markdown choice", () => {
-  for (const name of ["notes.txt", "café 葉.TXT", "C:\\notes\\draft.Txt"]) {
+  for (const name of ["notes.txt", "café 葉.TXT", "C:\\notes\\draft.Txt", "config.json", ".env", "settings.INI", "notes", "notes.md.bak"]) {
     assert.equal(isPlainText(name), true);
     for (const mode of ["write", "split", "read"] as const) assert.equal(documentViewMode(name, mode), "write");
   }
-  for (const name of ["Untitled.md", "notes.markdown", "txt.md", "notes.txt.md", "notes"]) {
+  for (const name of ["Untitled.md", "notes.markdown", "txt.md", "notes.txt.md", "draft.MDOWN"]) {
     assert.equal(isPlainText(name), false);
     assert.equal(documentViewMode(name, "read"), "read");
   }
+});
+
+test("other text files open as plain text, save byte-exact and refuse comments; binary files are refused", () => {
+  assert.deepEqual(["a.md", "a.txt", "a.json", ".env", "a"].map(supportsReview), [true, true, false, false, false]);
+  const folder = mkdtempSync(join(tmpdir(), "sideleaf-type-other-"));
+  const cases: [string, Buffer][] = [["config.json", Buffer.from('{\r\n  "a": 1\r\n}')], [".env", Buffer.from("\uFEFFKEY=value\n\n")], ["settings.ini", Buffer.from("[x]\ny=1")]];
+  for (const [name, bytes] of cases) {
+    const path = join(folder, name); writeFileSync(path, bytes);
+    const file = DocumentFile.open(path), draft = file.snapshot();
+    assert.equal(isPlainText(draft.name), true);
+    file.save({ text: draft.text, threads: [] }); assert.ok(readFileSync(path).equals(bytes));
+    file.save({ text: draft.text + "z", threads: [] }); assert.ok(readFileSync(path).equals(Buffer.concat([bytes, Buffer.from("z")])));
+    const thread = { id: "one", state: "open" as const, anchor: makeAnchor(draft.text, 0, 1), messages: [{ id: "one", createdAt: "today", body: "No" }] };
+    assert.throws(() => file.save({ text: draft.text, threads: [thread] }), /support only \.md/);
+    assert.throws(() => file.save({ text: draft.text, threads: [] }, undefined, "agent:test"), /support only \.md/);
+    assert.ok(readFileSync(path).equals(Buffer.concat([bytes, Buffer.from("z")])));
+  }
+  writeFileSync(join(folder, "image.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]));
+  assert.throws(() => DocumentFile.open(join(folder, "image.png")), /not valid UTF-8/);
+  writeFileSync(join(folder, "data.bin"), Buffer.from("ab\u0000cd"));
+  assert.throws(() => DocumentFile.open(join(folder, "data.bin")), /NUL characters and looks binary/);
+  writeFileSync(join(folder, "latin1.ini"), Buffer.from([0x63, 0x61, 0x66, 0xe9]));
+  assert.throws(() => DocumentFile.open(join(folder, "latin1.ini")), /not valid UTF-8/);
 });
 
 test("Save As and Rename change type only on success, retaining annotated text and encoding", () => {

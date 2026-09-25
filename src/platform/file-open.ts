@@ -1,6 +1,6 @@
 import events from "electrobun/main/events";
 import { extname } from "node:path";
-import { isPlainText } from "../shared/document-type.ts";
+import { supportsReview } from "../shared/document-type.ts";
 
 export const MARKDOWN_EXTENSIONS = ["md", "markdown", "mdown"] as const;
 export type LaunchRequest = { kind: "open" | "open-folder"; path: string };
@@ -31,7 +31,8 @@ export function pathFromFileActivation(value: unknown): string | null {
     if (process.platform === "win32") {
       path = url.hostname ? `\\\\${url.hostname}${path.replaceAll("/", "\\")}` : path.replace(/^\/([A-Za-z]:)/, "$1").replaceAll("/", "\\");
     } else if (url.hostname) return null;
-    return isMarkdownPath(path) || isPlainText(path) ? path : null;
+    // The OS only hands over registered types; other text files open through the CLI.
+    return supportsReview(path) ? path : null;
   } catch { return null; }
 }
 

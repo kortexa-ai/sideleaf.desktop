@@ -257,3 +257,10 @@ editable Markdown document types, and `txt` as plain text. Finder's Open With me
 Apps can therefore select Sideleaf, while the final default remains the user's
 choice. OS-opened documents use the same unsaved-change confirmation as the
 app's Open command.
+
+`sideleaf FILE` also opens other text files, such as `.json`, `.ini`, `.env` or a
+file without an extension, as plain text. These types are not registered with the
+operating system. Sideleaf saves them byte-exact, keeping the BOM, the line endings
+and the final newline. It refuses files that are not valid UTF-8 or that contain NUL
+characters. Comments, and agent commands such as `read`, `edit`, `apply` and
+`threads`, work only on `.md`, `.markdown`, `.mdown` and `.txt` documents.
