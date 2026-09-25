@@ -22,8 +22,8 @@ the DMG with that profile. Create it with Apple's `notarytool store-credentials`
 on a release machine.
 
 On Windows, use native Windows Bun 1.4.0 or newer and Windows PowerShell. Follow
-the checkout synchronization and interactive launch instructions in [AGENTS.md](../AGENTS.md);
-an SSH connection to Scrappy starts in WSL and does not establish native Windows validation.
+the checkout synchronization and interactive launch instructions in [AGENTS.md](../AGENTS.md).
+A Windows build or test run from WSL does not establish native Windows validation.
 The build is unsigned. Hutch produces a ZIP containing the setup executable;
 users must extract the ZIP before running Setup. The native runtime adapter is
 applied before packaging, so installed apps receive the same CPU fix as development
