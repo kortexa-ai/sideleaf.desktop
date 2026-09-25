@@ -58,12 +58,23 @@ Upload exactly these files:
 | `Sideleaf-X.Y.Z-runtime-sources.tar.gz` | `application/gzip` | By hand, see below |
 | `SHA256SUMS.txt` | `text/plain` | By hand, see below |
 
-- **Runtime sources:** when `bun.lock` and `scripts/third-party-sources.json`
-  have not changed, reuse the previous release's archive byte for byte under the
-  new name. Otherwise build a new one that contains the runtime patches, the JSC
-  build and ICU archives, a Cottontail/Electrobun source archive at the pinned
-  revisions, `BUILDING.md`, `THIRD-PARTY-NOTICES.txt` and an inner
-  `SHA256SUMS.txt`. Then `tar -czf` it.
+- **Runtime sources:** the archive has a top folder
+  `Sideleaf-X.Y.Z-runtime-sources/` and a `BUILDING.md` that name the Sideleaf
+  version, so it is never reused unchanged.
+  - When `bun.lock` and `scripts/third-party-sources.json` have not changed,
+    download the previous release's archive and check it against that
+    release's `SHA256SUMS.txt`. Extract it, rename the top folder to the new
+    version, and update the version and tag in `BUILDING.md`. Keep every other
+    file unchanged.
+  - Otherwise, build a new archive that contains the runtime patches, the JSC
+    build and ICU archives, a Cottontail/Electrobun source archive at the
+    pinned revisions, `BUILDING.md`, `THIRD-PARTY-NOTICES.txt` and an inner
+    `SHA256SUMS.txt`.
+  - In both cases, make sure `BUILDING.md` points to the current WebKit source
+    release (section 5), not to a WebKit asset in this release. Make sure the
+    inner `THIRD-PARTY-NOTICES.txt` has the same hash as this release's notices.
+    Then regenerate the inner `SHA256SUMS.txt`, check it with `shasum -c`, and
+    pack with `COPYFILE_DISABLE=1 tar --no-xattrs -czf`.
 - **Checksums:** in `artifacts/release/`, run
   `shasum -a 256 <dmg> <zip> <runtime-sources> <notices> > SHA256SUMS.txt` and
   check the result with `shasum -c SHA256SUMS.txt`.
@@ -149,8 +160,11 @@ Track it with an issue in that repository.
      divergent. Never reset.
    - Run `npm ci`, then build into a staging directory:
      `npm run build -- --outDir <stage>`.
-   - Swap the stage in for `dist` and keep the previous `dist` as the rollback
-     copy until the checks pass.
+   - Swap the stage in for `dist`. Move the previous `dist` **outside the
+     checkout**, for example to `~/deploy-rollbacks/sideleaf-dist-<old version>-<timestamp>`,
+     and keep it until the checks pass. A rollback folder inside the checkout
+     is an untracked file, and the next deployment fails its clean-checkout check.
+   - Confirm that `git status --short` is empty after the swap.
    - Nginx reads `dist` directly, so a content update does not need a reload.
      Reload only when `nginx/*.conf` changes: `sudo nginx -t && sudo systemctl reload nginx`.
 4. Verify from outside: `curl -I https://sideleaf.xyz/`, the docs and privacy
