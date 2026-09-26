@@ -551,7 +551,10 @@ function createEditorState(text: string, threads: Draft["threads"] = [], name = 
       EditorView.theme({
         "&": { height: "100%", fontSize: "calc(14px * var(--document-zoom))", backgroundColor: "var(--paper)", color: "var(--ink)" },
         ".cm-scroller": { overflow: "auto", fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace", lineHeight: "1.75" },
-        ".cm-content": { padding: "24px 22px 100px", caretColor: "var(--green)" },
+        ".cm-content": { padding: "24px 22px 100px" },
+        // basicSetup's drawSelection hides the native caret and draws .cm-cursor itself, black unless the
+        // theme is registered dark; give it the accent color so it stays visible on the dark paper (#77).
+        ".cm-cursor, .cm-dropCursor": { borderLeft: "2px solid var(--green)", marginLeft: "-1px" },
         // CodeMirror includes the content padding in its gutter line positions.
         ".cm-gutters": { background: "var(--paper)", color: "var(--faint)", border: "none" },
         ".cm-lineNumbers .cm-gutterElement": { padding: "0 4px 0 16px", minWidth: "28px" },
