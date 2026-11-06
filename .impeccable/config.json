@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/ui/app.css"
+        ],
+        "createdAt": "2026-11-06T18:12:01.419Z",
+        "reason": "Agent review: the three existing borders mark Markdown blockquotes, anchored review excerpts and comment drafts. All are unchanged from 4d6588d and are semantic quote markers, not decorative card accents."
+      }
+    ]
+  }
+}
