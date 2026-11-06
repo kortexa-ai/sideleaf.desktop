@@ -1,10 +1,10 @@
-import { launchRequestFromLaunch, setFileActivationReceiver, takeInitialFileActivation } from "./platform/file-open.ts";
+import { launchRequestFromLaunch, resolveRelativeLink, setFileActivationReceiver, takeInitialFileActivation } from "./platform/file-open.ts";
 import events from "electrobun/main/events";
 import { BrowserWindow } from "electrobun/main/browser-window";
 import { BrowserView } from "electrobun/main/browser-view";
 import * as ApplicationMenu from "electrobun/main/app-menu";
 import * as Utils from "electrobun/main/utils";
-import { mkdirSync, appendFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, appendFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { userInfo } from "node:os";
@@ -258,6 +258,12 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
         const parsed = new URL(url);
         if (!["https:", "http:", "mailto:"].includes(parsed.protocol)) throw new Error("Only web and email links can be opened from the preview.");
         return Utils.openExternal(parsed.href);
+      },
+      openRelativeLink: async ({ id, url }) => {
+        const target = resolveRelativeLink(url, workspace.get(id).file.path);
+        if (!statSync(target.path).isFile()) throw new Error("This link does not point to a text file.");
+        const result = await mutateWorkspaceAsync(() => workspace.openOwned(target.path));
+        return { ...result, fragment: target.fragment };
       },
       windowAction: ({ action }): boolean => {
         if (action === "titlebar-double-click") {

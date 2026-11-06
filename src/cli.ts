@@ -113,8 +113,8 @@ async function openDesktop(command: AppCommand, override?: string): Promise<"run
   }
   if (process.platform === "darwin") {
     const target = override ? ["-a", resolve(override)] : ["-b", "ai.kortexa.sideleaf"];
-    if (command.kind === "open") target.push(command.path);
-    else if (command.kind === "open-folder") target.push("--env", `SIDELEAF_OPEN_PATH=${command.path}`, "--env", "SIDELEAF_OPEN_KIND=folder");
+    // Explicit launch paths bypass Launch Services' registered-extension filter.
+    if (command.kind !== "activate") target.push("--env", `SIDELEAF_OPEN_PATH=${command.path}`, "--env", `SIDELEAF_OPEN_KIND=${command.kind === "open-folder" ? "folder" : "file"}`);
     execFileSync("/usr/bin/open", target);
     return "launched";
   }

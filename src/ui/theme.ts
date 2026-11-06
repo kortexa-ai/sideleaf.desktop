@@ -1,4 +1,10 @@
 export const THEME_STORAGE_KEY = "sideleaf.theme";
+export const PALETTE_STORAGE_KEY = "sideleaf.palette";
+export const PALETTE_PREFERENCES = ["sideleaf", "monochrome"] as const;
+export type PalettePreference = typeof PALETTE_PREFERENCES[number];
+export function storedPalette(value: string | null): PalettePreference {
+  return value === "monochrome" ? "monochrome" : "sideleaf";
+}
 export const THEME_PREFERENCES = ["light", "dark", "system"] as const;
 export type ThemePreference = typeof THEME_PREFERENCES[number];
 export type ResolvedTheme = Exclude<ThemePreference, "system">;

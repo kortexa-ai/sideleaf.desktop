@@ -23,7 +23,8 @@ const bin = join(root, process.platform === "darwin" ? "Contents/MacOS" : "bin")
 const resources = join(root, process.platform === "darwin" ? "Contents/Resources" : "Resources");
 const source = await readFile(join(resources, "app/bun/index.js"), "utf8");
 const parsed = await build({ stdin: { contents: source }, platform: "node", format: "esm", write: false, metafile: true, logLevel: "silent" });
-const allowed = new Set(["bun:ffi", "child_process", "crypto", "events", "fs", "net", "os", "path"]);
+// Relative document links use the retained URL pack for native file-URL paths.
+const allowed = new Set(["bun:ffi", "child_process", "crypto", "events", "fs", "net", "os", "path", "url"]);
 const imports = Object.values(parsed.metafile.outputs).flatMap((output) => output.imports);
 for (const entry of imports) {
   if (!allowed.has(entry.path.replace(/^node:/, ""))) throw new Error(`Review runtime packs for the new host import: ${entry.path}`);

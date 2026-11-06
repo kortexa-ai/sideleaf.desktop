@@ -136,6 +136,12 @@ and add features because daily use needs them.
 - Render useful Markdown: headings, paragraphs, emphasis, links, lists, tasks, code,
   block quotes, tables, and images. Define the supported dialect and extensions explicitly.
 - Offer source and reader views, with predictable focus, scroll, and selection mapping.
+- Render relative file links and heading fragments. Resolve files against the saved
+  document, open them within Sideleaf with the normal unsaved-change checks, and
+  keep executable/custom URL schemes disabled. Unsaved documents must be saved
+  before following relative file links. Local image loading remains separate.
+- Keep the Sideleaf palette as the default. Offer a persisted black-and-white
+  palette independently of Light, Dark and System appearance.
 - Add tabs, multiple windows, a file tree, recent workspaces, and session restoration
   after the single-document path is reliable. Index folders lazily; do not preload every file.
 
@@ -210,6 +216,10 @@ These additions define planned product behavior, not a claim of implementation.
 
 - Ship an installable `sideleaf` CLI on macOS, Windows and WSL for opening files,
   reading/editing Markdown and listing/adding/updating/removing comments without a GUI.
+- `sideleaf FILE` and `sideleaf open FILE` open UTF-8 text files of any extension,
+  including extensionless and dotfiles. Non-Markdown files use plain-text editing;
+  comments and agent operations remain limited to Markdown and `.txt` documents.
+  Keep binary, encoding and size checks in the shared document service.
 - Use the app's bundled Cottontail runtime for the CLI. End users never need Node,
   Bun or npm. macOS and Windows expose an installation command in the Sideleaf menu;
   the Windows installer also offers native CLI installation. A separate Windows menu

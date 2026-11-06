@@ -122,6 +122,15 @@ try {
   assert.equal(opened.status, 0, JSON.stringify(opened));
   assert.equal(JSON.parse(opened.stdout).delivery, "running");
   assert.deepEqual(commands, [{ kind: "activate" }, { kind: "open", path: file }]);
+  for (const name of ["settings café.json", ".env", "README", "preferences.ini"]) {
+    const other = join(dir, name); writeFileSync(other, "plain text\n");
+    for (const args of [[other], ["open", other]]) {
+      const result = await runAsync(args, launchEnv);
+      assert.equal(result.status, 0, JSON.stringify(result));
+      assert.equal(JSON.parse(result.stdout).delivery, "running");
+      assert.deepEqual(commands.at(-1), { kind: "open", path: other });
+    }
+  }
   const listed = await runAsync(["documents"], launchEnv);
   assert.equal(JSON.parse(listed.stdout).documents[0].id, documentId);
   const live = JSON.parse((await runAsync(["read", "--document", documentId], launchEnv)).stdout);

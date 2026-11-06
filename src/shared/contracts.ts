@@ -103,6 +103,7 @@ export type SideleafRPC = {
       reload: { params: { id: string }; response: DocumentSnapshot };
       confirmDiscard: { params: { id: string }; response: "save" | "discard" | "cancel" };
       openLink: { params: { url: string }; response: boolean };
+      openRelativeLink: { params: { id: string; url: string }; response: OpenResult & { fragment: string | null } };
       windowAction: { params: { action: WindowAction }; response: boolean };
       finishClose: { params: { quit: boolean }; response: boolean };
     };

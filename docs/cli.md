@@ -24,6 +24,13 @@ The command follows desktop updates because it runs from the installed app.
 `sideleaf --help` describes commands. JSON output escapes non-ASCII characters so
 legacy Windows code pages cannot corrupt text.
 
+Run `sideleaf FILE` or `sideleaf open FILE` to open a file in the desktop app,
+whether Sideleaf is already running or needs to start. Any extension, dotfiles and
+extensionless filenames are accepted. Markdown uses the Markdown editor; other
+UTF-8 files use plain text. The usual 10 MiB, encoding and binary checks apply.
+Comments and agent read/edit operations support Markdown and `.txt` only, so
+configuration files do not acquire Sideleaf metadata.
+
 ## Install the agent skill
 
 The bundled Sideleaf skill tells supported agents how to use the local CLI for

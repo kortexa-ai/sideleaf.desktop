@@ -17,7 +17,7 @@ test("macOS advertises Markdown and plain-text documents", () => {
   assert.match(postBuild, /CFBundleDocumentTypes:1:LSItemContentTypes:0 string public\.plain-text/);
   assert.match(postBuild, /UTImportedTypeDeclarations:0:UTTypeConformsTo:0 string public\.plain-text/);
   const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-  assert.match(main, /^import \{ launchRequestFromLaunch, setFileActivationReceiver, takeInitialFileActivation \} from "\.\/platform\/file-open\.ts";/);
+  assert.match(main, /^import \{ launchRequestFromLaunch, resolveRelativeLink, setFileActivationReceiver, takeInitialFileActivation \} from "\.\/platform\/file-open\.ts";/);
 });
 
 test("file activation accepts local Markdown and text URLs and preserves their path", () => {

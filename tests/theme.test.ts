@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { resolveTheme, storedTheme, THEME_PREFERENCES } from "../src/ui/theme.ts";
+import { resolveTheme, storedPalette, storedTheme, THEME_PREFERENCES } from "../src/ui/theme.ts";
 
 describe("appearance preference", () => {
+  test("keeps Sideleaf colors by default and remembers the independent monochrome palette", () => {
+    expect(storedPalette(null)).toBe("sideleaf");
+    expect(storedPalette("unknown")).toBe("sideleaf");
+    expect(storedPalette("monochrome")).toBe("monochrome");
+    expect(storedPalette("sideleaf")).toBe("sideleaf");
+  });
   test("accepts only the three supported persisted values", () => {
     expect(THEME_PREFERENCES).toEqual(["light", "dark", "system"]);
     expect(storedTheme("light")).toBe("light");

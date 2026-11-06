@@ -10,7 +10,8 @@ import { openSearchPanel } from "@codemirror/search";
 import { agentHighlightField, commentField, commentHistory, composeAgentChanges, setAgentHighlights, setComments } from "./comments.ts";
 import { PREVIEW_LIMIT, renderMarkdown, setHardBreaks } from "./markdown.ts";
 import { customShortcutAction, customShortcutLabel, layoutShortcutAction, layoutShortcutLabel } from "./shortcuts.ts";
-import { resolveTheme, storedTheme, THEME_STORAGE_KEY, type ThemePreference } from "./theme.ts";
+import { PALETTE_STORAGE_KEY, resolveTheme, storedPalette, storedTheme, THEME_STORAGE_KEY, type PalettePreference, type ThemePreference } from "./theme.ts";
+import { previewLinkKind } from "./links.ts";
 import { wordCountField } from "./word-count.ts";
 import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
 import { commentRange, makeAnchor } from "../document/anchors.ts";
@@ -99,6 +100,16 @@ function applyTheme(preference: ThemePreference, persist = true) {
   }
 }
 applyTheme(themePreference, false);
+function applyPalette(preference: PalettePreference, persist = true) {
+  document.documentElement.dataset.palette = preference;
+  document.querySelectorAll<HTMLButtonElement>("[data-palette-choice]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.paletteChoice === preference));
+  });
+  if (persist) {
+    try { localStorage.setItem(PALETTE_STORAGE_KEY, preference); } catch { /* Keep the in-memory preference usable. */ }
+  }
+}
+applyPalette(storedPalette((() => { try { return localStorage.getItem(PALETTE_STORAGE_KEY); } catch { return null; } })()), false);
 systemAppearance.addEventListener("change", () => { if (themePreference === "system") applyTheme("system", false); });
 const sideleafHighlight = HighlightStyle.define([
   { tag: tags.heading, color: "var(--syntax-heading)", fontWeight: "600" },
@@ -412,6 +423,9 @@ settingsPanel.addEventListener("keydown", (event) => { if (event.key === "Escape
 document.addEventListener("pointerdown", (event) => { if (!settingsContainer.contains(event.target as Node)) closeSettings(); });
 document.querySelectorAll<HTMLButtonElement>("[data-theme-choice]").forEach((button) => {
   button.onclick = () => applyTheme(storedTheme(button.dataset.themeChoice ?? null));
+});
+document.querySelectorAll<HTMLButtonElement>("[data-palette-choice]").forEach((button) => {
+  button.onclick = () => applyPalette(storedPalette(button.dataset.paletteChoice ?? null));
 });
 applyMinimalLayout(settings.minimalLayout, false);
 setHardBreaks(settings.hardBreaks);
@@ -1270,10 +1284,29 @@ element("reload").onclick = () => { void run(async () => {
   const snapshot = await rpc.request.reload({ id: previous.metadata.id });
   if (buffers.get(previous.metadata.id) === previous) applyDocument(snapshot, false, previous);
 }); };
+function revealPreviewFragment(fragment: string) {
+  updatePreview();
+  const preview = element("preview");
+  if (!fragment) { preview.parentElement!.scrollTop = 0; return; }
+  const heading = [...preview.querySelectorAll<HTMLElement>("[data-heading-id]")].find((item) => item.dataset.headingId === fragment);
+  if (heading) heading.scrollIntoView({ block: "start" });
+  else notice(`Heading “${fragment}” was not found in the preview.`);
+}
 element("preview").onclick = (event) => {
   const link = (event.target as HTMLElement).closest("a"); if (!link) return;
   event.preventDefault(); const url = link.getAttribute("href");
-  if (url && /^(https?:|mailto:)/i.test(url)) void rpc.request.openLink({ url }).catch((error) => notice(error.message));
+  if (!url || busy) return;
+  const kind = previewLinkKind(url);
+  if (kind === "external") void rpc.request.openLink({ url }).catch((error) => notice(error.message));
+  else if (kind === "fragment") {
+    try { revealPreviewFragment(decodeURIComponent(url.slice(1))); } catch { notice("This link contains an invalid heading address."); }
+  } else if (kind === "relative") void run(async () => {
+    const replace = !workspaceInfo.explicit;
+    if (replace && !(await canLeaveAll())) return;
+    const next = await rpc.request.openRelativeLink({ id: current.id, url });
+    applyOpenResult(next, replace);
+    if (next.fragment !== null) requestAnimationFrame(() => revealPreviewFragment(next.fragment!));
+  });
 };
 
 setInterval(() => { void checkDisk(); }, 2000);

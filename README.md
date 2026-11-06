@@ -17,6 +17,8 @@ runtime and needs no separate Node, Bun, or npm installation.
 agents the safe read, edit, and comment workflow.
 Sideleaf registers as a Markdown and text editor with both operating systems, offers a
 distraction-free full-screen workspace, and scales editor and preview text together.
+Settings offers the original Sideleaf colors or a black-and-white palette, each
+with Light, Dark or System appearance. The original colors remain the default.
 
 ## Plain text
 
@@ -26,6 +28,10 @@ disabled for that file. New documents start as Markdown; saving or renaming to
 `.txt` switches to text, and `.md` switches back. Switching files preserves your
 Markdown view choice. Text files use the same UTF-8 and line-ending support and
 embedded comment metadata as Markdown files.
+
+Use `sideleaf FILE` or `sideleaf open FILE` to open any UTF-8 text file, including
+`.json`, `.ini`, `.env` and extensionless files. These other file types use plain
+text editing without Sideleaf review metadata. Binary files are refused.
 
 ## Files and folders
 
@@ -49,7 +55,7 @@ not follow links or junctions. Open a linked target directly when needed.
 
 ## Download
 
-Get [Sideleaf 0.1.10](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.10)
+Get [Sideleaf 0.1.11](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.11)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
 the ZIP, then run the setup executable.
@@ -110,7 +116,9 @@ No image API key or image generation service is used at app runtime.
   the original automatically. Both behaviors have simple settings. Closing a dirty document offers Save,
   Discard, or Cancel, and external changes show Save a copy and Reload options.
 - Markdown preview supports common Markdown and tables. Raw HTML and image loading
-  are disabled. Only HTTP, HTTPS, and email links open externally. The preview shows
+  are disabled. Relative file links open inside Sideleaf, resolved from the saved
+  document's folder; heading fragments jump within the preview. Only HTTP, HTTPS,
+  and email links open externally. The preview shows
   the first 200,000 characters of large files; the complete source remains editable.
 - Comments participate in undo/redo. Editing their selected text makes them visibly
   unanchored; undo restores the prior anchor. Sideleaf metadata uses its own versioned,
