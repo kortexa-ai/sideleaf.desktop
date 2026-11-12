@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import events from "electrobun/main/events";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
+import { tmpdir } from "node:os";
+import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import config from "../electrobun.config.ts";
-import { MARKDOWN_EXTENSIONS, isMarkdownPath, launchRequestFromLaunch, pathFromFileActivation, pathFromLaunch } from "../src/platform/file-open.ts";
+import { MARKDOWN_EXTENSIONS, isMarkdownPath, launchRequestFromFileActivation, launchRequestFromLaunch, pathFromLaunch, setFileActivationReceiver, takeInitialFileActivation, type LaunchRequest } from "../src/platform/file-open.ts";
 
-test("macOS advertises Markdown and plain-text documents", () => {
+test("macOS advertises Markdown, plain-text documents and alternate folder handling", () => {
   assert.deepEqual(config.app.fileAssociations, [{
     ext: [...MARKDOWN_EXTENSIONS],
     name: "Markdown document",
@@ -15,6 +18,9 @@ test("macOS advertises Markdown and plain-text documents", () => {
   assert.match(postBuild, /"UTExportedTypeDeclarations", "UTImportedTypeDeclarations"/);
   assert.match(postBuild, /LSItemContentTypes:0 string net\.daringfireball\.markdown/);
   assert.match(postBuild, /CFBundleDocumentTypes:1:LSItemContentTypes:0 string public\.plain-text/);
+  assert.match(postBuild, /CFBundleDocumentTypes:2:LSItemContentTypes:0 string public\.folder/);
+  assert.match(postBuild, /CFBundleDocumentTypes:2:CFBundleTypeRole string Viewer/);
+  assert.match(postBuild, /CFBundleDocumentTypes:2:LSHandlerRank string Alternate/);
   assert.match(postBuild, /UTImportedTypeDeclarations:0:UTTypeConformsTo:0 string public\.plain-text/);
   const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
   assert.match(main, /^import \{ launchRequestFromLaunch, resolveRelativeLink, setFileActivationReceiver, takeInitialFileActivation \} from "\.\/platform\/file-open\.ts";/);
@@ -22,11 +28,52 @@ test("macOS advertises Markdown and plain-text documents", () => {
 
 test("file activation accepts local Markdown and text URLs and preserves their path", () => {
   const path = process.platform === "win32" ? "C:\\Notes\\leaf café.md" : "/Users/writer/leaf café.md";
-  assert.equal(pathFromFileActivation(pathToFileURL(path).href), path);
-  assert.equal(pathFromFileActivation("https://sideleaf.xyz/notes.md"), null);
-  assert.equal(pathFromFileActivation(pathToFileURL(`${path}.TXT`).href), `${path}.TXT`);
-  assert.equal(pathFromFileActivation(pathToFileURL(`${path}.pdf`).href), null);
+  assert.deepEqual(launchRequestFromFileActivation(pathToFileURL(path).href), { kind: "open", path });
+  assert.equal(launchRequestFromFileActivation("https://sideleaf.xyz/notes.md"), null);
+  assert.deepEqual(launchRequestFromFileActivation(pathToFileURL(`${path}.TXT`).href), { kind: "open", path: `${path}.TXT` });
+  assert.equal(launchRequestFromFileActivation(pathToFileURL(`${path}.pdf`).href), null);
   assert.equal(isMarkdownPath("DRAFT.MARKDOWN"), true);
+});
+
+test("folder activation detects actual directories before document suffixes", () => {
+  const root = mkdtempSync(join(tmpdir(), "sideleaf-folder-activation-"));
+  try {
+    for (const name of ["leaf café 文", "folder.md", "folder.txt", "folder.pdf"]) {
+      const path = join(root, name); mkdirSync(path);
+      assert.deepEqual(launchRequestFromFileActivation(pathToFileURL(path).href), { kind: "open-folder", path });
+      assert.deepEqual(launchRequestFromFileActivation(`${pathToFileURL(path).href}/`), { kind: "open-folder", path: `${path}${sep}` });
+    }
+    const unsupported = join(root, "document.pdf"); writeFileSync(unsupported, "plain text");
+    assert.equal(launchRequestFromFileActivation(pathToFileURL(unsupported).href), null);
+    assert.equal(launchRequestFromFileActivation(pathToFileURL(join(root, "missing folder")).href), null);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("native activation rejects malformed URLs and encoded path separators", () => {
+  for (const value of [undefined, 42, "not a URL", "file:///tmp/bad%ZZ.md", "file:///tmp/a%2Fb.md", "file:///tmp/a%5Cb.md"]) {
+    assert.equal(launchRequestFromFileActivation(value), null);
+  }
+  if (process.platform !== "win32") assert.equal(launchRequestFromFileActivation("file://remote/notes.md"), null);
+});
+
+test("native events retain file and folder kinds through cold-launch buffering and running-app delivery", () => {
+  const root = mkdtempSync(join(tmpdir(), "sideleaf-activation-queue-"));
+  const path = join(root, "folder café.md"); mkdirSync(path);
+  const file = join(root, "note.md"); writeFileSync(file, "# Note");
+  const folderRequest: LaunchRequest = { kind: "open-folder", path };
+  const fileRequest: LaunchRequest = { kind: "open", path: file };
+  const activate = (target: string) => events.emitEvent(events.events.app.openUrl({ url: pathToFileURL(target).href }));
+  try {
+    assert.equal(takeInitialFileActivation(), null);
+    activate(path); activate(file); activate(path);
+    assert.deepEqual(takeInitialFileActivation(), folderRequest);
+    const received: LaunchRequest[] = [];
+    setFileActivationReceiver((request) => received.push(request));
+    assert.deepEqual(received, [fileRequest, folderRequest]);
+    assert.equal(takeInitialFileActivation(), null);
+    activate(path); activate(file);
+    assert.deepEqual(received, [fileRequest, folderRequest, folderRequest, fileRequest]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("explicit launch paths retain argument boundaries and prefer the native launcher environment", () => {

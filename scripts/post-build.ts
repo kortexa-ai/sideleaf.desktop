@@ -79,6 +79,13 @@ if (process.platform === "darwin") {
       "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string net.daringfireball.markdown",
       "Add :CFBundleDocumentTypes:1:LSItemContentTypes array",
       "Add :CFBundleDocumentTypes:1:LSItemContentTypes:0 string public.plain-text",
+      // Accept ordinary folder drops without competing with Finder as default.
+      "Add :CFBundleDocumentTypes:2 dict",
+      "Add :CFBundleDocumentTypes:2:CFBundleTypeName string Folder",
+      "Add :CFBundleDocumentTypes:2:CFBundleTypeRole string Viewer",
+      "Add :CFBundleDocumentTypes:2:LSHandlerRank string Alternate",
+      "Add :CFBundleDocumentTypes:2:LSItemContentTypes array",
+      "Add :CFBundleDocumentTypes:2:LSItemContentTypes:0 string public.folder",
       "Add :UTImportedTypeDeclarations array",
       "Add :UTImportedTypeDeclarations:0 dict",
       "Add :UTImportedTypeDeclarations:0:UTTypeIdentifier string net.daringfireball.markdown",

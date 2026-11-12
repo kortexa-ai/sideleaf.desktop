@@ -1,4 +1,5 @@
 import events from "electrobun/main/events";
+import { statSync } from "node:fs";
 import { extname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { supportsReview } from "../shared/document-type.ts";
@@ -7,17 +8,17 @@ import { previewLinkKind } from "../ui/links.ts";
 export const MARKDOWN_EXTENSIONS = ["md", "markdown", "mdown"] as const;
 export type LaunchRequest = { kind: "open" | "open-folder"; path: string };
 const markdownSuffixes = new Set(MARKDOWN_EXTENSIONS.map((extension) => `.${extension}`));
-const earlyFileActivations: string[] = [];
-let fileActivationReceiver: ((path: string) => void) | undefined;
+const earlyFileActivations: LaunchRequest[] = [];
+let fileActivationReceiver: ((request: LaunchRequest) => void) | undefined;
 
 // This module must remain the first import in main.ts. Electrobun flushes its
 // native cold-launch queue while BrowserWindow's module graph is evaluating,
 // so the application listener has to exist before that graph is imported.
 events.on("open-url", (value) => {
-  const path = pathFromFileActivation((value as { data?: { url?: unknown } }).data?.url);
-  if (!path) return;
-  if (fileActivationReceiver) fileActivationReceiver(path);
-  else earlyFileActivations.push(path);
+  const request = launchRequestFromFileActivation((value as { data?: { url?: unknown } }).data?.url);
+  if (!request) return;
+  if (fileActivationReceiver) fileActivationReceiver(request);
+  else earlyFileActivations.push(request);
 });
 
 export function isMarkdownPath(path: string): boolean {
@@ -33,7 +34,7 @@ export function resolveRelativeLink(url: string, documentPath: string | null): {
   return { path: fileURLToPath(target), fragment };
 }
 
-export function pathFromFileActivation(value: unknown): string | null {
+export function launchRequestFromFileActivation(value: unknown): LaunchRequest | null {
   if (typeof value !== "string" || value.length > 32_768) return null;
   try {
     const url = new URL(value);
@@ -42,8 +43,11 @@ export function pathFromFileActivation(value: unknown): string | null {
     if (process.platform === "win32") {
       path = url.hostname ? `\\\\${url.hostname}${path.replaceAll("/", "\\")}` : path.replace(/^\/([A-Za-z]:)/, "$1").replaceAll("/", "\\");
     } else if (url.hostname) return null;
+    // Check the filesystem before the suffix: a folder can itself end in .md.
+    try { if (statSync(path).isDirectory()) return { kind: "open-folder", path }; }
+    catch { /* Missing registered documents reach the normal open-error flow. */ }
     // The OS only hands over registered types; other text files open through the CLI.
-    return supportsReview(path) ? path : null;
+    return supportsReview(path) ? { kind: "open", path } : null;
   } catch { return null; }
 }
 
@@ -61,11 +65,11 @@ export function launchRequestFromLaunch(argv: readonly string[], environmentPath
   return null;
 }
 
-export function takeInitialFileActivation(): string | null {
+export function takeInitialFileActivation(): LaunchRequest | null {
   return earlyFileActivations.shift() ?? null;
 }
 
-export function setFileActivationReceiver(receiver: (path: string) => void): void {
+export function setFileActivationReceiver(receiver: (request: LaunchRequest) => void): void {
   fileActivationReceiver = receiver;
-  for (const path of earlyFileActivations.splice(0)) receiver(path);
+  for (const request of earlyFileActivations.splice(0)) receiver(request);
 }

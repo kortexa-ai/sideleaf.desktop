@@ -45,9 +45,9 @@ function diagnostic(event: string, message: string) {
   try { appendFileSync(startupLog, `${JSON.stringify(record)}\n`); } catch { /* Keep the app usable if its log directory is read-only. */ }
 }
 diagnostic("host-started", `Sideleaf ${APP_VERSION}`);
-const activatedPath = takeInitialFileActivation();
+const activatedRequest = takeInitialFileActivation();
 const launchRequest = launchRequestFromLaunch(process.argv, process.env.SIDELEAF_OPEN_PATH, process.env.SIDELEAF_OPEN_KIND) ??
-  (activatedPath ? { kind: "open" as const, path: activatedPath } : null);
+  activatedRequest;
 let rendererReady = false;
 const workspace = new DocumentWorkspace((workspaceId) => { if (rendererReady) rpc.send.foldersChanged({ workspaceId }); });
 const earlyAppCommands: AppCommand[] = [];
@@ -102,13 +102,13 @@ async function mutateWorkspaceAsync<T>(operation: () => Promise<T>): Promise<T> 
 async function receiveExternalOpen(path: string, kind: "open" | "open-folder" = "open") {
   if (!initialDelivered) {
     try { await workspace.openOwned(path); hasInitialPath = true; }
-    catch (error) { recoveryError = `Sideleaf could not open the selected file: ${(error as Error).message}`; diagnostic("file-activation-failed", (error as Error).message); }
+    catch (error) { recoveryError = `Sideleaf could not open the selected file or folder: ${(error as Error).message}`; diagnostic("file-activation-failed", (error as Error).message); }
     return;
   }
   pendingOpenPaths.push({ path, kind });
   if (rendererReady) rpc.send.command("openExternal");
 }
-setFileActivationReceiver((path) => { void receiveExternalOpen(path); });
+setFileActivationReceiver((request) => { void receiveExternalOpen(request.path, request.kind); });
 
 const rpc = BrowserView.defineRPC<SideleafRPC>({
   maxRequestTime: 120_000,
