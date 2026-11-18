@@ -84,6 +84,26 @@ test("explicit launch paths retain argument boundaries and prefer the native lau
   assert.equal(pathFromLaunch(["sideleaf"]), null);
 });
 
+test("explicit launch paths open existing directories as folders whatever the marker or kind says", () => {
+  const root = mkdtempSync(join(tmpdir(), "sideleaf-launch-folder-"));
+  try {
+    for (const name of ["leaf café 文", "something.md"]) {
+      const path = join(root, name); mkdirSync(path);
+      const folder: LaunchRequest = { kind: "open-folder", path };
+      assert.deepEqual(launchRequestFromLaunch(["sideleaf", "--sideleaf-open", path]), folder);
+      assert.deepEqual(launchRequestFromLaunch(["sideleaf", "--sideleaf-open-folder", path]), folder);
+      assert.deepEqual(launchRequestFromLaunch(["sideleaf"], path, "file"), folder);
+      assert.deepEqual(launchRequestFromLaunch(["sideleaf"], path), folder);
+    }
+    const file = join(root, "note.md"); writeFileSync(file, "# Note");
+    assert.deepEqual(launchRequestFromLaunch(["sideleaf", "--sideleaf-open", file]), { kind: "open", path: file });
+    assert.deepEqual(launchRequestFromLaunch(["sideleaf"], file, "file"), { kind: "open", path: file });
+    const missing = join(root, "missing folder.md");
+    assert.deepEqual(launchRequestFromLaunch(["sideleaf", "--sideleaf-open", missing]), { kind: "open", path: missing });
+    assert.deepEqual(launchRequestFromLaunch(["sideleaf"], missing, "folder"), { kind: "open-folder", path: missing });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("Windows installer registers Sideleaf as a per-user Markdown editor", () => {
   const installer = readFileSync(new URL("../scripts/windows-installer.iss", import.meta.url), "utf8");
   assert.match(installer, /Software\\RegisteredApplications.*ValueName: "Sideleaf"/);

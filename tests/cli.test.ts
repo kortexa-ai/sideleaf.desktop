@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync, readFileSync, rmSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DocumentFile } from "../src/document/files.ts";
@@ -135,16 +135,16 @@ test("suggestion CLI creates exact proposals and guards terminal decisions", () 
   assert.match(readFileSync(path, "utf8"), /"version":3/);
 });
 
-test("open-folder requires a directory and file-open keeps its file contract", () => {
+test("open-folder requires a directory and missing open paths fail before delivery", () => {
   const folder = mkdtempSync(join(tmpdir(), "sideleaf-cli-folder-")), path = join(folder, "a.md"); writeFileSync(path, "a");
   assert.equal(cli(["open-folder", path]).status, 2);
   assert.match(cli(["open-folder", path]).data.error, /folder path/);
-  assert.equal(cli(["open", folder]).status, 2);
-  assert.match(cli(["open", folder]).data.error, /open-folder/);
   assert.equal(cli(["open-folder", join(folder, "missing")]).status, 2);
+  assert.equal(cli(["open", join(folder, "missing")]).status, 2);
+  assert.equal(cli([join(folder, "missing.md")]).status, 2);
 });
 
-test("no arguments activate the running app, a bare file opens it, and help stays headless", async () => {
+test("no arguments activate the running app, a bare file or folder opens it, and help stays headless", async () => {
   const home = mkdtempSync(join(tmpdir(), "sideleaf-cli-launch-"));
   const environment = { ...process.env, HOME: home, ...(process.platform === "win32" ? { LOCALAPPDATA: join(home, "AppData", "Local") } : {}) };
   const userData = sideleafUserData("stable", process.platform, environment);
@@ -167,6 +167,16 @@ test("no arguments activate the running app, a bare file opens it, and help stay
     assert.equal(opened.status, 0, opened.stderr);
     assert.deepEqual(JSON.parse(opened.stdout), { ok: true, path, delivery: "running" });
     assert.deepEqual(received, [{ kind: "activate" }, { kind: "open", path }]);
+    // A directory opens as a folder whether it is bare, given to open or to open-folder.
+    for (const name of ["leaf café 文", "something.md"]) {
+      const folder = join(home, name); mkdirSync(folder); received.length = 0;
+      for (const args of [[folder], ["open", folder], ["open-folder", folder]]) {
+        const result = await run(args);
+        assert.equal(result.status, 0, result.stderr);
+        assert.deepEqual(JSON.parse(result.stdout), { ok: true, path: folder, delivery: "running" });
+      }
+      assert.deepEqual(received, Array(3).fill({ kind: "open-folder", path: folder }));
+    }
 
     const helpHome = join(home, "unused-help-home");
     const helpResult = spawnSync(process.execPath, [resolve("src/cli.ts"), "--help"], { encoding: "utf8", env: { ...environment, HOME: helpHome } });

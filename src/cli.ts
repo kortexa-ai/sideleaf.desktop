@@ -15,7 +15,7 @@ import { COLLABORATION_CONTRACT, CollaborationError, evaluateApply, focusDraft, 
 const help = `sideleaf — local Markdown and comments (JSON output)
 
 sideleaf [--app PATH]
-sideleaf FILE [--app PATH]
+sideleaf FILE|DIRECTORY [--app PATH]
 sideleaf read FILE
 sideleaf read --document ID [--app PATH]
 sideleaf comments FILE
@@ -38,7 +38,7 @@ sideleaf thread-delete FILE --if-thread-revision REV --actor NAME < thread-id.js
 sideleaf suggestion-add FILE --actor NAME < suggestion.json
 sideleaf suggestion-accept FILE --if-thread-revision REV --actor NAME < thread-id.json
 sideleaf suggestion-reject FILE --if-thread-revision REV --actor NAME < thread-id.json
-sideleaf open FILE [--app PATH]
+sideleaf open FILE|DIRECTORY [--app PATH]
 sideleaf open-folder DIRECTORY [--app PATH]
 sideleaf skills install [--user | --target NAME] [--force]
 
@@ -71,6 +71,7 @@ Skill targets: agents, claude, codex, omp, hermes, pi. The default installs
 In WSL, skills install into the WSL home. --force explicitly replaces a locally
 modified Sideleaf skill; without it, the existing file is left unchanged.
 With no arguments, Sideleaf starts or activates. FILE is shorthand for open FILE.
+A DIRECTORY, bare or with open, opens as a folder workspace, like open-folder.
 `;
 // ASCII JSON survives legacy PowerShell code pages without corrupting Unicode.
 function json(value: unknown) { return JSON.stringify(value).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`); }
@@ -235,9 +236,11 @@ async function main() {
   if (command === "open" || command === "open-folder") {
     if (documentId) inputError("Desktop open requires a path.");
     if (!existsSync(path)) inputError("The path does not exist.");
-    if (command === "open-folder" ? !statSync(path).isDirectory() : !statSync(path).isFile()) inputError(command === "open-folder" ? "A folder path is required." : "A file path is required. Use open-folder for a directory.");
+    // Ask the filesystem, not the suffix: a folder can itself end in .md.
+    const folder = statSync(path).isDirectory();
+    if (command === "open-folder" ? !folder : !folder && !statSync(path).isFile()) inputError(command === "open-folder" ? "A folder path is required." : "A file or folder path is required.");
     if (process.platform === "linux" && !!process.env.WSL_DISTRO_NAME) path = execFileSync("wslpath", ["-w", path], { encoding: "utf8" }).trim();
-    const action: AppCommand = command === "open-folder" ? { kind: "open-folder", path } : { kind: "open", path };
+    const action: AppCommand = folder ? { kind: "open-folder", path } : { kind: "open", path };
     output({ ok: true, path, delivery: await openDesktop(action, override) }); return;
   }
   const resolved = collaborationTarget(filename, documentId);

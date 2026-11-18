@@ -25,7 +25,9 @@ The command follows desktop updates because it runs from the installed app.
 legacy Windows code pages cannot corrupt text.
 
 Run `sideleaf FILE` or `sideleaf open FILE` to open a file in the desktop app,
-whether Sideleaf is already running or needs to start. Any extension, dotfiles and
+whether Sideleaf is already running or needs to start. A folder path, as in
+`sideleaf DIRECTORY` or `sideleaf open DIRECTORY`, opens that folder as a
+workspace, as `open-folder` does. Any extension, dotfiles and
 extensionless filenames are accepted. Markdown uses the Markdown editor; other
 UTF-8 files use plain text. The usual 10 MiB, encoding and binary checks apply.
 Comments and agent read/edit operations support Markdown and `.txt` only, so
@@ -160,7 +162,9 @@ This requires WSL interoperability and Windows access to the current distro.
 
 `sideleaf open-folder DIRECTORY` opens a folder workspace with the sidebar visible.
 It accepts the same `--app` override and Windows/WSL path handling as `open`.
-The command requires a directory; `open` continues to require a file. Files in
+The command requires a directory. `sideleaf DIRECTORY` and `open DIRECTORY` deliver
+the same folder request; Sideleaf checks the filesystem, so a folder named
+`notes.md` still opens as a folder. Files in
 the folder load only when selected in the desktop tree. Running-instance opens use
 the same Save, Cancel and Discard flow as File → Open when they replace the current
 standalone document or folder. Opening another file in an existing folder workspace

@@ -44,8 +44,7 @@ export function launchRequestFromFileActivation(value: unknown): LaunchRequest |
       path = url.hostname ? `\\\\${url.hostname}${path.replaceAll("/", "\\")}` : path.replace(/^\/([A-Za-z]:)/, "$1").replaceAll("/", "\\");
     } else if (url.hostname) return null;
     // Check the filesystem before the suffix: a folder can itself end in .md.
-    try { if (statSync(path).isDirectory()) return { kind: "open-folder", path }; }
-    catch { /* Missing registered documents reach the normal open-error flow. */ }
+    if (isDirectory(path)) return { kind: "open-folder", path };
     // The OS only hands over registered types; other text files open through the CLI.
     return supportsReview(path) ? { kind: "open", path } : null;
   } catch { return null; }
@@ -55,14 +54,20 @@ export function pathFromLaunch(argv: readonly string[], environmentPath?: string
   return launchRequestFromLaunch(argv, environmentPath)?.path ?? null;
 }
 
+function isDirectory(path: string): boolean {
+  try { return statSync(path).isDirectory(); }
+  catch { return false; /* Missing paths reach the normal open-error flow. */ }
+}
+
 export function launchRequestFromLaunch(argv: readonly string[], environmentPath?: string, environmentKind?: string): LaunchRequest | null {
-  if (environmentPath) return { kind: environmentKind === "folder" ? "open-folder" : "open", path: environmentPath };
+  let request: LaunchRequest | null = environmentPath ? { kind: environmentKind === "folder" ? "open-folder" : "open", path: environmentPath } : null;
   for (const [marker, kind] of [["--sideleaf-open", "open"], ["--sideleaf-open-folder", "open-folder"]] as const) {
     const index = argv.indexOf(marker);
     const path = index >= 0 ? argv[index + 1] : undefined;
-    if (path) return { kind, path };
+    if (!request && path) request = { kind, path };
   }
-  return null;
+  // The filesystem outranks the marker and kind: a folder can itself end in .md.
+  return request && isDirectory(request.path) ? { kind: "open-folder", path: request.path } : request;
 }
 
 export function takeInitialFileActivation(): LaunchRequest | null {
