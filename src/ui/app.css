@@ -411,8 +411,15 @@ body[data-minimal-layout="true"] .minimal-document-slot #filename { display: blo
 .comments-icon { display: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linejoin: round; }
 body[data-minimal-layout="true"] .minimal-comments-container #comments-toggle { position: relative; display: grid; place-items: center; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 0; color: var(--muted); }
 body[data-minimal-layout="true"][data-platform="macos"] .minimal-comments-container #comments-toggle { width: 38px; height: 30px; }
-body[data-minimal-layout="true"] .minimal-comments-container .folder-toggle { width: 46px; height: 46px; border: 0; border-radius: 0; }
-body[data-minimal-layout="true"][data-platform="macos"] .minimal-comments-container .folder-toggle { width: 38px; height: 30px; }
+body[data-minimal-layout="true"] .minimal-comments-container .folder-toggle,
+body[data-minimal-layout="true"] .minimal-comments-container #ziblet { width: 46px; height: 46px; border: 0; border-radius: 0; }
+body[data-minimal-layout="true"][data-platform="macos"] .minimal-comments-container .folder-toggle,
+body[data-minimal-layout="true"][data-platform="macos"] .minimal-comments-container #ziblet { width: 38px; height: 30px; }
+/* In the title bar the Ziblet button matches the folder icon beside it. */
+body[data-minimal-layout="true"] .minimal-comments-container #ziblet { display: grid; place-items: center; padding: 0; }
+body[data-minimal-layout="true"] .minimal-comments-container #ziblet .action-icon { width: 18px; height: 18px; }
+body[data-minimal-layout="true"] .minimal-comments-container #ziblet .action-label { display: none; }
+body[data-minimal-layout="true"][data-platform="macos"]:has(#minimal-comments-slot > #ziblet:not([hidden])) .minimal-document-slot { right: 242px; }
 body[data-minimal-layout="true"] .minimal-comments-container .comments-icon { display: block; }
 body[data-minimal-layout="true"] .minimal-comments-container .comments-label { display: none; }
 body[data-minimal-layout="true"] .minimal-comments-container #comment-count { position: absolute; top: 4px; right: 3px; min-width: 13px; padding: 1px 3px; margin: 0; font-size: 8px; line-height: 1.2; }

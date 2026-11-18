@@ -14,6 +14,7 @@ import { DocumentWorkspace } from "./document/workspace.ts";
 import { defaultWSLDistro, installCommandLineTool, installWSLCommand } from "./platform/cli-install.ts";
 import { chooseSavePath } from "./platform/dialogs.ts";
 import { handleWindowAction } from "./platform/window-controls.ts";
+import { discoverZiblet } from "./platform/ziblet.ts";
 import { loadWindowsChrome, type WindowsChrome } from "./platform/windows-chrome.ts";
 import { documentMetadata, legacyComments, validateDraft, type CollaborationTarget, type Command, type Draft, type LiveDocumentInfo, type RecoveredDocument, type SideleafRPC } from "./shared/contracts.ts";
 import { APP_VERSION } from "./shared/version.ts";
@@ -159,6 +160,15 @@ const rpc = BrowserView.defineRPC<SideleafRPC>({
       openDefaultApps: () => {
         if (process.platform !== "win32") throw new Error("Default Apps is available on Windows only.");
         return Utils.openExternal("ms-settings:defaultapps?registeredAppUser=Sideleaf");
+      },
+      zibletAvailable: async () => !!(await discoverZiblet()),
+      // Rediscover instead of taking a path from the renderer, then share Finder's
+      // folder path so unsaved work gets the same question.
+      openZiblet: async () => {
+        const ziblet = await discoverZiblet();
+        if (!ziblet) throw new Error("Ziblet or its notes folder could not be found.");
+        await receiveExternalOpen(ziblet.folder, "open-folder");
+        return true;
       },
       open: async () => {
         const paths = await Utils.openFileDialog({ allowedFileTypes: "md,markdown,mdown,txt", canChooseDirectory: false, allowsMultipleSelection: false });

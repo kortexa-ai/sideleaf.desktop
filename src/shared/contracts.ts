@@ -80,6 +80,8 @@ export type SideleafRPC = {
       checkUpdates: { params: undefined; response: UpdateState };
       dismissUpdate: { params: undefined; response: boolean };
       openDefaultApps: { params: undefined; response: boolean };
+      zibletAvailable: { params: undefined; response: boolean };
+      openZiblet: { params: undefined; response: boolean };
       open: { params: undefined; response: OpenResult | null };
       openFolder: { params: undefined; response: OpenResult | null };
       closeFolder: { params: undefined; response: OpenResult };

@@ -330,6 +330,9 @@ if (window.__electrobunPlatform !== "linux") {
   element("menu-updates").onclick = () => { closeMenu(true); void rpc.request.checkUpdates().then(renderUpdate).catch((error) => notice(error.message)); };
   element("menu-shortcuts").onclick = () => { closeMenu(); const dialog = element<HTMLDialogElement>("shortcuts-dialog"); dialog.showModal(); dialog.focus({ preventScroll: true }); };
   element("menu-help").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://sideleaf.xyz/docs" }).catch((error) => notice(error.message)); };
+  // Ziblet is macOS-only, so Windows keeps its menu exactly as it was.
+  for (const id of ["menu-ziblet-separator", "menu-get-ziblet"]) element(id).hidden = platform !== "macos";
+  element("menu-get-ziblet").onclick = () => { closeMenu(true); void rpc.request.openLink({ url: "https://ziblet.app" }).catch((error) => notice(error.message)); };
   element("menu-about").onclick = () => { closeMenu(true); showAbout(); };
 }
 
@@ -337,6 +340,8 @@ const documentBar = document.querySelector<HTMLElement>(".document-bar")!;
 const documentName = documentBar.querySelector<HTMLElement>(".document-name")!;
 const commentsToggle = element<HTMLButtonElement>("comments-toggle");
 const folderToggle = element<HTMLButtonElement>("folder-toggle");
+const fileActions = document.querySelector<HTMLElement>(".file-actions")!;
+const zibletButton = element<HTMLButtonElement>("ziblet");
 const minimalActionsContainer = element("minimal-actions-container");
 const minimalActionsToggle = element<HTMLButtonElement>("minimal-actions-toggle");
 const minimalActionsMenu = element("minimal-actions-menu");
@@ -372,10 +377,11 @@ function applyMinimalLayout(enabled: boolean, persist = true) {
   closeDocumentActions();
   if (active) {
     minimalDocumentSlot.append(documentName);
-    minimalCommentsSlot.append(folderToggle, commentsToggle);
+    minimalCommentsSlot.append(zibletButton, folderToggle, commentsToggle);
   } else {
     documentBar.prepend(documentName);
     documentBar.append(folderToggle, commentsToggle);
+    fileActions.prepend(zibletButton);
   }
   const input = document.getElementById("setting-minimal-layout") as HTMLInputElement | null;
   if (input) input.checked = active;
@@ -428,6 +434,9 @@ document.querySelectorAll<HTMLButtonElement>("[data-palette-choice]").forEach((b
   button.onclick = () => applyPalette(storedPalette(button.dataset.paletteChoice ?? null));
 });
 applyMinimalLayout(settings.minimalLayout, false);
+// Ask once: the host owns discovery and the folder path, so the renderer sends none.
+if (platform === "macos") void rpc.request.zibletAvailable().then((found) => { zibletButton.hidden = !found; }).catch(() => { zibletButton.hidden = true; });
+zibletButton.onclick = () => { void rpc.request.openZiblet().catch((error) => notice(error.message)); };
 setHardBreaks(settings.hardBreaks);
 for (const [id, setting] of [["setting-wrap", "wrapLines"], ["setting-autosave", "autoSave"], ["setting-keep-scratch", "keepScratch"], ["setting-minimal-layout", "minimalLayout"], ["setting-breaks", "hardBreaks"]] as const) {
   const input = element<HTMLInputElement>(id); input.checked = settings[setting];
