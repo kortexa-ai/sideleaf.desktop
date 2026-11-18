@@ -41,6 +41,11 @@ Click a file to edit it. Switching between open documents preserves unsaved text
 comments, undo history and position. **Open documents** also keeps untitled and
 outside-folder files within reach; its × buttons close individual documents.
 
+From the command line, `sideleaf DIRECTORY` opens a folder. On macOS, a folder
+dropped on Sideleaf's icon in the Dock or in Finder opens too, after the usual
+check for unsaved changes. When [Ziblet](https://ziblet.app) is installed on the
+Mac, the **Notes** button in the toolbar opens your Ziblet folder.
+
 The folder icon beside Comments shows or hides the sidebar: **⌘⇧F** on macOS or
 **Ctrl+Alt+F** on Windows. Opening a folder shows it initially; opening a single
 file hides it initially and uses that file's containing folder when shown.
@@ -55,7 +60,7 @@ not follow links or junctions. Open a linked target directly when needed.
 
 ## Download
 
-Get [Sideleaf 0.1.11](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.11)
+Get [Sideleaf 0.1.12](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.12)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
 the ZIP, then run the setup executable.
