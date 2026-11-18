@@ -427,6 +427,17 @@ function showSettings() {
 settingsToggle.onclick = () => { if (settingsPanel.hidden) showSettings(); else closeSettings(true); };
 settingsPanel.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeSettings(true); } });
 document.addEventListener("pointerdown", (event) => { if (!settingsContainer.contains(event.target as Node)) closeSettings(); });
+// Escape closes the settings or an open menu also when the keyboard focus is not inside them. After a mouse click it is
+// not: WebKit on macOS gives a clicked button no focus, and the button is beside the panel, not inside it. With the focus
+// inside, the handlers on the panel and on the menus get the key first, and they put the focus back on the button.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+  const appMenu = element("app-menu");
+  if (settingsPanel.hidden && minimalActionsMenu.hidden && appMenu.hidden) return;
+  event.preventDefault();
+  closeSettings(); closeDocumentActions();
+  appMenu.hidden = true; element("app-menu-toggle").setAttribute("aria-expanded", "false");
+});
 document.querySelectorAll<HTMLButtonElement>("[data-theme-choice]").forEach((button) => {
   button.onclick = () => applyTheme(storedTheme(button.dataset.themeChoice ?? null));
 });
