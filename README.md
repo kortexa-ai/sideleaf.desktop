@@ -60,7 +60,7 @@ not follow links or junctions. Open a linked target directly when needed.
 
 ## Download
 
-Get [Sideleaf 0.1.12](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.12)
+Get [Sideleaf 0.1.13](https://github.com/kortexa-ai/sideleaf.desktop/releases/tag/v0.1.13)
 for Apple Silicon Macs running macOS 26.6.2 or later, or Windows 11 x64.
 The Mac DMG is signed and notarized. The Windows setup ZIP is unsigned; extract
 the ZIP, then run the setup executable.
