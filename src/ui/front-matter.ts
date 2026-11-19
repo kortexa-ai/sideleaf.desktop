@@ -4,25 +4,38 @@ import { codeFolding, foldEffect, foldedRanges, foldService, unfoldEffect } from
 import { tags } from "@lezer/highlight";
 import type { MarkdownConfig } from "@lezer/markdown";
 
-// A YAML front-matter block: `---` on line 1, a top-level `key:` line on line 2, and a closing `---` that ends inside
-// the first 64 KiB (UTF-16 code units). Anything else stays ordinary Markdown.
+// A front-matter block: `---` (YAML) or `+++` (TOML) on line 1, a top-level key line of that kind on line 2, and a
+// closing line (`---` or `...` for YAML, `+++` for TOML) that ends inside the first 64 KiB (UTF-16 code units).
+// Anything else stays ordinary Markdown.
 export const FRONT_MATTER_LIMIT = 64 * 1024;
 export interface FrontMatterField { key: string; value: string }
-export interface FrontMatter { to: number; bodyFrom: number; raw: string; fields: FrontMatterField[] }
-export interface FrontMatterGlance { items: FrontMatterField[]; text: string; count: string }
-const FENCE = /^---[ \t]*$/;
+// `size` is the text between the marker lines in code points; `words` are the words from offset 0 to `to`.
+export interface FrontMatter { to: number; bodyFrom: number; raw: string; fields: FrontMatterField[]; size: number; words: number }
+export interface FrontMatterGlance { items: FrontMatterField[]; text: string; count: string; size: string }
 const KEY_LINE = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s#'"\-[\]{}?!&*|>%@`,][^\r\n]*?)[ \t]*:(?:[ \t]|$)/;
+const TOML_KEY_PART = String.raw`(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')`;
+const TOML_KEY = new RegExp(String.raw`^[ \t]*(${TOML_KEY_PART}(?:[ \t]*\.[ \t]*${TOML_KEY_PART})*)[ \t]*=`);
+const TOML_TABLE = /^[ \t]*\[\[?[ \t]*([^[\]\r\n]+?)[ \t]*\]\]?[ \t]*(?:#.*)?$/;
+const FORMATS = {
+  "---": { key: (line: string) => KEY_LINE.test(line), close: /^(?:---|\.\.\.)[ \t]*$/, read: (lines: string[]) => readFrontMatterFields(lines) },
+  "+++": { key: (line: string) => TOML_KEY.test(line) || TOML_TABLE.test(line), close: /^\+\+\+[ \t]*$/, read: (lines: string[]) => readTomlFields(lines) },
+};
+type Format = (typeof FORMATS)[keyof typeof FORMATS];
+const formatOf = (line: string): Format | null => /^(?:---|\+\+\+)[ \t]*$/.test(line) ? FORMATS[line.slice(0, 3) as keyof typeof FORMATS] : null;
 
 export function detectFrontMatter(source: string): FrontMatter | null {
-  if (!source.startsWith("---")) return null;
+  if (!source.startsWith("---") && !source.startsWith("+++")) return null;
   const lines: string[] = [];
+  let format: Format | null = null;
   for (let pos = 0, index = 0; ; index++) {
     const newline = source.indexOf("\n", pos), end = newline < 0 ? source.length : newline;
     if (end > FRONT_MATTER_LIMIT) return null;
     const text = source.slice(pos, end > pos && source.charCodeAt(end - 1) === 13 ? end - 1 : end);
-    if (index === 0 ? !FENCE.test(text) : index === 1 && !KEY_LINE.test(text)) return null;
-    if (index > 1 && FENCE.test(text)) {
-      return { to: pos + text.length, bodyFrom: newline < 0 ? source.length : newline + 1, raw: lines.join("\n"), fields: readFrontMatterFields(lines) };
+    if (index === 0 ? !(format = formatOf(text)) : index === 1 && !format!.key(text)) return null;
+    if (index > 1 && format!.close.test(text)) {
+      const raw = lines.join("\n"), to = pos + text.length;
+      return { to, bodyFrom: newline < 0 ? source.length : newline + 1, raw, fields: format!.read(lines),
+        size: characterCount(raw), words: source.slice(0, to).match(/\S+/g)?.length ?? 0 };
     }
     if (index > 0) lines.push(text);
     if (newline < 0) return null;
@@ -31,10 +44,17 @@ export function detectFrontMatter(source: string): FrontMatter | null {
 }
 // The editor never turns a whole large document into one string for this.
 export function frontMatterOf(doc: Text): FrontMatter | null {
-  return doc.sliceString(0, 3) === "---" ? detectFrontMatter(doc.sliceString(0, FRONT_MATTER_LIMIT + 1)) : null;
+  const start = doc.sliceString(0, 3);
+  return start === "---" || start === "+++" ? detectFrontMatter(doc.sliceString(0, FRONT_MATTER_LIMIT + 1)) : null;
 }
 
+export const characterCount = (text: string) => text.length - (text.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0);
 const unquote = (text: string) => text.length > 1 && (text[0] === '"' || text[0] === "'") && text.at(-1) === text[0] ? text.slice(1, -1) : text;
+function dedent(more: string[]) {
+  while (more.length && !more.at(-1)!.trim()) more.pop();
+  const indent = Math.min(...more.filter((line) => line.trim()).map((line) => /^[ \t]*/.exec(line)![0].length));
+  return more.map((line) => line.trim() ? line.slice(indent) : "");
+}
 // A best-effort reader for display, not a YAML parser: unknown shapes keep their raw text.
 export function readFrontMatterFields(lines: string[]): FrontMatterField[] {
   const fields: { key: string; rest: string; more: string[] }[] = [];
@@ -44,15 +64,41 @@ export function readFrontMatterFields(lines: string[]): FrontMatterField[] {
     else if (!line.startsWith("#")) fields.at(-1)?.more.push(line);
   }
   return fields.map(({ key, rest, more }) => {
-    while (more.length && !more.at(-1)!.trim()) more.pop();
-    const indent = Math.min(...more.filter((line) => line.trim()).map((line) => /^[ \t]*/.exec(line)![0].length));
-    const lines = more.map((line) => line.trim() ? line.slice(indent) : "");
+    const lines = dedent(more);
     if (/^[|>][1-9+-]*$/.test(rest)) {
       if (rest[0] === "|") return { key, value: lines.join("\n") };
       // Folded: lines join with spaces, and each blank line becomes one line break.
       return { key, value: lines.reduce((value, line) => !line ? `${value}\n` : !value || value.endsWith("\n") ? value + line : `${value} ${line}`, "") };
     }
     return { key, value: !lines.length ? unquote(rest) : (rest ? [rest, ...lines] : lines).join("\n") };
+  });
+}
+
+// The same for TOML. A table header starts one field with the raw lines under it, up to the next header.
+// An array over several lines keeps its raw lines.
+export function readTomlFields(lines: string[]): FrontMatterField[] {
+  const fields: { key: string; rest: string; more: string[]; table: boolean }[] = [];
+  const depth = (text: string) => { const bare = text.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, ""); return bare.split("[").length - bare.split("]").length; };
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!, header = TOML_TABLE.exec(line), current = fields.at(-1);
+    if (header) { fields.push({ key: header[1]!, rest: "", more: [], table: true }); continue; }
+    if (/^[ \t]*#/.test(line)) continue;
+    const match = current?.table ? null : TOML_KEY.exec(line);
+    if (!match) { current?.more.push(line); continue; }
+    const field = { key: unquote(match[1]!), rest: line.slice(match[0].length).trim(), more: [] as string[], table: false };
+    fields.push(field);
+    const triple = /^("""|''')/.exec(field.rest)?.[1];
+    for (let open = triple ? !field.rest.slice(3).includes(triple) : field.rest.startsWith("[") && depth(field.rest) > 0, level = depth(field.rest); open && index + 1 < lines.length;) {
+      const next = lines[++index]!;
+      field.more.push(next);
+      open = triple ? !next.includes(triple) : (level += depth(next)) > 0;
+    }
+  }
+  return fields.map(({ key, rest, more, table }) => {
+    const lines = dedent(more);
+    // A string in triple quotes shows without its marks, on one line or over several.
+    const value = table ? lines.join("\n") : [rest, ...lines].join("\n"), triple = table ? null : /^("""|''')\n?([^]*)\1$/.exec(value);
+    return { key, value: triple ? triple[2]! : table || lines.length ? value : unquote(rest) };
   });
 }
 
@@ -70,8 +116,10 @@ function oneLine(value: string) {
   return lines.length && lines.every((line) => line === "-" || line.startsWith("- "))
     ? lines.map((line) => line.slice(2).trim()).join(", ") : value.replace(/\s+/g, " ").trim();
 }
-// The closed one-line view: useful keys first, identifiers last, every value on one clipped line, `limit` characters in all.
-export function frontMatterGlance(fields: FrontMatterField[], limit = 160): FrontMatterGlance {
+export const plural = (count: number, noun: string) => `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
+// The closed one-line view: useful keys first, identifiers last, every value on one clipped line, `limit` characters in
+// all, then the number of fields and, when `size` is given, the length of the block.
+export function frontMatterGlance(fields: FrontMatterField[], size: number | null = null, limit = 160): FrontMatterGlance {
   const rank = (field: FrontMatterField, index: number) => isOpaque(field) ? [2, index]
     : GLANCE_ORDER.includes(field.key.toLowerCase()) ? [0, GLANCE_ORDER.indexOf(field.key.toLowerCase())] : [1, index];
   const ordered = fields.map((field, index) => ({ field, rank: rank(field, index) }))
@@ -85,7 +133,8 @@ export function frontMatterGlance(fields: FrontMatterField[], limit = 160): Fron
     items.push({ key: field.key, value });
     used += (items.length > 1 ? 3 : 0) + field.key.length + (value ? value.length + 1 : 0);
   }
-  return { items, text: items.map(({ key, value }) => value ? `${key} ${value}` : key).join(" · "), count: `${fields.length} ${fields.length === 1 ? "field" : "fields"}` };
+  return { items, text: items.map(({ key, value }) => value ? `${key} ${value}` : key).join(" · "),
+    count: plural(fields.length, "field"), size: size === null ? "" : plural(size, "character") };
 }
 
 const ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
@@ -94,7 +143,8 @@ export const escapeHTML = (text: string) => text.replace(/[&<>"]/g, (character) 
 export function frontMatterLineHTML(glance: FrontMatterGlance): string {
   const items = glance.items.map(({ key, value }) => `<span class="front-matter-key">${escapeHTML(key)}</span>${value ? ` ${escapeHTML(value)}` : ""}`);
   return `<span class="front-matter-chevron" aria-hidden="true">›</span><span class="front-matter-label">Front matter</span>`
-    + `<span class="front-matter-glance">${items.join('<span class="front-matter-dot"> · </span>')}</span><span class="front-matter-count">${glance.count}</span>`;
+    + `<span class="front-matter-glance">${items.join('<span class="front-matter-dot"> · </span>')}</span><span class="front-matter-count">${glance.count}</span>`
+    + (glance.size ? `<span class="front-matter-size"><span class="front-matter-dot"> · </span>${glance.size}</span>` : "");
 }
 
 // Write pane. The node replaces the paragraph, setext heading and horizontal rule that CommonMark sees in the block.
@@ -104,10 +154,11 @@ export const frontMatterSyntax: MarkdownConfig = {
     name: "FrontMatter",
     before: "HorizontalRule",
     parse(cx, line) {
-      if (cx.lineStart !== 0 || !FENCE.test(line.text) || !KEY_LINE.test(cx.peekLine())) return false;
+      const format = cx.lineStart === 0 ? formatOf(line.text) : null;
+      if (!format || !format.key(cx.peekLine())) return false;
       // Without a closing line the block runs to the end of the document, as in VS Code. Looking further ahead
       // than the next line would read outside the parse context and break incremental re-parsing.
-      while (cx.nextLine()) if (FENCE.test(line.text)) { cx.nextLine(); break; }
+      while (cx.nextLine()) if (format.close.test(line.text)) { cx.nextLine(); break; }
       cx.addElement(cx.elt("FrontMatter", 0, cx.prevLineEnd()));
       return true;
     },
@@ -151,7 +202,7 @@ function placeholder(view: EditorView, onclick: (event: Event) => void, glance: 
   if (glance) {
     element.className = "cm-frontMatter front-matter-line";
     element.setAttribute("role", "button");
-    element.setAttribute("aria-label", `Front matter, ${glance.count}. Show`);
+    element.setAttribute("aria-label", `Front matter, ${glance.count}, ${glance.size}. Show`);
     element.title = `Show front matter: ${glance.text}`;
     element.innerHTML = frontMatterLineHTML(glance);
   } else {
@@ -173,7 +224,7 @@ export const frontMatterEditor = [
   codeFolding({
     preparePlaceholder: (state, range) => {
       const matter = state.field(frontMatterField, false);
-      return matter && range.from === 0 && range.to === matter.to ? frontMatterGlance(matter.fields) : null;
+      return matter && range.from === 0 && range.to === matter.to ? frontMatterGlance(matter.fields, matter.size) : null;
     },
     placeholderDOM: placeholder,
   }),

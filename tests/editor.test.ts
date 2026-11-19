@@ -125,3 +125,25 @@ test("an undo that changes the closed block opens it", () => {
   assert.equal(state.doc.toString(), "---\ntitle: x\n---\nBody");
   assert.equal(isFrontMatterFolded(state), false);
 });
+
+test("a +++ TOML block and a --- block closed with ... are front-matter nodes and fold the same way", () => {
+  const open = (text: string) => withFrontMatterFolded(EditorState.create({ doc: text, extensions: [basicSetup, documentMode.of(documentExtensions("note.md"))] }));
+  const names = (state: EditorState) => { const list: string[] = []; ensureSyntaxTree(state, state.doc.length, 5000)!.iterate({ enter: (node) => { list.push(`${node.name}@${node.from}`); } }); return list; };
+  const toml = open('+++\ntitle = "x"\n[extra]\n# heading-like\n---\n+++\n\n---\n');
+  assert.equal(syntaxTree(toml).topNode.firstChild!.name, "FrontMatter");
+  assert.equal(syntaxTree(toml).topNode.firstChild!.to, 46);
+  assert.ok(!names(toml).some((name) => /Heading|HorizontalRule@(?!48)/.test(name)), names(toml).join(" "));
+  assert.ok(names(toml).includes("HorizontalRule@48"));
+  assert.equal(isFrontMatterFolded(toml), true);
+  assert.equal(toml.selection.main.head, 47);
+  const dots = open("---\ntitle: x\n...\nBody\n");
+  assert.equal(syntaxTree(dots).topNode.firstChild!.to, 16);
+  assert.equal(dots.field(frontMatterField)!.to, 16);
+  assert.equal(isFrontMatterFolded(dots), true);
+  // A +++ block does not close with --- or ...; unclosed, it is coloured to the end but neither detected nor folded.
+  const unclosed = open("+++\ntitle = 1\n---\n...\n# Not a heading\n");
+  assert.equal(syntaxTree(unclosed).topNode.firstChild!.to, unclosed.doc.length);
+  assert.equal(unclosed.field(frontMatterField), null);
+  assert.equal(isFrontMatterFolded(unclosed), false);
+  assert.notEqual(syntaxTree(open("+++\nplain text\n+++\n")).topNode.firstChild!.name, "FrontMatter");
+});

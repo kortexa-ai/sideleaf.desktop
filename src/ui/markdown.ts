@@ -1,6 +1,6 @@
 import MarkdownIt from "markdown-it";
 import { headingSlug, previewLinkKind } from "./links.ts";
-import { detectFrontMatter, escapeHTML, frontMatterGlance, frontMatterLineHTML, type FrontMatterField } from "./front-matter.ts";
+import { characterCount, detectFrontMatter, escapeHTML, frontMatterGlance, frontMatterLineHTML, plural, type FrontMatterField } from "./front-matter.ts";
 
 const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false, breaks: false });
 markdown.validateLink = (url) => previewLinkKind(url) !== null;
@@ -32,14 +32,18 @@ markdown.block.ruler.before("table", "front_matter", (state, startLine, _endLine
   let line = startLine;
   while (line < state.lineMax && state.bMarks[line]! < matter.bodyFrom) line++;
   const token = state.push("front_matter", "", 0);
-  token.block = true; token.map = [startLine, line]; token.meta = { fields: matter.fields };
+  token.block = true; token.map = [startLine, line]; token.meta = { fields: matter.fields, size: matter.size };
   state.line = line;
   return true;
 });
 markdown.renderer.rules.front_matter = (tokens, index, _options, env) => {
-  const { fields } = tokens[index]!.meta as { fields: FrontMatterField[] };
-  const rows = fields.map(({ key, value }) => `<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(value)}</dd>`).join("");
-  return `<details class="front-matter"${env!.frontMatterOpen ? " open" : ""}><summary class="front-matter-line">${frontMatterLineHTML(frontMatterGlance(fields))}</summary><dl>${rows}</dl></details>\n`;
+  const { fields, size } = tokens[index]!.meta as { fields: FrontMatterField[]; size: number };
+  // A long value also shows its own length.
+  const rows = fields.map(({ key, value }) => {
+    const length = characterCount(value);
+    return `<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(value)}${length > 200 ? `<span class="front-matter-length">${plural(length, "character")}</span>` : ""}</dd>`;
+  }).join("");
+  return `<details class="front-matter"${env!.frontMatterOpen ? " open" : ""}><summary class="front-matter-line">${frontMatterLineHTML(frontMatterGlance(fields, size))}</summary><dl>${rows}</dl></details>\n`;
 };
 markdown.renderer.rules.image = (tokens, index) => {
   const token = tokens[index]!;

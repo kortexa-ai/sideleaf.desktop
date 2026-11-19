@@ -125,9 +125,12 @@ No image API key or image generation service is used at app runtime.
   document's folder; heading fragments jump within the preview. Only HTTP, HTTPS,
   and email links open externally. The preview shows
   the first 200,000 characters of large files; the complete source remains editable.
-- YAML front matter at the start of a Markdown file shows as one line with its most
-  useful fields, in the editor and in the preview. It starts closed when a document
-  opens. A click or the fold keys open it in both panes, and an edit inside it opens it.
+- Front matter at the start of a Markdown file (YAML between `---` lines, closed by
+  `---` or `...`, or TOML between `+++` lines) shows as one line with its most useful
+  fields, the number of fields and its length in characters, in the editor and in the
+  preview. It starts closed when a document opens. A click or the fold keys open it in
+  both panes, and an edit inside it opens it. Open in the preview, a value longer than
+  200 characters shows its length. The word count leaves the front matter out.
 - Comments participate in undo/redo. Editing their selected text makes them visibly
   unanchored; undo restores the prior anchor. Sideleaf metadata uses its own versioned,
   documented format.

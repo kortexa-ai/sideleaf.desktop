@@ -1,4 +1,5 @@
-import { StateField, type Text } from "@codemirror/state";
+import { StateField, type EditorState, type Text } from "@codemirror/state";
+import { frontMatterField } from "./front-matter.ts";
 
 function starts(text: string, continuesWord: boolean): number {
   const words = /\S+/g;
@@ -27,3 +28,10 @@ export const wordCountField = StateField.define<number>({
     return count;
   },
 });
+
+// The words of the text. A Markdown document's detected front matter is left out: its words are counted only when
+// the front-matter field recomputes, and taken from the incremental count of the whole document.
+export function documentWordCount(state: EditorState): { words: number; frontMatter: boolean } {
+  const matter = state.field(frontMatterField, false);
+  return { words: state.field(wordCountField) - (matter?.words ?? 0), frontMatter: !!matter };
+}

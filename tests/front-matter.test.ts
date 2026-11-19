@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { detectFrontMatter, FRONT_MATTER_LIMIT, frontMatterGlance, readFrontMatterFields } from "../src/ui/front-matter.ts";
+import { detectFrontMatter, FRONT_MATTER_LIMIT, frontMatterGlance, frontMatterLineHTML, readFrontMatterFields, readTomlFields } from "../src/ui/front-matter.ts";
 
 const note = "---\ntype: note\ncreated: 2026-11-17T23:42:13Z\nupdated: 2026-11-17T23:42:13Z\nid: 0b1e2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d\n---\n\nA quiet note.\n";
 
@@ -31,8 +31,16 @@ test("anything else is not front matter", () => {
     "\n---\ntitle: x\n---\n",
     " ---\ntitle: x\n---\n",
     "Text\n---\ntitle: x\n---\n",
-    "+++\ntitle = \"x\"\n+++\n",
-    "---\ntitle: x\n...\n",
+    "+++\ntitle: x\n+++\n",
+    "---\ntitle = \"x\"\n---\n",
+    "+++\n\ntitle = 1\n+++\n",
+    "+++\n# comment\ntitle = 1\n+++\n",
+    "+++\ntitle = 1\n---\n",
+    "+++\ntitle = 1\n...\n",
+    "+++\ntitle = 1\nno closing\n",
+    "++++\ntitle = 1\n+++\n",
+    "...\ntitle: x\n...\n",
+    "---\ntitle: x\n....\n",
     "----\ntitle: x\n---\n",
     "---\ntitle: x\n----\n",
   ]) assert.equal(detectFrontMatter(source), null, JSON.stringify(source));
@@ -78,4 +86,44 @@ test("the glance puts useful keys first, identifiers last, and clips values", ()
   assert.ok(many.text.length <= 160, String(many.text.length));
   assert.equal(many.count, "40 fields");
   assert.deepEqual(frontMatterGlance(readFrontMatterFields(["note: one\n\t two   three"])).items[0], { key: "note", value: "one two three" });
+});
+
+test("TOML between +++ lines and YAML closed with ... are front matter too", () => {
+  const toml = detectFrontMatter('+++ \ntitle = "TOML note"\n[extra]\nmood = "calm"\n+++\t\nBody\n')!;
+  assert.deepEqual([toml.to, toml.bodyFrom, toml.fields], [51, 52, [{ key: "title", value: "TOML note" }, { key: "extra", value: 'mood = "calm"' }]]);
+  for (const second of ['site.title = "x"', '"quoted key" = 1', "'literal' = 2", "bare_key-1 = true", "[table]", "[[array]]", "[ dotted.table ]"]) {
+    assert.ok(detectFrontMatter(`+++\n${second}\n+++\n`), second);
+  }
+  // A +++ block closes only with +++, and a later --- inside it is text.
+  assert.equal(detectFrontMatter("+++\ntitle = 1\n---\nmore = 2\n+++\n")!.raw, "title = 1\n---\nmore = 2");
+  const dots = detectFrontMatter("---\ntitle: x\n... \nBody")!;
+  assert.deepEqual([dots.to, dots.bodyFrom, dots.raw], [17, 18, "title: x"]);
+  assert.equal(detectFrontMatter("---\ntitle: x\n---\n...\n")!.to, 16);
+  assert.equal(detectFrontMatter("---\nnote: a\r\n...\r\n")!.fields[0]!.value, "a");
+});
+
+test("TOML fields read strings, numbers, arrays, tables and skip comments", () => {
+  const fields = readTomlFields([
+    'title = "Hello = world"', "literal = 'C:\\path'", "count = 42", "draft = false", "date = 2026-11-17T23:42:13Z",
+    "# a comment", 'tags = ["a", "b"]', "list = [", '  "one",', '  "two ]",', "]", 'short = """same line"""',
+    'long = """', "  First line", "  # not a comment", '  Last line"""', 'site."quoted".key = 1',
+    "[extra]", "  mood = 'calm'", "  # skipped", "  level = 3", "[[authors]]", 'name = "A"',
+  ]);
+  assert.deepEqual(Object.fromEntries(fields.map(({ key, value }) => [key, value])), {
+    title: "Hello = world", literal: "C:\\path", count: "42", draft: "false", date: "2026-11-17T23:42:13Z",
+    tags: '["a", "b"]', list: '[\n  "one",\n  "two ]",\n]', short: "same line", long: "First line\n# not a comment\nLast line",
+    'site."quoted".key': "1", extra: "mood = 'calm'\nlevel = 3", authors: 'name = "A"',
+  });
+});
+
+test("the line ends with the field count and the length of the block", () => {
+  const matter = detectFrontMatter("---\nname: 🌿 leaf\nnote: two\n---\n")!;
+  assert.equal(matter.size, 22);
+  const glance = frontMatterGlance(matter.fields, matter.size);
+  assert.deepEqual([glance.count, glance.size], ["2 fields", "22 characters"]);
+  assert.match(frontMatterLineHTML(glance), /<span class="front-matter-count">2 fields<\/span><span class="front-matter-size"><span class="front-matter-dot"> · <\/span>22 characters<\/span>$/);
+  assert.deepEqual([frontMatterGlance([{ key: "a", value: "" }], 1).count, frontMatterGlance([{ key: "a", value: "" }], 1).size], ["1 field", "1 character"]);
+  assert.equal(frontMatterGlance([], 12345).size, "12,345 characters");
+  assert.doesNotMatch(frontMatterLineHTML(frontMatterGlance([])), /front-matter-size/);
+  assert.equal(detectFrontMatter("---\nk: v\n\nw: x y\n---\nbody words")!.words, 7);
 });

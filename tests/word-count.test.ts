@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EditorState } from "@codemirror/state";
 import { history, undo, redo } from "@codemirror/commands";
-import { wordCountField } from "../src/ui/word-count.ts";
+import { documentWordCount, wordCountField } from "../src/ui/word-count.ts";
+import { documentExtensions, documentMode } from "../src/ui/document-mode.ts";
 
 const expected = (text: string) => text.match(/\S+/g)?.length ?? 0;
 
@@ -30,4 +31,25 @@ test("word count follows undo/redo and an empty document", () => {
   redo(target); assert.equal(state.field(wordCountField), 2);
   state = state.update({ changes: [{ from: 0, to: 1, insert: "a " }, { from: 2, to: 3, insert: " b" }] }).state;
   assert.equal(state.field(wordCountField), expected(state.doc.toString()));
+});
+
+test("a Markdown document's front matter is left out of the word count, through edits in the body and in the block", () => {
+  const create = (doc: string, name = "note.md") => EditorState.create({ doc, extensions: [wordCountField, documentMode.of(documentExtensions(name))] });
+  const note = "---\ntitle: A short note\ntags: [a, b]\n---\nThree body words\n";
+  let state = create(note);
+  assert.deepEqual(documentWordCount(state), { words: 3, frontMatter: true });
+  assert.equal(state.field(wordCountField), expected(note));
+  state = state.update({ changes: { from: state.doc.length, insert: "and two" } }).state;
+  assert.deepEqual(documentWordCount(state), { words: 5, frontMatter: true });
+  state = state.update({ changes: { from: 4, insert: "status: draft and more\n" } }).state;
+  assert.deepEqual(documentWordCount(state), { words: 5, frontMatter: true });
+  // Breaking the closing line ends the block, so its words count again.
+  const closing = state.doc.toString().indexOf("\n---\n") + 1;
+  state = state.update({ changes: { from: closing, to: closing + 3, insert: "--" } }).state;
+  assert.deepEqual(documentWordCount(state), { words: expected(state.doc.toString()), frontMatter: false });
+  for (const [doc, name] of [["Just some words here", "a.md"], [note, "note.txt"], ["+++\ntitle = 'x y'\n+++\nBody", "a.md"]] as const) {
+    const plain = create(doc, name), words = documentWordCount(plain);
+    assert.equal(words.words, name === "a.md" && doc.startsWith("+++") ? 1 : expected(doc), doc);
+  }
+  assert.equal(documentWordCount(create(note, "note.txt")).frontMatter, false);
 });

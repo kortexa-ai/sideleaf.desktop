@@ -12,7 +12,7 @@ import { PREVIEW_LIMIT, renderMarkdown, setHardBreaks } from "./markdown.ts";
 import { customShortcutAction, customShortcutLabel, layoutShortcutAction, layoutShortcutLabel } from "./shortcuts.ts";
 import { PALETTE_STORAGE_KEY, resolveTheme, storedPalette, storedTheme, THEME_STORAGE_KEY, type PalettePreference, type ThemePreference } from "./theme.ts";
 import { previewLinkKind } from "./links.ts";
-import { wordCountField } from "./word-count.ts";
+import { documentWordCount, wordCountField } from "./word-count.ts";
 import { changeZoom, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, normalizeZoom, storedZoom, zoomActionForCode, ZOOM_STEP } from "./zoom.ts";
 import { commentRange, makeAnchor } from "../document/anchors.ts";
 import { SAVE_CHUNK_CHARACTERS, type Anchor, type CollaborationTarget, type Command, type DocumentMetadata, type DocumentSnapshot, type Draft, type LiveApplyResponse, type LiveApplyResult, type LiveDocumentInfo, type LiveReadStart, type ReviewThread, type SideleafRPC, type UpdateState, type WindowAction, type WorkspaceInfo, type OpenResult } from "../shared/contracts.ts";
@@ -861,8 +861,10 @@ function updatePreview() {
   previewDirty = false;
 }
 function updateWordCount() {
-  const count = view.state.field(wordCountField);
-  element("word-count").textContent = `${count.toLocaleString()} ${count === 1 ? "word" : "words"}`;
+  const { words: count, frontMatter } = documentWordCount(view.state), label = element("word-count");
+  label.textContent = `${count.toLocaleString()} ${count === 1 ? "word" : "words"}`;
+  if (frontMatter) label.title = "Words in the text. The front matter is not counted.";
+  else label.removeAttribute("title");
 }
 async function stageDraft<T>(buffer: EditorBuffer, state: EditorState, complete: (transferId: string) => Promise<T>): Promise<T> {
   const transferId = crypto.randomUUID(), id = buffer.metadata.id;
@@ -1255,6 +1257,8 @@ function applyDocumentType() {
   element("source-label").textContent = plain ? "TEXT" : "MARKDOWN";
   document.querySelector(".editor-pane")!.setAttribute("aria-label", plain ? "Text source" : "Markdown source");
   view.dispatch({ effects: [documentMode.reconfigure(documentExtensions(current.name)), ...(plain ? frontMatterUnfoldEffects(view.state) : [])] });
+  // Plain text counts its front matter; Markdown does not.
+  updateWordCount();
   setMode(markdownMode, false);
 }
 function setMode(requested: string, focusDocument = true) {

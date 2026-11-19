@@ -64,3 +64,19 @@ test("text that only looks like front matter renders as before, and a later --- 
   assert.equal(renderMarkdown("---\n# Title\n---\n"), "<hr>\n<h1 id=\"sideleaf-heading-title\" data-heading-id=\"title\">Title</h1>\n<hr>\n");
   assert.match(renderMarkdown("---\ntitle: x\n---\n\nA\n\n---\n\nB\n"), /<\/details>\n<p>A<\/p>\n<hr>\n<p>B<\/p>/);
 });
+
+test("TOML and ...-closed blocks render like --- blocks, with the block's length and long values' own length", () => {
+  const toml = renderMarkdown('+++\ntitle = "Notes & more"\n[extra]\nmood = "calm"\n+++\n\n# Body\n');
+  assert.ok(toml.startsWith('<details class="front-matter"><summary class="front-matter-line">'));
+  assert.doesNotMatch(toml, /<p>\+\+\+|<hr/);
+  assert.match(toml, /<dt>title<\/dt><dd>Notes &amp; more<\/dd><dt>extra<\/dt><dd>mood = &quot;calm&quot;<\/dd>/);
+  assert.match(toml, /2 fields<\/span><span class="front-matter-size"><span class="front-matter-dot"> · <\/span>44 characters<\/span><\/summary>/);
+  const dots = renderMarkdown("---\ntitle: x\n...\n\nText\n");
+  assert.match(dots, /<\/details>\n<p>Text<\/p>/);
+  assert.doesNotMatch(dots, /<h2|<hr|\.\.\./);
+  const long = renderMarkdown(`---\nshort: ${"a".repeat(200)}\nlong: ${"🌿".repeat(587)}\n---\n`);
+  assert.match(long, new RegExp(`<dd>${"a".repeat(200)}</dd>`));
+  assert.match(long, /🌿<span class="front-matter-length">587 characters<\/span><\/dd>/);
+  assert.match(renderMarkdown(`---\nlong: ${"b".repeat(1234)}\n---\n`), /<span class="front-matter-length">1,234 characters<\/span>/);
+  assert.equal(renderMarkdown("+++\ntitle: x\n+++\n"), "<p>+++\ntitle: x\n+++</p>\n");
+});
