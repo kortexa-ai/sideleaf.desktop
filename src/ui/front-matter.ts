@@ -196,11 +196,12 @@ export const frontMatterEditor = [
   EditorState.transactionFilter.of((tr) => {
     const matter = tr.startState.field(frontMatterField, false), head = tr.newSelection.main.head;
     if (!matter) return tr;
-    // Being one step, the block would go whole with one Backspace or Delete beside it. That key opens it instead.
+    // Being one step, the block would go whole with one Backspace or Delete beside it, and Backspace at the start of
+    // the body would join the body to the closing line. With only a caret, that key opens the block and deletes nothing.
     if (tr.isUserEvent("delete") && tr.startState.selection.ranges.every((range) => range.empty) && isFrontMatterFolded(tr.startState)) {
-      let whole = false;
-      tr.changes.iterChangedRanges((fromA, toA) => { if (fromA === 0 && toA >= matter.to) whole = true; });
-      if (whole) return { effects: unfoldEffect.of({ from: 0, to: matter.to }) };
+      let reaches = false;
+      tr.changes.iterChangedRanges((fromA) => { if (fromA <= matter.to) reaches = true; });
+      if (reaches) return { effects: unfoldEffect.of({ from: 0, to: matter.to }) };
     }
     // Closing the block with the caret inside it moves the caret to the body instead of hiding it.
     return !tr.docChanged && head > 0 && head < matter.to && tr.effects.some((effect) => effect.is(foldEffect) && effect.value.from === 0 && effect.value.to === matter.to)

@@ -101,6 +101,16 @@ test("front matter is one quiet node in the Markdown tree, folded when a documen
     assert.equal(next.doc.toString(), state.doc.toString());
     assert.equal(isFrontMatterFolded(next), false);
   }
+  // The same for the line break under the closed block: Backspace at the start of the body, or Delete at the end of the block.
+  for (const [anchor, userEvent] of [[34, "delete.backward"], [33, "delete.forward"]] as const) {
+    const next = state.update({ selection: { anchor } }).state.update({ changes: { from: 33, to: 34 }, userEvent }).state;
+    assert.equal(next.doc.toString(), state.doc.toString());
+    assert.equal(isFrontMatterFolded(next), false);
+  }
+  // A Backspace further down in the body is an ordinary edit and keeps the block closed.
+  const edited = state.update({ selection: { anchor: 36 } }).state.update({ changes: { from: 35, to: 36 }, userEvent: "delete.backward" }).state;
+  assert.equal(edited.doc.length, state.doc.length - 1);
+  assert.equal(isFrontMatterFolded(edited), true);
   const selected = state.update({ selection: { anchor: 0, head: 33 } }).state.update({ changes: { from: 0, to: 33 }, userEvent: "delete.selection" }).state;
   assert.equal(selected.doc.toString().startsWith("\nBody"), true);
 });

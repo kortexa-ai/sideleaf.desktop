@@ -296,8 +296,11 @@ body[data-platform="windows"] .cm-scroller::-webkit-scrollbar-thumb { background
 .front-matter-glance { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .front-matter-key, #preview .front-matter dt { color: var(--syntax-meta); }
 .front-matter-count { flex: none; margin-left: auto; padding-left: 4px; font-variant-numeric: tabular-nums; }
-/* Full width like the preview summary. The containment keeps the long line from widening the editor's content. */
-.cm-frontMatter { display: inline-flex; width: 100%; contain: inline-size; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); vertical-align: baseline; }
+/* Full width like the preview summary. The containment keeps the long line from widening the editor's content.
+   Without line wrapping the content can stay as wide as a long line that the fold now hides, so the line gets a
+   width of its own there. */
+.cm-frontMatter { display: inline-flex; width: min(100%, 36em); contain: inline-size; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); vertical-align: baseline; }
+.cm-lineWrapping .cm-frontMatter { width: 100%; }
 #preview .front-matter { margin: 0 0 1.4em; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); }
 #preview .front-matter summary { padding: 3px 10px; border-radius: 6px; list-style: none; }
 #preview .front-matter summary::-webkit-details-marker { display: none; }
