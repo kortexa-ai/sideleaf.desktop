@@ -1,5 +1,6 @@
 import MarkdownIt from "markdown-it";
 import { headingSlug, previewLinkKind } from "./links.ts";
+import { detectFrontMatter, escapeHTML, frontMatterGlance, frontMatterLineHTML, type FrontMatterField } from "./front-matter.ts";
 
 const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false, breaks: false });
 markdown.validateLink = (url) => previewLinkKind(url) !== null;
@@ -22,6 +23,24 @@ markdown.inline.ruler.before("html_inline", "br_tag", (state, silent) => {
   state.pos += match[0].length;
   return true;
 });
+// Front matter at the very start of the document becomes one block instead of a rule and a heading.
+markdown.block.ruler.before("table", "front_matter", (state, startLine, _endLine, silent) => {
+  if (startLine !== 0 || state.parentType !== "root" || state.bMarks[0]! + state.tShift[0]! !== 0) return false;
+  const matter = detectFrontMatter(state.src);
+  if (!matter) return false;
+  if (silent) return true;
+  let line = startLine;
+  while (line < state.lineMax && state.bMarks[line]! < matter.bodyFrom) line++;
+  const token = state.push("front_matter", "", 0);
+  token.block = true; token.map = [startLine, line]; token.meta = { fields: matter.fields };
+  state.line = line;
+  return true;
+});
+markdown.renderer.rules.front_matter = (tokens, index, _options, env) => {
+  const { fields } = tokens[index]!.meta as { fields: FrontMatterField[] };
+  const rows = fields.map(({ key, value }) => `<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(value)}</dd>`).join("");
+  return `<details class="front-matter"${env!.frontMatterOpen ? " open" : ""}><summary class="front-matter-line">${frontMatterLineHTML(frontMatterGlance(fields))}</summary><dl>${rows}</dl></details>\n`;
+};
 markdown.renderer.rules.image = (tokens, index) => {
   const token = tokens[index]!;
   const alt = markdown.utils.escapeHtml(token.content || "Image");
@@ -32,4 +51,7 @@ export const PREVIEW_LIMIT = 200_000;
 // The renderer reads options.breaks on every render, so toggling this takes
 // effect on the next preview without rebuilding the parser.
 export function setHardBreaks(breaks: boolean): void { markdown.options.breaks = breaks; }
-export function renderMarkdown(source: string): string { return markdown.render(source.slice(0, PREVIEW_LIMIT), { headingIds: new Set<string>() }); }
+// The front matter is closed unless the editor shows it open.
+export function renderMarkdown(source: string, options: { frontMatterOpen?: boolean } = {}): string {
+  return markdown.render(source.slice(0, PREVIEW_LIMIT), { headingIds: new Set<string>(), frontMatterOpen: !!options.frontMatterOpen });
+}

@@ -42,3 +42,25 @@ test("bare <br> tags break lines, including in table cells, while other HTML sta
   assert.match(escaped, /&lt;b&gt;x&lt;\/b&gt; &lt;br class=&quot;x&quot;&gt; &lt;script&gt;/);
   assert.match(escaped, /<code>&lt;br&gt;<\/code>/);
 });
+
+test("front matter renders as one closed block with escaped fields, not a rule and a heading", () => {
+  const note = renderMarkdown("---\ntype: note\ncreated: 2026-11-17T23:42:13Z\ntitle: Tom & Jerry <script>alert(1)</script>\nid: 0b1e2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d\n---\n\n# Body\n\nText.\n");
+  assert.ok(note.startsWith('<details class="front-matter"><summary class="front-matter-line">'));
+  assert.doesNotMatch(note, /<hr|<h2|<script/);
+  assert.equal(note.match(/data-heading-id/g)!.length, 1);
+  assert.match(note, /<span class="front-matter-count">4 fields<\/span>/);
+  assert.match(note, /<dt>title<\/dt><dd>Tom &amp; Jerry &lt;script&gt;alert\(1\)&lt;\/script&gt;<\/dd>/);
+  assert.match(note, /<\/details>\n<h1 id="sideleaf-heading-body" data-heading-id="body">Body<\/h1>/);
+  assert.match(renderMarkdown("---\ntitle: x\n---", { frontMatterOpen: true }), /^<details class="front-matter" open>/);
+  const skill = renderMarkdown(`---\nname: pdf-forms\ndescription: ${"Fill & check forms. ".repeat(30)}\nmetadata:\n  version: 2\n---\n`);
+  assert.match(skill, /<dt>metadata<\/dt><dd>version: 2<\/dd><\/dl><\/details>\n$/);
+  assert.match(skill, /<span class="front-matter-key">name<\/span> pdf-forms/);
+});
+
+test("text that only looks like front matter renders as before, and a later --- stays a rule", () => {
+  for (const source of ["---\n# Title\n---\n", "---\ntitle: x\nno closing\n", "\n---\ntitle: x\n---\n", "Intro\n\n---\ntitle: x\n---\n", "> ---\n> title: x\n> ---\n"]) {
+    assert.doesNotMatch(renderMarkdown(source), /front-matter/, source);
+  }
+  assert.equal(renderMarkdown("---\n# Title\n---\n"), "<hr>\n<h1 id=\"sideleaf-heading-title\" data-heading-id=\"title\">Title</h1>\n<hr>\n");
+  assert.match(renderMarkdown("---\ntitle: x\n---\n\nA\n\n---\n\nB\n"), /<\/details>\n<p>A<\/p>\n<hr>\n<p>B<\/p>/);
+});

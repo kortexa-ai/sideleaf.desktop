@@ -22,6 +22,7 @@ import { APP_VERSION } from "../shared/version.ts";
 import { documentViewMode, isPlainText, REVIEW_UNSUPPORTED, supportsReview, type ViewMode } from "../shared/document-type.ts";
 import { documentExtensions, documentMode } from "./document-mode.ts";
 import { formattingShortcuts } from "./formatting.ts";
+import { frontMatterUnfoldEffects, isFrontMatterFolded, setFrontMatterFolded, withFrontMatterFolded } from "./front-matter.ts";
 import { CollaborationError, evaluateApply, focusDraft, liveRevision, threadRevision, threadSemanticValue, type SuggestionOperation, type ThreadOperation } from "../collaboration/operations.ts";
 import { ActivityJournal, activityForOperation, diffDraftActivity, recordReloadActivity } from "../collaboration/activity.ts";
 
@@ -561,7 +562,7 @@ applyZoom(documentZoom, false);
 rpc.send.diagnostic({ event: "editor-created", message: "CodeMirror initialized" });
 
 function createEditorState(text: string, threads: Draft["threads"] = [], name = "Untitled.md") {
-  return EditorState.create({
+  return withFrontMatterFolded(EditorState.create({
     doc: text,
     extensions: [
       basicSetup, documentMode.of(documentExtensions(name)), syntaxHighlighting(sideleafHighlight), commentField.init(() => threads), commentHistory, agentHighlightField, wordCountField,
@@ -581,6 +582,12 @@ function createEditorState(text: string, threads: Draft["threads"] = [], name = 
           clearTimeout(previewTimer); previewTimer = setTimeout(updatePreview, 180);
         }
         if (update.selectionSet || update.docChanged) updateSelection();
+        // The editor's fold is the front matter's one state; the preview follows it without a full render.
+        const folded = isFrontMatterFolded(update.state);
+        if (folded !== isFrontMatterFolded(update.startState)) {
+          const details = element("preview").querySelector<HTMLDetailsElement>("details.front-matter");
+          if (details) details.open = !folded;
+        }
       }),
       EditorView.theme({
         "&": { height: "100%", fontSize: "calc(14px * var(--document-zoom))", backgroundColor: "var(--paper)", color: "var(--ink)" },
@@ -600,7 +607,7 @@ function createEditorState(text: string, threads: Draft["threads"] = [], name = 
         ".cm-placeholder": { color: "var(--faint)" },
       }),
     ],
-  });
+  }));
 }
 
 function commentsJSON() { return JSON.stringify(view.state.field(commentField)); }
@@ -849,7 +856,7 @@ function updatePreview() {
   const preview = element("preview"), empty = !source.trim();
   preview.parentElement!.classList.toggle("is-empty", empty);
   preview.classList.toggle("is-empty", empty);
-  preview.innerHTML = empty ? '<div class="empty-reader"><h1>Make yourself a little space.</h1><img src="./assets/empty-state.png" alt="A young leafy plant growing among quiet hills"><p class="growth-title">Good writing grows here.</p><p class="growth-copy">Ideas take root in quiet spaces.</p></div>' : renderMarkdown(source);
+  preview.innerHTML = empty ? '<div class="empty-reader"><h1>Make yourself a little space.</h1><img src="./assets/empty-state.png" alt="A young leafy plant growing among quiet hills"><p class="growth-title">Good writing grows here.</p><p class="growth-copy">Ideas take root in quiet spaces.</p></div>' : renderMarkdown(source, { frontMatterOpen: !isFrontMatterFolded(view.state) });
   element("preview-status").textContent = view.state.doc.length > PREVIEW_LIMIT ? "First 200,000 characters" : "Live";
   previewDirty = false;
 }
@@ -883,7 +890,7 @@ async function saveBuffer(buffer: EditorBuffer, saveAs = false): Promise<boolean
       lastScratchJSON = null; lastScratchGeneration = -1;
       element("conflict").hidden = true; element("notice").hidden = true; refreshDocumentName(); updateDirty(true);
     } else {
-      buffer.state = buffer.state.update({ effects: documentMode.reconfigure(documentExtensions(result.name)) }).state;
+      buffer.state = buffer.state.update({ effects: [documentMode.reconfigure(documentExtensions(result.name)), ...(isPlainText(result.name) ? frontMatterUnfoldEffects(buffer.state) : [])] }).state;
       rpc.send.dirty({ id, dirty: buffer.dirty || buffer.hasCommentDraft });
     }
     workspaceInfo = await rpc.request.workspace(); folderTree.setWorkspace(workspaceInfo);
@@ -1247,7 +1254,7 @@ function applyDocumentType() {
   element("setting-breaks-row").hidden = plain;
   element("source-label").textContent = plain ? "TEXT" : "MARKDOWN";
   document.querySelector(".editor-pane")!.setAttribute("aria-label", plain ? "Text source" : "Markdown source");
-  view.dispatch({ effects: documentMode.reconfigure(documentExtensions(current.name)) });
+  view.dispatch({ effects: [documentMode.reconfigure(documentExtensions(current.name)), ...(plain ? frontMatterUnfoldEffects(view.state) : [])] });
   setMode(markdownMode, false);
 }
 function setMode(requested: string, focusDocument = true) {
@@ -1312,6 +1319,11 @@ function revealPreviewFragment(fragment: string) {
   if (heading) heading.scrollIntoView({ block: "start" });
   else notice(`Heading “${fragment}” was not found in the preview.`);
 }
+// The toggle event does not bubble. A toggle that only follows the editor's state changes nothing.
+element("preview").addEventListener("toggle", (event) => {
+  const details = event.target;
+  if (details instanceof HTMLDetailsElement && details.classList.contains("front-matter")) setFrontMatterFolded(view, !details.open);
+}, true);
 element("preview").onclick = (event) => {
   const link = (event.target as HTMLElement).closest("a"); if (!link) return;
   event.preventDefault(); const url = link.getAttribute("href");

@@ -287,6 +287,27 @@ body[data-platform="windows"] .cm-scroller::-webkit-scrollbar-thumb { background
 #preview table { border-collapse: collapse; font-size: .9em; width: 100%; }
 #preview td, #preview th { border: 1px solid var(--border); padding: 7px 11px; text-align: left; }
 #preview th { background: var(--panel); }
+/* Front matter is one quiet line in both panes: the same markup, size and colors in the editor placeholder and in
+   the preview summary. Opened in the preview, it is a two-column list that wraps instead of scrolling. */
+.front-matter-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--muted); font: calc(12px * var(--document-zoom))/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; cursor: pointer; }
+.front-matter-line:hover { background: var(--hover); }
+.front-matter-chevron { flex: none; width: .7em; text-align: center; }
+.front-matter-label { flex: none; font-size: .8em; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+.front-matter-glance { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.front-matter-key, #preview .front-matter dt { color: var(--syntax-meta); }
+.front-matter-count { flex: none; margin-left: auto; padding-left: 4px; font-variant-numeric: tabular-nums; }
+/* Full width like the preview summary. The containment keeps the long line from widening the editor's content. */
+.cm-frontMatter { display: inline-flex; width: 100%; contain: inline-size; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); vertical-align: baseline; }
+#preview .front-matter { margin: 0 0 1.4em; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); }
+#preview .front-matter summary { padding: 3px 10px; border-radius: 6px; list-style: none; }
+#preview .front-matter summary::-webkit-details-marker { display: none; }
+#preview .front-matter summary:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+#preview .front-matter[open] summary { border-radius: 6px 6px 0 0; }
+#preview .front-matter[open] .front-matter-chevron { transform: rotate(90deg); }
+#preview .front-matter[open] .front-matter-glance { visibility: hidden; }
+#preview .front-matter dl { display: grid; grid-template-columns: fit-content(32%) minmax(0, 1fr); gap: 4px 18px; margin: 0; padding: 8px 10px 10px; border-top: 1px solid var(--border); font: calc(13px * var(--document-zoom))/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+#preview .front-matter dt { overflow-wrap: anywhere; }
+#preview .front-matter dd { margin: 0; min-width: 0; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 .image-placeholder { display: block; font: 13px -apple-system, "Segoe UI", sans-serif; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; padding: 16px; }
 .empty-reader { min-height: 100%; margin: 0 auto; max-width: 520px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--muted); }
 #preview .empty-reader h1 { flex: none; font-size: clamp(21px, 3vh, 26px); font-weight: 400; color: var(--empty-title); margin: 0 auto 6px; max-width: 330px; }
